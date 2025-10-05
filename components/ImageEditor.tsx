@@ -63,6 +63,8 @@ interface ImageEditorProps {
   setVideoFile: (file: File | null) => void;
   setVideoSrc: (src: string | null) => void;
   setThumbnail: (thumb: string | null) => void;
+  preloadedImage?: HTMLImageElement | null; // New prop for preloaded images
+  preloadedFile?: File | null; // New prop for preloaded file
 }
 
 const ImageEditor: React.FC<ImageEditorProps> = ({ 
@@ -77,7 +79,9 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
   isCameraOpen,
   setVideoFile,
   setVideoSrc,
-  setThumbnail
+  setThumbnail,
+  preloadedImage,
+  preloadedFile
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -147,6 +151,21 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
 
   const [videoFile, setVideoFile2] = useState<File | null>(null);
   const [thumbnail, setThumbnail2] = useState<string | null>(null);
+
+  // Load preloaded image if provided
+  useEffect(() => {
+    if (preloadedImage && preloadedFile) {
+      console.log('📥 Setting preloaded image in ImageEditor');
+      setImage(preloadedImage);
+      setEditedFile(preloadedFile);
+      if (onImageChange) {
+        onImageChange(preloadedImage);
+      }
+      if (onEditedFile) {
+        onEditedFile(preloadedFile);
+      }
+    }
+  }, [preloadedImage, preloadedFile, onImageChange, onEditedFile]);
 
 
 
@@ -262,39 +281,6 @@ const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
   // Reset so same file can be chosen again
   e.target.value = "";
 };
-
-
-
-const canvas = document.createElement("canvas");
-canvas.toBlob(async (blob) => {
-  if (!blob) return;
-  // you can safely use blob here
-}, "image/png");
-
-async function uploadToR2(file: File): Promise<string> {
-  const formData = new FormData();
-  formData.append("file", file);
-
-  const res = await fetch("/api/r2api", {
-    method: "POST",
-    body: formData,
-  });
-
-  if (!res.ok) throw new Error("Failed to upload thumbnail");
-  const data = await res.json();
-  return data.url; // <- your backend should return the public R2 URL
-}
-
-canvas.toBlob(async (blob) => {
-  if (blob) {
-    const thumbnailFile = new File([blob], "thumbnail.png", { type: "image/png" });
-
-    // ⬆️ Upload this `thumbnailFile` to R2 (same as you do for videoFile)
-      const uploadedThumbnailUrl = await uploadToR2(thumbnailFile);
-
-    setThumbnail(uploadedThumbnailUrl);  // ✅ Now it’s a proper HTTPS URL
-  }
-}, "image/png");
 
 
 

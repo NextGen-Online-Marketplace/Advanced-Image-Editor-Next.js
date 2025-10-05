@@ -1591,3 +1591,86 @@
   border-color: #D1D5DB;
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
+
+/* ========================================
+   INFORMATION SECTION RESPONSIVE STYLES
+   ======================================== */
+
+/* Information section grid - 3 columns on desktop */
+.informationGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem 1.5rem;
+}
+
+/* Information grid item */
+.informationGridItem {
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+/* Images in information section */
+.informationImages {
+  margin-top: 0.5rem;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.informationImage {
+  cursor: zoom-in;
+  max-width: 150px;
+  max-height: 150px;
+  object-fit: cover;
+  border-radius: 0.25rem;
+  border: 1px solid #cbd5e1;
+}
+
+/* Mobile responsive breakpoints */
+@media (max-width: 768px) {
+  /* Stack information grid to single column on mobile */
+  .informationGrid {
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+  }
+  
+  /* Increase font size slightly for better mobile readability */
+  .informationGridItem {
+    font-size: 0.9375rem;
+  }
+  
+  /* Make images full width on mobile for better annotation visibility */
+  .informationImages {
+    display: block;
+  }
+  
+  .informationImage {
+    max-width: 100%;
+    width: 100%;
+    max-height: 300px;
+    margin-bottom: 0.5rem;
+  }
+  
+  /* Add more spacing between items on mobile */
+  .informationGrid > * {
+    padding-bottom: 1rem;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  
+  .informationGrid > *:last-child {
+    border-bottom: none;
+  }
+}
+
+/* Tablet breakpoint - 2 columns */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .informationGrid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+  }
+  
+  .informationImage {
+    max-width: 200px;
+    max-height: 200px;
+  }
+}

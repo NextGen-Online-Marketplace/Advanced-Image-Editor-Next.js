@@ -9,6 +9,9 @@ export default function ImageEditorPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const selectedInspectionId = searchParams.get('inspectionId') || '';
+  const preloadImageUrl = searchParams.get('imageUrl'); // Get existing image URL
+  const returnTo = searchParams.get('returnTo'); // Where to return after editing
+  const checklistId = searchParams.get('checklistId'); // For information block images
   
   const [description, setDescription] = useState('');
   const [activeMode, setActiveMode] = useState<'none' | 'crop' | 'arrow' | 'circle' | 'square'>('none');
@@ -230,6 +233,53 @@ export default function ImageEditorPage() {
     };
   }, []);
 
+  // Load existing image from URL if provided
+  useEffect(() => {
+    if (preloadImageUrl) {
+      console.log('🖼️ Loading existing image from URL:', preloadImageUrl);
+      
+      // Use Next.js API route to proxy the image to avoid CORS
+      const proxyUrl = `/api/r2api?imageUrl=${encodeURIComponent(preloadImageUrl)}`;
+      
+      fetch(proxyUrl)
+        .then(res => {
+          console.log('Fetch response status:', res.status);
+          if (!res.ok) {
+            throw new Error(`Failed to fetch image: ${res.status} ${res.statusText}`);
+          }
+          return res.blob();
+        })
+        .then(blob => {
+          console.log('✅ Image fetched as blob, size:', blob.size, 'type:', blob.type);
+          
+          // Create object URL from blob
+          const objectUrl = URL.createObjectURL(blob);
+          console.log('Created object URL:', objectUrl);
+          
+          // Create image element
+          const img = new Image();
+          img.onload = () => {
+            console.log('✅ Image loaded successfully, dimensions:', img.width, 'x', img.height);
+            setCurrentImage(img);
+            
+            // Convert blob to File object for the editor
+            const file = new File([blob], 'image.jpg', { type: blob.type || 'image/jpeg' });
+            setEditedFile(file);
+            console.log('✅ Image converted to File object');
+          };
+          img.onerror = (err) => {
+            console.error('❌ Error loading image from object URL:', err);
+            alert('Failed to load image from object URL. Please try again.');
+          };
+          img.src = objectUrl;
+        })
+        .catch(err => {
+          console.error('❌ Error fetching image:', err);
+          alert(`Failed to load image: ${err.message}. Please try again.`);
+        });
+    }
+  }, [preloadImageUrl]);
+
 
 
   const handleActionClick = (mode: 'none' | 'crop' | 'arrow' | 'circle' | 'square') => {
@@ -288,6 +338,71 @@ export default function ImageEditorPage() {
   };
 
   const handleSubmit = async () => {
+    // Special handling for information block annotation
+    if (returnTo && checklistId) {
+      console.log('📤 Returning annotated image to information block');
+      
+      if (!editedFile) {
+        alert('Please edit the image before saving.');
+        return;
+      }
+
+      setIsSubmitting(true);
+      setSubmitStatus('Saving annotated image...');
+
+      try {
+        // Upload the annotated image to R2
+        const formData = new FormData();
+        formData.append('file', editedFile);
+
+        const uploadRes = await fetch('/api/r2api', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!uploadRes.ok) {
+          throw new Error('Failed to upload annotated image');
+        }
+
+        const uploadData = await uploadRes.json();
+        console.log('✅ Annotated image uploaded:', uploadData.url);
+
+        // Store the annotated image URL in localStorage for the modal to pick up
+        // Include inspectionId so main page can reopen the correct modal
+        const urlParams = new URLSearchParams(window.location.search);
+        const inspectionIdFromUrl = urlParams.get('inspectionId');
+        
+        const annotationData = {
+          checklistId,
+          imageUrl: uploadData.url,
+          annotations: 'annotated', // Mark as annotated
+          inspectionId: inspectionIdFromUrl, // Store inspection ID for modal reopening
+          timestamp: Date.now()
+        };
+        localStorage.setItem('pendingAnnotation', JSON.stringify(annotationData));
+
+        setSubmitStatus('Done! Returning...');
+        
+        // Return to the calling page
+        setTimeout(() => {
+          window.close(); // Close the tab
+          // If window.close() doesn't work (popup blocker), redirect
+          if (!window.closed) {
+            window.location.href = returnTo;
+          }
+        }, 500);
+
+      } catch (error) {
+        console.error('❌ Error saving annotated image:', error);
+        alert('Failed to save annotated image. Please try again.');
+        setIsSubmitting(false);
+        setSubmitStatus('');
+      }
+      
+      return; // Exit early for information block flow
+    }
+
+    // Original defect analysis flow below
     // if ((!currentImage || !editedFile) && !videoFile) {
     //   alert('Please upload and edit an image before submitting.');
     //   return;
@@ -497,6 +612,36 @@ export default function ImageEditorPage() {
           <i className="fas fa-arrow-left"></i>
         </button>
 
+        {/* Done button for annotation mode */}
+        {returnTo && checklistId && (
+          <button 
+            className="action-btn done-btn"
+            onClick={handleSubmit}
+            disabled={isSubmitting}
+            style={{
+              backgroundColor: '#10b981',
+              color: 'white',
+              padding: '8px 20px',
+              fontWeight: '600',
+              fontSize: '14px',
+              marginLeft: 'auto',
+              marginRight: '10px'
+            }}
+          >
+            {isSubmitting ? (
+              <>
+                <i className="fas fa-spinner fa-spin" style={{ marginRight: '8px' }}></i>
+                Saving...
+              </>
+            ) : (
+              <>
+                <i className="fas fa-check" style={{ marginRight: '8px' }}></i>
+                Done
+              </>
+            )}
+          </button>
+        )}
+
         <button className="action-btn undo-btn" onClick={handleUndo}>
           <i className="fas fa-undo"></i>
         </button>
@@ -647,6 +792,8 @@ export default function ImageEditorPage() {
           setVideoFile={setVideoFile}
           setThumbnail={setThumbnail}
           setVideoSrc={setVideoSrc}
+          preloadedImage={currentImage}
+          preloadedFile={editedFile}
         />
       </div>
 
@@ -659,19 +806,21 @@ export default function ImageEditorPage() {
         </div>
       </div> */}
 
-       {/* Description Box */}
-       <div className="description-box">
-         <textarea
-           placeholder="Describe your edited image here..."
-           value={description}
-           onChange={(e) => setDescription(e.target.value)}
-         />
-         
-       </div>
+       {/* Description Box - Only show for defect workflow */}
+       {!returnTo && !checklistId && (
+         <div className="description-box">
+           <textarea
+             placeholder="Describe your edited image here..."
+             value={description}
+             onChange={(e) => setDescription(e.target.value)}
+           />
+         </div>
+       )}
 
-      {/* Submit Section */}
-      <div className="submit-section">
-        <div className="submit-controls">
+      {/* Submit Section - Only show for defect workflow */}
+      {!returnTo && !checklistId && (
+        <div className="submit-section">
+          <div className="submit-controls">
 
           {/* Location Button with Dropdown */}
           <div className="location-button-container">
@@ -882,6 +1031,7 @@ export default function ImageEditorPage() {
           </button>
         </div>
       </div>
+      )}
     </div>
   );
 }

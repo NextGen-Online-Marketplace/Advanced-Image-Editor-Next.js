@@ -68,6 +68,61 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
     if (isOpen && inspectionId) {
       fetchDefects();
       fetchInspectionDetails();
+      
+      // Check for pending annotation and switch to Information Sections tab
+      const checkForPendingAnnotation = () => {
+        const pending = localStorage.getItem('pendingAnnotation');
+        if (pending) {
+          try {
+            const annotation = JSON.parse(pending);
+            if (annotation.inspectionId === inspectionId) {
+              console.log('🔄 Switching to Information Sections tab for pending annotation');
+              setActiveTab('information');
+              // Show success notification immediately - don't wait for processing
+              alert('✅ Image saved successfully!');
+            }
+          } catch (e) {
+            console.error('Error parsing pending annotation:', e);
+          }
+        }
+      };
+      
+      // Check immediately
+      checkForPendingAnnotation();
+      
+      // Also poll for 3 seconds to handle race condition where image-editor saves after modal opens
+      let pollCount = 0;
+      const maxPolls = 6; // 3 seconds (6 checks * 500ms)
+      let hasAlerted = false; // Prevent multiple alerts
+      
+      const pollInterval = setInterval(() => {
+        pollCount++;
+        if (pollCount >= maxPolls) {
+          clearInterval(pollInterval);
+          return;
+        }
+        
+        const pending = localStorage.getItem('pendingAnnotation');
+        if (pending && !hasAlerted) {
+          try {
+            const annotation = JSON.parse(pending);
+            if (annotation.inspectionId === inspectionId) {
+              console.log('📡 Polling detected pending annotation');
+              setActiveTab('information');
+              alert('✅ Image saved successfully!');
+              hasAlerted = true;
+              clearInterval(pollInterval);
+            }
+          } catch (e) {
+            console.error('Error in polling:', e);
+          }
+        }
+      }, 500);
+      
+      return () => clearInterval(pollInterval);
+    } else if (!isOpen) {
+      // Reset tab to defects when modal closes
+      setActiveTab('defects');
     }
   }, [isOpen, inspectionId]);
 

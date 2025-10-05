@@ -4,6 +4,8 @@ import { ISection } from './Section';
 export interface ISectionChecklist extends Document {
   section_id: Types.ObjectId | ISection;
   text: string;
+  comment?: string;
+  type: 'status' | 'information';
   order_index: number;
   createdAt: Date;
   updatedAt: Date;
@@ -13,6 +15,8 @@ const SectionChecklistSchema = new Schema<ISectionChecklist>(
   {
     section_id: { type: Schema.Types.ObjectId, ref: 'Section', required: true, index: true },
     text: { type: String, required: true, trim: true },
+    comment: { type: String, trim: true },
+    type: { type: String, enum: ['status', 'information'], required: true, default: 'information' },
     order_index: { type: Number, required: true },
   },
   { timestamps: true }

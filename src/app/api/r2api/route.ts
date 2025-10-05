@@ -1,6 +1,48 @@
 import { NextResponse } from "next/server";
 import { uploadToR2 } from "@/lib/r2";
 
+// GET handler to proxy image fetching (avoid CORS issues)
+export async function GET(req: Request) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const imageUrl = searchParams.get('imageUrl');
+
+    if (!imageUrl) {
+      return NextResponse.json({ error: "No imageUrl provided" }, { status: 400 });
+    }
+
+    console.log('🔄 Proxying image fetch for:', imageUrl);
+
+    // Fetch the image from R2
+    const response = await fetch(imageUrl);
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
+    }
+
+    // Get the image as a blob
+    const blob = await response.blob();
+    const arrayBuffer = await blob.arrayBuffer();
+
+    console.log('✅ Image fetched successfully, size:', arrayBuffer.byteLength);
+
+    // Return the image with proper headers
+    return new NextResponse(arrayBuffer, {
+      status: 200,
+      headers: {
+        'Content-Type': blob.type || 'image/jpeg',
+        'Cache-Control': 'public, max-age=31536000',
+      },
+    });
+  } catch (error: any) {
+    console.error("❌ Image proxy failed:", error);
+    return NextResponse.json(
+      { error: `Failed to fetch image: ${error.message}` },
+      { status: 500 }
+    );
+  }
+}
+
 export async function POST(req: Request) {
   try {
     // Check if required environment variables are set

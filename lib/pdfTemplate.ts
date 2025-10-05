@@ -12,6 +12,33 @@ export type DefectItem = {
   color?: string;
 };
 
+export type InformationBlockImage = {
+  url: string;
+  annotations?: string;
+  checklist_id?: string;
+};
+
+export type InformationBlockItem = {
+  _id?: string;
+  text: string;
+  comment?: string;
+  type: 'status' | 'information';
+  order_index?: number;
+};
+
+export type InformationBlock = {
+  _id: string;
+  inspection_id: string;
+  section_id: {
+    _id: string;
+    name: string;
+    order_index: number;
+  } | string;
+  selected_checklist_ids: InformationBlockItem[];
+  custom_text?: string;
+  images: InformationBlockImage[];
+};
+
 export type ReportMeta = {
   title?: string;
   subtitle?: string;
@@ -22,6 +49,7 @@ export type ReportMeta = {
   date?: string;
   startNumber?: number; // base section number, defaults to 1
   reportType?: 'full' | 'summary';
+  informationBlocks?: InformationBlock[]; // Information sections to display before defects
 };
 
 function escapeHtml(str: string = ""): string {
@@ -178,6 +206,83 @@ function splitDefectText(raw?: string): DefectTextParts {
   return { title: normalized, body: "", paragraphs: [] };
 }
 
+// Generate HTML for information section block
+function generateInformationSectionHTML(block: InformationBlock): string {
+  const allItems = block.selected_checklist_ids || [];
+  const hasContent = allItems.length > 0 || block.custom_text;
+  
+  if (!hasContent) return '';
+  
+  // Generate grid items HTML
+  const gridItemsHtml = allItems.map((item: InformationBlockItem) => {
+    const isStatus = item.type === 'status';
+    const itemId = item._id || '';
+    // Get images associated with this checklist item
+    const itemImages = (block.images || []).filter(img => img.checklist_id === itemId);
+    
+    if (isStatus) {
+      // Status items: ONLY "Label: Value" format - NO comments
+      const parts = (item.text || '').split(':');
+      const label = parts[0]?.trim() || '';
+      const value = parts.slice(1).join(':').trim() || '';
+      
+      return `
+        <div class="info-grid-item">
+          <div>
+            <span style="font-weight: 700; color: #000000;">${escapeHtml(label)}:</span>${value ? `
+            <span style="margin-left: 0.25rem; font-weight: 400; color: #6b7280;">
+              ${escapeHtml(value)}\n            </span>` : ''}
+          </div>
+          ${itemImages.length > 0 ? `
+          <div class="info-images">
+            ${itemImages.map(img => `
+            <div style="position: relative;">
+              <img src="${escapeHtml(img.url)}" alt="Item image" class="info-image" />
+            </div>`).join('')}
+          </div>` : ''}
+        </div>`;
+    } else {
+      // Information items: Bold title + indented explanation
+      return `
+        <div class="info-grid-item">
+          <div style="font-weight: 700; color: #000000; ${item.comment ? 'margin-bottom: 0.375rem;' : ''}">
+            ${escapeHtml(item.text || '')}
+          </div>
+          ${item.comment ? `
+          <div style="margin-left: 0.75rem; font-size: 0.8125rem; color: #4a5568; line-height: 1.4;">
+            ${escapeHtml(item.comment)}
+          </div>` : ''}
+          ${itemImages.length > 0 ? `
+          <div class="info-images">
+            ${itemImages.map(img => `
+            <div style="position: relative;">
+              <img src="${escapeHtml(img.url)}" alt="Item image" class="info-image" />
+            </div>`).join('')}
+          </div>` : ''}
+        </div>`;
+    }
+  }).join('');
+  
+  return `
+  <div class="information-section">
+    <!-- Header -->
+    <div class="info-header">
+      <h3 class="info-heading">INFORMATION</h3>
+    </div>
+    
+    ${allItems.length > 0 ? `
+    <!-- 3-Column Grid -->\n    <div class="info-grid"${block.custom_text ? ' style="margin-bottom: 1.5rem;"' : ''}>
+      ${gridItemsHtml}
+    </div>` : ''}
+    
+    ${block.custom_text ? `
+    <!-- Custom Notes -->
+    <div class="info-custom-notes"${allItems.length > 0 ? ' style="border-top: 1px solid #e2e8f0; padding-top: 1rem;"' : ''}>\n      <div class="info-custom-label">Custom Notes</div>
+      <div class="info-custom-text">${escapeHtml(block.custom_text).replace(/\n/g, '<br>')}</div>
+    </div>` : ''}
+  </div>`;
+}
+
 export function generateInspectionReportHTML(defects: DefectItem[], meta: ReportMeta = {}): string {
   const {
     title = "Inspection Report",
@@ -187,6 +292,7 @@ export function generateInspectionReportHTML(defects: DefectItem[], meta: Report
     date = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }),
     startNumber = 1,
     reportType = 'full',
+    informationBlocks = [],
   } = meta;
 
   // Sort by section then subsection for stable ordering
@@ -198,7 +304,7 @@ export function generateInspectionReportHTML(defects: DefectItem[], meta: Report
     return 0;
   });
 
-  let currentMain = startNumber - 1; // will increment on first new section
+  let currentMain = startNumber; // will increment on first new section to match web logic
   let lastSection: string | null = null;
   let subCounter = 0;
 
@@ -238,6 +344,23 @@ export function generateInspectionReportHTML(defects: DefectItem[], meta: Report
       const sectionHeading = `Section ${currentMain} - ${escapeHtml(d.section)}`;
       const subsectionHeading = `${number} - ${escapeHtml(d.subsection)}`;
       
+      // Find matching information block for this section (only when section changes)
+      let informationHtml = '';
+      if (isNewSection && informationBlocks.length > 0) {
+        const matchingBlock = informationBlocks.find(block => {
+          const blockSection = typeof block.section_id === 'object' ? block.section_id?.name : null;
+          if (!blockSection || !d.section) return false;
+          // Match by removing leading numbers like "9 - " from both
+          const cleanSection = d.section.replace(/^\d+\s*-\s*/, '');
+          const cleanBlock = blockSection.replace(/^\d+\s*-\s*/, '');
+          return cleanBlock === cleanSection;
+        });
+        
+        if (matchingBlock) {
+          informationHtml = generateInformationSectionHTML(matchingBlock);
+        }
+      }
+      
       // Only show section heading when section changes
       const sectionHeadingHtml = isNewSection ? `
           <div class="section-heading" style="--selected-color: #111827;">
@@ -247,9 +370,10 @@ export function generateInspectionReportHTML(defects: DefectItem[], meta: Report
           </div>` : '';
 
       return `
+        ${sectionHeadingHtml}
+        ${informationHtml}
         <section class="report-section" style="--selected-color: ${selectedColor};">
-          ${sectionHeadingHtml}
-          <div class="section-heading" style="--selected-color: ${selectedColor}; margin-top: ${isNewSection ? '0.75rem' : '0.5rem'};">
+          <div class="section-heading" style="--selected-color: ${selectedColor}; margin-top: ${isNewSection && !informationHtml ? '0.75rem' : (isNewSection ? '0.5rem' : '0.5rem')};">
             <h2 class="section-heading-text">
               ${subsectionHeading}
               <span class="importance-badge" style="background-color: ${selectedColor};">${importanceLabel}</span>
@@ -328,35 +452,38 @@ export function generateInspectionReportHTML(defects: DefectItem[], meta: Report
       </tr>
     `;
     return acc;
-  }, { html: "", current: startNumber - 1, last: null, sub: 0 }).html;
+  }, { html: "", current: startNumber, last: null, sub: 0 }).html; // match web logic
 
   const totalAll = sorted.reduce((sum, d) => sum + (d.material_total_cost || 0) + (d.labor_rate || 0) * (d.hours_required || 0), 0);
 
   // Build non-priced summary rows (No., Section, Defect) to place after Section 2
-  const summaryRowsSimple = sorted.reduce<{
-    html: string;
-    current: number;
-    last: string | null;
-    sub: number;
-  }>((acc, d) => {
-    if (d.section !== acc.last) {
-      acc.current += 1;
-      acc.sub = 1;
-      acc.last = d.section;
+  // Reset counters to match the logic used in sectionsHtml
+  let summaryCurrentMain = startNumber; // match web logic - will increment on first section
+  let summaryLastSection: string | null = null;
+  let summarySubCounter = 0;
+  
+  const summaryRowsSimple = sorted.map((d) => {
+    const isNewSection = d.section !== summaryLastSection;
+    
+    if (isNewSection) {
+      summaryCurrentMain += 1;
+      summarySubCounter = 1;
+      summaryLastSection = d.section;
     } else {
-      acc.sub += 1;
+      summarySubCounter += 1;
     }
-    const numbering = `${acc.current}.${acc.sub}`;
-  const parts = splitDefectText(d.defect_description || "");
-  const defFirstSentence = parts.title || (d.defect_description || "").split(".")[0];
-    acc.html += `
+    
+    const numbering = `${summaryCurrentMain}.${summarySubCounter}`;
+    const parts = splitDefectText(d.defect_description || "");
+    const defFirstSentence = parts.title || (d.defect_description || "").split(".")[0];
+    
+    return `
       <tr>
         <td>${escapeHtml(numbering)}</td>
         <td>${escapeHtml(d.section)} - ${escapeHtml(d.subsection)}</td>
         <td>${escapeHtml(defFirstSentence)}</td>
       </tr>`;
-    return acc;
-  }, { html: "", current: startNumber - 1, last: null, sub: 0 }).html;
+  }).join("");
 
   // Ensure a default logo if not provided
   const effectiveLogo = logoUrl || '/AGI_Logo.png';
@@ -550,7 +677,13 @@ export function generateInspectionReportHTML(defects: DefectItem[], meta: Report
   .cover--section1 ul { margin: 10px 0 14px 18px; }
   .cover--section1 hr { margin: 14px 0; }
 
-    .section-heading { margin: 16px 0 8px; padding-bottom: 6px; border-bottom: 2px solid var(--selected-color, #d63636); }
+    .section-heading { 
+      margin: 16px 0 8px; 
+      padding-bottom: 6px; 
+      border-bottom: 2px solid var(--selected-color, #d63636); 
+      page-break-after: avoid; 
+      break-after: avoid;
+    }
     .section-heading-text { font-size: 16px; color: var(--selected-color, #d63636); font-weight: 700; }
 
     .content-grid { display: grid; grid-template-columns: 1fr 2fr; gap: 12px; }
@@ -569,6 +702,108 @@ export function generateInspectionReportHTML(defects: DefectItem[], meta: Report
 
     .cost-highlight { background: #f8fafc; border: 1px solid var(--selected-color, #d63636); padding: 8px; border-radius: 6px; margin-top: 8px; }
     .total-cost { text-align: center; font-weight: 700; color: var(--selected-color, #d63636); }
+
+    /* Information Section Styles */
+    .information-section {
+      margin: 0.75rem 0 1.5rem;
+      background: #f8fafc;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 1.25rem;
+      /* Allow page breaks inside if content is too large */
+      page-break-inside: auto;
+      break-inside: auto;
+      /* But try to keep with previous heading */
+      page-break-before: avoid;
+      break-before: avoid;
+    }
+    
+    .info-header {
+      display: flex;
+      align-items: center;
+      margin-bottom: 1rem;
+      padding-bottom: 0.625rem;
+      border-bottom: 2px solid #3b82f6;
+      /* Keep header with content below */
+      page-break-after: avoid;
+      break-after: avoid;
+    }
+    
+    .info-heading {
+      font-size: 0.95rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      color: #1e40af;
+      margin: 0;
+      text-transform: uppercase;
+    }
+    
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+      /* Allow grid to break across pages if needed */
+      page-break-inside: auto;
+      break-inside: auto;
+    }
+    
+    .info-grid-item {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      /* Try to keep individual items together */
+      page-break-inside: avoid;
+      break-inside: avoid;
+      /* Prevent orphan items at bottom of page */
+      orphans: 2;
+      widows: 2;
+    }
+    
+    .info-images {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    
+    .info-image {
+      width: 100%;
+      max-width: 200px;
+      max-height: 250px;
+      height: auto;
+      border-radius: 4px;
+      border: 1px solid #e5e7eb;
+      object-fit: cover;
+      /* Keep images together */
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    
+    .info-custom-notes {
+      margin-top: 0;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    
+    .info-custom-label {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: #475569;
+      margin-bottom: 0.5rem;
+      text-transform: uppercase;
+      letter-spacing: 0.025em;
+      page-break-after: avoid;
+      break-after: avoid;
+    }
+    
+    .info-custom-text {
+      font-size: 0.875rem;
+      line-height: 1.6;
+      color: #1f2937;
+      white-space: pre-wrap;
+    }
 
     .table { width: 100%; border-collapse: collapse; }
     .table th, .table td { border: 1px solid #e5e7eb; padding: 8px; font-size: 12px; text-align: left; }
@@ -734,7 +969,7 @@ export function generateInspectionReportHTML(defects: DefectItem[], meta: Report
           const defectTitle = parts.title || raw.split('.').shift() || '';
           acc.rows.push(`<tr><td>${escapeHtml(numbering)}</td><td>${escapeHtml(d.section)} - ${escapeHtml(d.subsection)}</td><td>${escapeHtml(defectTitle)}</td></tr>`);
           return acc;
-        }, { rows: [] as string[], current: startNumber - 1, last: null as string | null, sub: 0 }).rows.join('\n')}
+        }, { rows: [] as string[], current: startNumber, last: null as string | null, sub: 0 }).rows.join('\n')} <!-- match web logic -->
       </tbody>
     </table>
   </section>

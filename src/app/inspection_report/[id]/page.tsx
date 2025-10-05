@@ -101,6 +101,7 @@ export default function InspectionReportPage() {
   const [loading, setLoading] = useState(true);
   const [currentSection, setCurrentSection] = useState(null)
   const [currentNumber, setCurrentNumber] = useState(3)
+  const [startingNumber, setStartingNumber] = useState(3) // Store initial number for PDF generation
   const [currentSubNumber, setCurrentSubNumber] = useState(1)
   const [inspection, setInspection] = useState<any>(null)
 
@@ -402,6 +403,8 @@ export default function InspectionReportPage() {
         headerImageUrl, // Add the header image URL
         headerText, // Add the header text
         reportType, // Pass the report type to control sections visibility
+        startNumber: startingNumber, // Use the initial starting number (3) so defects start at 4.1
+        informationBlocks, // Pass information blocks to PDF template
       };
 
       const res = await fetch('/api/reports/generate', {
@@ -581,6 +584,89 @@ export default function InspectionReportPage() {
         </section>
       `;
 
+      // Helper: Generate information section HTML
+      const generateInformationSectionHTMLForExport = (block: any): string => {
+        const allItems = block.selected_checklist_ids || [];
+        const hasContent = allItems.length > 0 || block.custom_text;
+        
+        if (!hasContent) return '';
+        
+        // Generate grid items HTML
+        const gridItemsHtml = allItems.map((item: any) => {
+          const isStatus = item.type === 'status';
+          const itemId = item._id || '';
+          // Get images associated with this checklist item
+          const itemImages = (block.images || []).filter((img: any) => img.checklist_id === itemId);
+          
+          if (isStatus) {
+            // Status items: ONLY "Label: Value" format - NO comments
+            const parts = (item.text || '').split(':');
+            const label = parts[0]?.trim() || '';
+            const value = parts.slice(1).join(':').trim() || '';
+            
+            return `
+              <div class="rpt-info-grid-item">
+                <div>
+                  <span style="font-weight: 700; color: #000000;">${escapeHtml(label)}:</span>${value ? `
+                  <span style="margin-left: 0.25rem; font-weight: 400; color: #6b7280;">
+                    ${escapeHtml(value)}
+                  </span>` : ''}
+                </div>
+                ${itemImages.length > 0 ? `
+                <div class="rpt-info-images">
+                  ${itemImages.map((img: any) => `
+                  <div style="position: relative;">
+                    <img src="${escapeHtml(img.url)}" alt="Item image" class="rpt-img rpt-info-image" />
+                  </div>`).join('')}
+                </div>` : ''}
+              </div>`;
+          } else {
+            // Information items: Bold title + indented explanation
+            return `
+              <div class="rpt-info-grid-item">
+                <div style="font-weight: 700; color: #000000; ${item.comment ? 'margin-bottom: 0.375rem;' : ''}">
+                  ${escapeHtml(item.text || '')}
+                </div>
+                ${item.comment ? `
+                <div style="margin-left: 0.75rem; font-size: 0.8125rem; color: #4a5568; line-height: 1.4;">
+                  ${escapeHtml(item.comment)}
+                </div>` : ''}
+                ${itemImages.length > 0 ? `
+                <div class="rpt-info-images">
+                  ${itemImages.map((img: any) => `
+                  <div style="position: relative;">
+                    <img src="${escapeHtml(img.url)}" alt="Item image" class="rpt-img rpt-info-image" />
+                  </div>`).join('')}
+                </div>` : ''}
+              </div>`;
+          }
+        }).join('');
+        
+        return `
+        <div class="rpt-information-section">
+          <!-- Header -->
+          <div class="rpt-info-header">
+            <h3 class="rpt-info-heading">INFORMATION</h3>
+          </div>
+          
+          ${allItems.length > 0 ? `
+          <!-- 3-Column Grid -->
+          <div class="rpt-info-grid"${block.custom_text ? ' style="margin-bottom: 1.5rem;"' : ''}>
+            ${gridItemsHtml}
+          </div>` : ''}
+          
+          ${block.custom_text ? `
+          <!-- Custom Notes -->
+          <div class="rpt-info-custom-notes"${allItems.length > 0 ? ' style="border-top: 1px solid #e2e8f0; padding-top: 1rem;"' : ''}>
+            <div class="rpt-info-custom-label">Custom Notes</div>
+            <div class="rpt-info-custom-text">${escapeHtml(block.custom_text).replace(/\n/g, '<br>')}</div>
+          </div>` : ''}
+        </div>`;
+      };
+
+      // Track previous section to detect section changes
+      let prevSectionName: string | null = null;
+
       const sectionHtml = sectionsToExport
         .map((s) => {
           const imgSrc = typeof s.image === 'string' ? s.image : '';
@@ -610,7 +696,32 @@ export default function InspectionReportPage() {
           const summaryBody = (defectParts.paragraphs && defectParts.paragraphs.length > 0
             ? defectParts.paragraphs[0]
             : (defectParts.body && defectParts.body !== summaryTitle ? defectParts.body : '')).trim();
+          
+          // Check if this is a new section
+          const currentSectionName = s.sectionName || '';
+          const isNewSection = currentSectionName !== prevSectionName;
+          prevSectionName = currentSectionName;
+          
+          // Generate information section HTML if this is a new section
+          let informationHtml = '';
+          if (isNewSection && informationBlocks && informationBlocks.length > 0) {
+            // Find matching information block
+            const matchingBlock = informationBlocks.find((block: any) => {
+              const blockSection = typeof block.section_id === 'object' ? block.section_id?.name : null;
+              if (!blockSection || !currentSectionName) return false;
+              // Match by removing leading numbers like "9 - " from both
+              const cleanSection = currentSectionName.replace(/^\d+\s*-\s*/, '');
+              const cleanBlock = blockSection.replace(/^\d+\s*-\s*/, '');
+              return cleanBlock === cleanSection;
+            });
+            
+            if (matchingBlock) {
+              informationHtml = generateInformationSectionHTMLForExport(matchingBlock);
+            }
+          }
+
           return `
+            ${informationHtml}
             <div class="rpt-section-heading" id="${s.anchorId}-heading" data-cat="${category}" style="--selected-color:${selectedColor};--shadow-color:${shadowColor};">
               <h2 class="rpt-section-heading-text">
                 Section - ${escapeHtml(s.heading)}
@@ -764,6 +875,19 @@ export default function InspectionReportPage() {
     @media(min-width:641px){
       .export-toolbar-dropdown,.export-toolbar-toggle{display:none !important}
     }
+    /* Information Section Styles */
+    .rpt-information-section{margin:1.5rem 0 2rem;background:#f8fafc;border:1px solid #cbd5e1;border-radius:12px;padding:1.5rem;box-shadow:0 4px 16px rgba(15,23,42,0.08)}
+    .rpt-info-header{display:flex;align-items:center;margin-bottom:1rem;padding-bottom:0.75rem;border-bottom:2px solid #3b82f6}
+    .rpt-info-heading{font-size:0.95rem;font-weight:700;letter-spacing:0.05em;color:#1e40af;margin:0;text-transform:uppercase}
+    .rpt-info-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem}
+    .rpt-info-grid-item{display:flex;flex-direction:column;gap:0.5rem}
+    .rpt-info-images{display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:0.5rem}
+    .rpt-info-image{width:100%;max-width:200px;max-height:250px;height:auto;border-radius:4px;border:1px solid #e5e7eb;object-fit:cover}
+    .rpt-info-custom-notes{margin-top:0}
+    .rpt-info-custom-label{font-size:0.875rem;font-weight:600;color:#1f2937;margin-bottom:0.5rem}
+    .rpt-info-custom-text{font-size:0.875rem;color:#4a5568;line-height:1.5}
+    @media(max-width:1024px){.rpt-info-grid{grid-template-columns:repeat(2,1fr)}}
+    @media(max-width:640px){.rpt-info-grid{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
@@ -1146,6 +1270,17 @@ export default function InspectionReportPage() {
       fetchDefects();
       fetchInformationBlocks();
     }
+    
+    // Refetch information blocks when window regains focus (e.g., returning from image editor)
+    const handleFocus = () => {
+      if (id) {
+        console.log('🔄 Window regained focus, refetching information blocks...');
+        fetchInformationBlocks();
+      }
+    };
+    
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
   }, [id]);
 
   const [reportSections, setReportSections] = useState<any[]>([]);
@@ -1162,6 +1297,8 @@ export default function InspectionReportPage() {
     });
 
     let currentMain = currentNumber; // start from your state (e.g., 3)
+    // Store the starting number before processing (for PDF generation)
+    setStartingNumber(currentNumber);
     let lastSection = null;
     let subCounter = 0;
 
@@ -1906,128 +2043,167 @@ export default function InspectionReportPage() {
                       
                       if (!block) return null;
                       
-                      const hasContent = (block.selected_checklist_ids?.length > 0) || 
-                                       (block.selected_comment_ids?.length > 0) || 
-                                       block.custom_text;
+                      console.log('📊 Information block for section:', sectionName, {
+                        blockId: block._id,
+                        totalImages: block.images?.length || 0,
+                        images: block.images
+                      });
+                      
+                      // Get all checklist items
+                      const allItems = block.selected_checklist_ids || [];
+                      
+                      const hasContent = allItems.length > 0 || block.custom_text;
                       
                       if (!hasContent) return null;
                       
                       return (
-                        <div style={{ 
-                          marginTop: '1.25rem', 
-                          marginBottom: '2rem', 
-                          backgroundColor: '#f0f9ff', 
-                          border: '3px solid #2563eb', 
-                          borderRadius: '0.625rem', 
-                          padding: '1.5rem',
-                          boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)'
-                        }}>
-                          {/* Header */}
+                        <>
+                          {/* INFORMATION Section - Unified display for all items */}
                           <div style={{ 
-                            display: 'flex',
-                            alignItems: 'center',
-                            marginBottom: '1.25rem',
-                            paddingBottom: '0.75rem',
-                            borderBottom: '2px solid #2563eb'
+                            marginTop: '1.25rem', 
+                            marginBottom: '2rem', 
+                            backgroundColor: '#f8fafc', 
+                            border: '1px solid #cbd5e1', 
+                            borderRadius: '0.5rem', 
+                            padding: '1.5rem'
                           }}>
-                            <div style={{
-                              width: '8px',
-                              height: '8px',
-                              borderRadius: '50%',
-                              backgroundColor: '#2563eb',
-                              marginRight: '0.75rem'
-                            }} />
-                            <h3 style={{ 
-                              fontSize: '1rem',
-                              fontWeight: 700,
-                              letterSpacing: '0.05em',
-                              color: '#1e40af',
-                              margin: 0,
-                              textTransform: 'uppercase'
-                            }}>INFORMATION</h3>
+                            {/* Header */}
+                            <div style={{ 
+                              display: 'flex',
+                              alignItems: 'center',
+                              marginBottom: '1.25rem',
+                              paddingBottom: '0.75rem',
+                              borderBottom: '2px solid #3b82f6'
+                            }}>
+                              <h3 style={{ 
+                                fontSize: '1rem',
+                                fontWeight: 700,
+                                letterSpacing: '0.05em',
+                                color: '#1e40af',
+                                margin: 0,
+                                textTransform: 'uppercase'
+                              }}>INFORMATION</h3>
+                            </div>
+                            
+                            {/* 3-Column Grid for ALL items (status + information types) */}
+                            {allItems.length > 0 && (
+                              <div 
+                                className={styles.informationGrid}
+                                style={{ 
+                                  marginBottom: block.custom_text ? '1.5rem' : '0'
+                                }}>
+                                {allItems.map((item: any) => {
+                                  const isStatus = item.type === 'status';
+                                  const itemId = item._id || item;
+                                  // Get images associated with this checklist item
+                                  const itemImages = (block.images || []).filter((img: any) => img.checklist_id === itemId);
+                                  
+                                  if (isStatus) {
+                                    // Status items: ONLY "Label: Value" format - NO comments
+                                    const parts = item.text?.split(':') || [];
+                                    const label = parts[0]?.trim() || '';
+                                    const value = parts.slice(1).join(':').trim() || '';
+                                    
+                                    return (
+                                      <div key={itemId} className={styles.informationGridItem}>
+                                        <div>
+                                          <span style={{ fontWeight: 700, color: '#000000' }}>{label}:</span>
+                                          {value && (
+                                            <span style={{ 
+                                              marginLeft: '0.25rem',
+                                              fontWeight: 400,
+                                              color: '#6b7280'
+                                            }}>
+                                              {value}
+                                            </span>
+                                          )}
+                                        </div>
+                                        {/* Display images for this item */}
+                                        {itemImages.length > 0 && (
+                                          <div className={styles.informationImages}>
+                                            {itemImages.map((img: any, imgIdx: number) => (
+                                              <div key={imgIdx} style={{ position: 'relative' }}>
+                                                <img
+                                                  src={img.url}
+                                                  alt="Item image"
+                                                  onClick={() => openLightbox(img.url)}
+                                                  className={styles.informationImage}
+                                                />
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  } else {
+                                    // Information items: Bold title + indented explanation
+                                    return (
+                                      <div key={itemId} className={styles.informationGridItem}>
+                                        <div style={{ 
+                                          fontWeight: 700,
+                                          color: '#000000',
+                                          marginBottom: item.comment ? '0.375rem' : '0'
+                                        }}>
+                                          {item.text || item}
+                                        </div>
+                                        {item.comment && (
+                                          <div style={{ 
+                                            marginLeft: '0.75rem',
+                                            fontSize: '0.8125rem',
+                                            color: '#4a5568',
+                                            lineHeight: '1.4'
+                                          }}>
+                                            {item.comment}
+                                          </div>
+                                        )}
+                                        {/* Display images for this item */}
+                                        {itemImages.length > 0 && (
+                                          <div className={styles.informationImages}>
+                                            {itemImages.map((img: any, imgIdx: number) => (
+                                              <div key={imgIdx} style={{ position: 'relative' }}>
+                                                <img
+                                                  src={img.url}
+                                                  alt="Item image"
+                                                  onClick={() => openLightbox(img.url)}
+                                                  className={styles.informationImage}
+                                                />
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  }
+                                })}
+                              </div>
+                            )}
+                          
+                            {/* Custom Notes */}
+                            {block.custom_text && (
+                              <div style={{ 
+                                borderTop: allItems.length > 0 ? '1px solid #e2e8f0' : 'none',
+                                paddingTop: allItems.length > 0 ? '1rem' : '0'
+                              }}>
+                                <div style={{ 
+                                  fontSize: '0.875rem', 
+                                  fontWeight: 600,
+                                  color: '#475569',
+                                  marginBottom: '0.5rem',
+                                  textTransform: 'uppercase',
+                                  letterSpacing: '0.025em'
+                                }}>Custom Notes</div>
+                                <div style={{ 
+                                  fontSize: '0.875rem', 
+                                  lineHeight: '1.6',
+                                  color: '#1f2937',
+                                  whiteSpace: 'pre-wrap'
+                                }}>
+                                  {block.custom_text}
+                                </div>
+                              </div>
+                            )}
                           </div>
-                          
-                          {/* Selected Checklists */}
-                          {block.selected_checklist_ids?.length > 0 && (
-                            <div style={{ marginBottom: block.selected_comment_ids?.length > 0 || block.custom_text ? '1.5rem' : '0' }}>
-                              <div style={{ 
-                                fontSize: '0.875rem', 
-                                fontWeight: 600,
-                                color: '#1e40af',
-                                marginBottom: '0.75rem',
-                                textTransform: 'uppercase',
-                                letterSpacing: '0.025em'
-                              }}>Selected Checklists</div>
-                              <ul style={{ 
-                                marginLeft: '1.25rem', 
-                                fontSize: '0.9375rem', 
-                                lineHeight: '1.75',
-                                color: '#1e3a8a',
-                                paddingLeft: '0.5rem'
-                              }}>
-                                {block.selected_checklist_ids.map((cl: any, idx: number) => (
-                                  <li key={cl._id || cl} style={{ 
-                                    marginBottom: '0.5rem',
-                                    paddingLeft: '0.25rem'
-                                  }}>
-                                    {cl.text || cl}
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-                          
-                          {/* Comments */}
-                          {block.selected_comment_ids?.length > 0 && (
-                            <div style={{ marginBottom: block.custom_text ? '1.5rem' : '0' }}>
-                              <div style={{ 
-                                fontSize: '0.875rem', 
-                                fontWeight: 600,
-                                color: '#1e40af',
-                                marginBottom: '0.75rem',
-                                textTransform: 'uppercase',
-                                letterSpacing: '0.025em'
-                              }}>Comments</div>
-                              <div style={{ 
-                                fontSize: '0.9375rem', 
-                                lineHeight: '1.75',
-                                color: '#1e3a8a'
-                              }}>
-                                {block.selected_comment_ids.map((cm: any, idx: number) => (
-                                  <p key={cm._id || idx} style={{ 
-                                    marginBottom: idx < block.selected_comment_ids.length - 1 ? '1rem' : '0',
-                                    paddingLeft: '0.25rem'
-                                  }}>
-                                    {cm.text || cm}
-                                  </p>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                          
-                          {/* Custom Notes */}
-                          {block.custom_text && (
-                            <div>
-                              <div style={{ 
-                                fontSize: '0.875rem', 
-                                fontWeight: 600,
-                                color: '#1e40af',
-                                marginBottom: '0.75rem',
-                                textTransform: 'uppercase',
-                                letterSpacing: '0.025em'
-                              }}>Custom Notes</div>
-                              <div style={{ 
-                                fontSize: '0.9375rem', 
-                                lineHeight: '1.75',
-                                color: '#1e3a8a',
-                                whiteSpace: 'pre-wrap',
-                                paddingLeft: '0.25rem'
-                              }}>
-                                {block.custom_text}
-                              </div>
-                            </div>
-                          )}
-                        </div>
+                        </>
                       );
                     })()}
                     </>
