@@ -556,6 +556,29 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
       <h2 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '1rem' }}>Information Sections</h2>
       {loadingSections && <div>Loading sections...</div>}
       {error && <div style={{ color: '#dc2626' }}>{error}</div>}
+      
+      {!loadingSections && !error && sections.length === 0 && (
+        <div style={{ 
+          padding: '2rem', 
+          backgroundColor: '#fef3c7', 
+          border: '1px solid #fbbf24', 
+          borderRadius: '0.5rem',
+          textAlign: 'center'
+        }}>
+          <div style={{ fontSize: '1.125rem', fontWeight: 600, color: '#92400e', marginBottom: '0.5rem' }}>
+            ⚠️ No Sections Found
+          </div>
+          <div style={{ fontSize: '0.875rem', color: '#78350f', marginBottom: '1rem' }}>
+            The database doesn't have any inspection sections configured yet.
+          </div>
+          <div style={{ fontSize: '0.8125rem', color: '#78350f', backgroundColor: 'white', padding: '0.75rem', borderRadius: '0.375rem', textAlign: 'left' }}>
+            <strong>To fix this:</strong><br/>
+            1. Run the seed script: <code style={{ backgroundColor: '#f3f4f6', padding: '0.125rem 0.25rem', borderRadius: '0.25rem' }}>node scripts/seed-information-sections.js</code><br/>
+            2. Make sure your .env.local has the correct MONGODB_URI<br/>
+            3. Refresh this page after seeding
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
         {sections.map(section => (
