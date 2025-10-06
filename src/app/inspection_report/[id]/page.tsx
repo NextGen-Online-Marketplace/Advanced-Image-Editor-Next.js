@@ -1430,20 +1430,76 @@ export default function InspectionReportPage() {
   };
 
   const visibleSections = useMemo(() => {
+    let sections = reportSections;
+    
+    // Filter sections based on mode
     if (filterMode === 'hazard') {
-      return reportSections.filter((r) => isHazardColor(r.color));
-    }
-    if (filterMode === 'summary') {
+      sections = reportSections.filter((r) => isHazardColor(r.color));
+    } else if (filterMode === 'summary') {
       // For summary, exclude blue (maintenance items) defects
-      return reportSections.filter((r) => nearestCategory(r.color) !== 'blue');
+      sections = reportSections.filter((r) => nearestCategory(r.color) !== 'blue');
     }
-    // For 'full', show all defects
-    return reportSections;
-  }, [reportSections, filterMode]);
+    
+    // Add sections that have information blocks but no defects
+    if (informationBlocks && informationBlocks.length > 0) {
+      informationBlocks.forEach((block: any) => {
+        const blockSection = typeof block.section_id === 'object' ? block.section_id?.name : null;
+        if (!blockSection) return;
+        
+        // Clean section name (remove leading numbers like "9 - ")
+        const cleanBlockSection = blockSection.replace(/^\d+\s*-\s*/, '');
+        
+        // Check if this section already exists in the sections array
+        const sectionExists = sections.some((section) => {
+          const cleanSectionName = (section.sectionName || '').replace(/^\d+\s*-\s*/, '');
+          return cleanSectionName === cleanBlockSection;
+        });
+        
+        // If section doesn't exist, create a virtual section entry for it
+        if (!sectionExists) {
+          sections.push({
+            id: `info-only-${block._id}`,
+            anchorId: `section-${blockSection.replace(/\s+/g, '-').toLowerCase()}`,
+            numbering: '', // No numbering for information-only sections
+            sectionName: blockSection,
+            subsectionName: '',
+            sectionHeading: blockSection,
+            subsectionHeading: '',
+            heading2: blockSection,
+            heading: blockSection,
+            image: null,
+            defect: '',
+            defectTitle: '',
+            defectParagraphs: [],
+            defectBody: '',
+            defect_description: '',
+            location: '',
+            color: '#3b82f6', // Blue color for info-only sections
+            video: null,
+            type: 'information-only',
+            thumbnail: null,
+            estimatedCosts: {
+              materials: '',
+              materialsCost: 0,
+              labor: '',
+              laborRate: 0,
+              hoursRequired: 0,
+              recommendation: '',
+              totalEstimatedCost: 0,
+            },
+            isInformationOnly: true, // Flag to identify information-only sections
+          });
+        }
+      });
+    }
+    
+    return sections;
+  }, [reportSections, filterMode, informationBlocks]);
 
   // Group by section for sidebar
   const groupedBySection = useMemo(() => {
     const groups: Record<string, { count: number; firstAnchor: string | null; items: Array<{ title: string; numbering: string; anchorId: string }> }> = {};
+    // Only include actual defects, not information-only sections
     for (const r of reportSections) {
       const key = r.sectionName || 'Other';
       if (!groups[key]) {
@@ -1707,7 +1763,7 @@ export default function InspectionReportPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {visibleSections.map((section) => {
+                      {visibleSections.filter(s => !s.isInformationOnly).map((section) => {
                         const defectParts = splitDefectText(section.defect_description || section.defect || "");
                         const sectionLabel = section.heading2 || section.sectionName || '';
                         // Title (short) for the Defect column
@@ -2239,6 +2295,9 @@ export default function InspectionReportPage() {
                     </>
                   )}
                   
+                  {/* Only render defect details if this is NOT an information-only section */}
+                  {!section.isInformationOnly && (
+                    <>
                   {/* Subsection Heading (Colored with badge) - Always show */}
                   <div 
                     className={styles.sectionHeading}
@@ -2387,7 +2446,9 @@ export default function InspectionReportPage() {
                       </div>
                     </div>
                   </div>
-                </div>
+                  </div>
+                  </>
+                  )}
                 </div>
                   );
                 })}
