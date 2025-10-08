@@ -72,10 +72,13 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
       fetchDefects();
       fetchInspectionDetails();
       
+      // Flag to prevent showing the alert multiple times
+      let hasAlerted = false;
+      
       // Check for pending annotation and switch to Information Sections tab
       const checkForPendingAnnotation = () => {
         const pending = localStorage.getItem('pendingAnnotation');
-        if (pending) {
+        if (pending && !hasAlerted) {
           try {
             const annotation = JSON.parse(pending);
             if (annotation.inspectionId === inspectionId) {
@@ -83,6 +86,7 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
               setActiveTab('information');
               // Show success notification immediately - don't wait for processing
               alert('✅ Image saved successfully!');
+              hasAlerted = true; // Set flag to prevent duplicate alerts
             }
           } catch (e) {
             console.error('Error parsing pending annotation:', e);
@@ -96,7 +100,6 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
       // Also poll for 3 seconds to handle race condition where image-editor saves after modal opens
       let pollCount = 0;
       const maxPolls = 6; // 3 seconds (6 checks * 500ms)
-      let hasAlerted = false; // Prevent multiple alerts
       
       const pollInterval = setInterval(() => {
         pollCount++;

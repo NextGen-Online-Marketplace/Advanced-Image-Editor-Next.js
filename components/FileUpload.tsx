@@ -8,7 +8,7 @@ interface FileUploadProps {
 
 const FileUpload: React.FC<FileUploadProps> = ({ 
   onFileSelect, 
-  accept = "image/*", 
+  accept = "image/*,.heic,.heif", 
   id = "file-upload" 
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -32,7 +32,7 @@ const FileUpload: React.FC<FileUploadProps> = ({
         onChange={handleFileChange} 
         id={id} 
         className="hidden" 
-        accept={accept}
+        accept="image/*,.heic,.heif"
       />
       <input 
         type="file" 
@@ -40,7 +40,7 @@ const FileUpload: React.FC<FileUploadProps> = ({
         onChange={handleFileChange} 
         id={`${id}-camera`} 
         className="hidden" 
-        accept="image/*"
+        accept="image/*,.heic,.heif"
         capture="environment"
       />
       

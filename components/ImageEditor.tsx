@@ -552,104 +552,135 @@ const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
   };
 
   const exportEditedFile = (): File | null => {
-    if (!image) return null;
-    
-    // Create a new canvas with the same dimensions as the display canvas
-    const canvas = document.createElement('canvas');
-    const displayCanvas = canvasRef.current;
-    
-    if (!displayCanvas) return null;
-    
-    canvas.width = displayCanvas.width;
-    canvas.height = displayCanvas.height;
-    
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
-    
-    // Clear the canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // Draw the background
-    ctx.fillStyle = '#f0f0f0';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
-    // Draw the image with the same scaling as the display canvas
-    if (image) {
-      // Apply rotation if needed
-      if (imageRotation !== 0) {
-        ctx.save();
-        ctx.translate(canvas.width / 2, canvas.height / 2);
-        ctx.rotate((imageRotation * Math.PI) / 180);
-        ctx.translate(-canvas.width / 2, -canvas.height / 2);
-        
-        // For rotated images, fill the entire canvas
-        ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-        
-        ctx.restore();
-      } else {
-        // For non-rotated images, use aspect ratio fitting
-        const imgAspect = image.width / image.height;
-        const canvasAspect = canvas.width / canvas.height;
-        
-        let drawWidth, drawHeight, offsetX, offsetY;
-        
-        if (imgAspect > canvasAspect) {
-          drawWidth = canvas.width;
-          drawHeight = canvas.width / imgAspect;
-          offsetX = 0;
-          offsetY = (canvas.height - drawHeight) / 2;
-        } else {
-          drawHeight = canvas.height;
-          drawWidth = canvas.height * imgAspect;
-          offsetX = (canvas.width - drawWidth) / 2;
-          offsetY = 0;
-        }
-        
-        ctx.drawImage(image, offsetX, offsetY, drawWidth, drawHeight);
-      }
+    if (!image) {
+      console.warn('⚠️ exportEditedFile called but no image available');
+      return null;
     }
     
-    // Draw all lines with their current positions
-    lines.forEach(line => {
-      ctx.strokeStyle = line.color;
-      ctx.lineWidth = line.size;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.fillStyle = line.color;
+    console.log('🎨 Exporting edited file with', lines.length, 'annotations');
+    
+    try {
+      // Create a new canvas with the same dimensions as the display canvas
+      const canvas = document.createElement('canvas');
+      const displayCanvas = canvasRef.current;
       
-      if (line.type === 'draw') {
-        ctx.beginPath();
-        line.points.forEach((pt, i) => {
-          if (i === 0) ctx.moveTo(pt.x, pt.y);
-          else ctx.lineTo(pt.x, pt.y);
-        });
-        ctx.stroke();
-      } else if (line.type === 'arrow' && line.points.length >= 2) {
-        drawTransformedArrow(ctx, line);
-      } else if (line.type === 'circle' && line.center && line.width !== undefined && line.height !== undefined) {
-        drawCircle(ctx, line.center.x, line.center.y, line.width, line.height, line.color);
-      } else if (line.type === 'square' && line.center && line.width !== undefined && line.height !== undefined) {
-        drawSquare(ctx, line.center.x, line.center.y, line.width, line.height, line.color);
+      if (!displayCanvas) {
+        console.error('❌ Display canvas not available');
+        return null;
       }
-    });
-  
-    const dataUrl = canvas.toDataURL("image/png");
-    const byteString = atob(dataUrl.split(",")[1]);
-    const mimeString = dataUrl.split(",")[0].split(":")[1].split(";")[0];
-  
-    const ab = new ArrayBuffer(byteString.length);
-    const ia = new Uint8Array(ab);
-    for (let i = 0; i < byteString.length; i++) {
-      ia[i] = byteString.charCodeAt(i);
+      
+      canvas.width = displayCanvas.width;
+      canvas.height = displayCanvas.height;
+      
+      const ctx = canvas.getContext('2d', { 
+        willReadFrequently: false,
+        alpha: false // Better performance on mobile
+      });
+      
+      if (!ctx) {
+        console.error('❌ Could not get canvas context');
+        return null;
+      }
+      
+      // Clear the canvas
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Draw the background
+      ctx.fillStyle = '#f0f0f0';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      // Draw the image with the same scaling as the display canvas
+      if (image) {
+        // Apply rotation if needed
+        if (imageRotation !== 0) {
+          ctx.save();
+          ctx.translate(canvas.width / 2, canvas.height / 2);
+          ctx.rotate((imageRotation * Math.PI) / 180);
+          ctx.translate(-canvas.width / 2, -canvas.height / 2);
+          
+          // For rotated images, fill the entire canvas
+          ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+          
+          ctx.restore();
+        } else {
+          // For non-rotated images, use aspect ratio fitting
+          const imgAspect = image.width / image.height;
+          const canvasAspect = canvas.width / canvas.height;
+          
+          let drawWidth, drawHeight, offsetX, offsetY;
+          
+          if (imgAspect > canvasAspect) {
+            drawWidth = canvas.width;
+            drawHeight = canvas.width / imgAspect;
+            offsetX = 0;
+            offsetY = (canvas.height - drawHeight) / 2;
+          } else {
+            drawHeight = canvas.height;
+            drawWidth = canvas.height * imgAspect;
+            offsetX = (canvas.width - drawWidth) / 2;
+            offsetY = 0;
+          }
+          
+          ctx.drawImage(image, offsetX, offsetY, drawWidth, drawHeight);
+        }
+      }
+      
+      // Draw all lines with their current positions
+      lines.forEach(line => {
+        ctx.strokeStyle = line.color;
+        ctx.lineWidth = line.size;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.fillStyle = line.color;
+        
+        if (line.type === 'draw') {
+          ctx.beginPath();
+          line.points.forEach((pt, i) => {
+            if (i === 0) ctx.moveTo(pt.x, pt.y);
+            else ctx.lineTo(pt.x, pt.y);
+          });
+          ctx.stroke();
+        } else if (line.type === 'arrow' && line.points.length >= 2) {
+          drawTransformedArrow(ctx, line);
+        } else if (line.type === 'circle' && line.center && line.width !== undefined && line.height !== undefined) {
+          drawCircle(ctx, line.center.x, line.center.y, line.width, line.height, line.color);
+        } else if (line.type === 'square' && line.center && line.width !== undefined && line.height !== undefined) {
+          drawSquare(ctx, line.center.x, line.center.y, line.width, line.height, line.color);
+        }
+      });
+    
+      // Use JPEG for better mobile compatibility and smaller file size
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
+      const byteString = atob(dataUrl.split(",")[1]);
+      const mimeString = dataUrl.split(",")[0].split(":")[1].split(";")[0];
+    
+      const ab = new ArrayBuffer(byteString.length);
+      const ia = new Uint8Array(ab);
+      for (let i = 0; i < byteString.length; i++) {
+        ia[i] = byteString.charCodeAt(i);
+      }
+    
+      const file = new File([ab], "edited.jpg", { type: mimeString });
+      console.log('✅ Exported edited file:', file.size, 'bytes');
+      return file;
+    } catch (error) {
+      console.error('❌ Error exporting edited file:', error);
+      alert('Error creating edited image. Please try again.');
+      return null;
     }
-  
-    return new File([ab], "edited.png", { type: mimeString });
   };
 
   useEffect(() => {
-    const file = exportEditedFile();
-    onEditedFile?.(file);
-  }, [image, imageRotation, lines]);
+    try {
+      const file = exportEditedFile();
+      if (file && onEditedFile) {
+        console.log('🔄 Updating edited file in parent component:', file.size, 'bytes');
+        onEditedFile(file);
+      }
+    } catch (error) {
+      console.error('❌ Error in useEffect for exportEditedFile:', error);
+    }
+  }, [image, imageRotation, lines, onEditedFile]);
 
   const saveAction = (action: Action) => {
     setActionHistory(prev => [...prev, action]);
@@ -1137,8 +1168,8 @@ const captureImage = () => {
         
         // Check if clicking on a resize handle
         const center = clickedShape.center || clickedShape.points[0];
-        const handleSize = 8; // Increased for better visibility
-        const tolerance = 15; // Increased tolerance for easier handle detection
+        const handleSize = 4; // Smaller for less intrusive mobile experience
+        const tolerance = 20; // Wider tolerance for easier clicking on smaller handles
         
         if (clickedShape.type === 'circle' && clickedShape.width !== undefined && clickedShape.height !== undefined) {
           const handles = [
@@ -2245,12 +2276,12 @@ const drawSquare = (
           // Draw professional resize handles
           handles.forEach((h, index) => {
             // All handles are edge handles now
-            const handleSize = 8; // Consistent size for all handles
+            const handleSize = 4; // Smaller, less intrusive handles
             
             // Outer ring
             ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
             ctx.beginPath();
-            ctx.arc(h.x, h.y, handleSize + 3, 0, 2 * Math.PI);
+            ctx.arc(h.x, h.y, handleSize + 2, 0, 2 * Math.PI);
             ctx.fill();
             
             // Inner handle
@@ -2261,7 +2292,7 @@ const drawSquare = (
             
             // Border for better visibility
             ctx.strokeStyle = 'rgba(0, 123, 255, 1)';
-            ctx.lineWidth = 2;
+            ctx.lineWidth = 1.5;
             ctx.beginPath();
             ctx.arc(h.x, h.y, handleSize, 0, 2 * Math.PI);
             ctx.stroke();
@@ -2307,12 +2338,12 @@ const drawSquare = (
           handles.forEach((h, index) => {
             // Different styling for corner vs edge handles
             const isCorner = ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(h.name);
-            const handleSize = isCorner ? 10 : 8; // Increased size for better visibility
+            const handleSize = isCorner ? 5 : 4; // Smaller, less intrusive handles
             
             // Outer ring
             ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
             ctx.beginPath();
-            ctx.arc(h.x, h.y, handleSize + 3, 0, 2 * Math.PI);
+            ctx.arc(h.x, h.y, handleSize + 2, 0, 2 * Math.PI);
             ctx.fill();
             
             // Inner handle
@@ -2323,7 +2354,7 @@ const drawSquare = (
             
             // Border for better visibility
             ctx.strokeStyle = 'rgba(0, 123, 255, 1)';
-            ctx.lineWidth = 2;
+            ctx.lineWidth = 1.5;
             ctx.beginPath();
             ctx.arc(h.x, h.y, handleSize, 0, 2 * Math.PI);
             ctx.stroke();

@@ -347,9 +347,11 @@ export default function ImageEditorPage() {
     // Special handling for information block annotation
     if (returnTo && checklistId) {
       console.log('📤 Returning annotated image to information block');
+      console.log('📋 Current editedFile state:', editedFile ? `${editedFile.name} (${editedFile.size} bytes)` : 'NULL');
       
       if (!editedFile) {
-        alert('Please edit the image before saving.');
+        console.error('❌ No edited file available! User must make changes before clicking Done.');
+        alert('Please make some changes to the image before saving (draw arrows, circles, etc.).');
         return;
       }
 
@@ -361,13 +363,17 @@ export default function ImageEditorPage() {
         const formData = new FormData();
         formData.append('file', editedFile);
 
+        console.log('📤 Uploading annotated image:', editedFile.name, editedFile.size, 'bytes');
+
         const uploadRes = await fetch('/api/r2api', {
           method: 'POST',
           body: formData,
         });
 
         if (!uploadRes.ok) {
-          throw new Error('Failed to upload annotated image');
+          const errorText = await uploadRes.text();
+          console.error('❌ Upload failed:', uploadRes.status, errorText);
+          throw new Error(`Failed to upload annotated image: ${uploadRes.status}`);
         }
 
         const uploadData = await uploadRes.json();
@@ -385,27 +391,47 @@ export default function ImageEditorPage() {
           inspectionId: inspectionIdFromUrl, // Store inspection ID for modal reopening
           timestamp: Date.now()
         };
-        localStorage.setItem('pendingAnnotation', JSON.stringify(annotationData));
+        
+        try {
+          localStorage.setItem('pendingAnnotation', JSON.stringify(annotationData));
+          console.log('✅ Saved annotation data to localStorage');
+        } catch (storageError) {
+          console.error('❌ Failed to save to localStorage:', storageError);
+          // Continue anyway - the image was uploaded successfully
+        }
 
         setSubmitStatus('Done! Returning...');
         
-        // Try to close the window/tab first
+        // Navigate back to the inspection page
+        // Use a full page reload to ensure the annotation detection works properly
         setTimeout(() => {
-          window.close();
-          
-          // If window.close() doesn't work after 100ms (e.g., not opened by window.open),
-          // navigate back using router
-          setTimeout(() => {
-            if (!window.closed) {
-              // Use router.back() to preserve modal state instead of full reload
-              router.back();
-            }
-          }, 100);
+          try {
+            // First try to close the window if it was opened as a popup
+            window.close();
+            
+            // If window.close() doesn't work, do a full page reload
+            // This ensures the window focus event fires and polling detects the annotation
+            setTimeout(() => {
+              if (!window.closed) {
+                console.log('🔙 Reloading page to trigger annotation detection');
+                // Use location.href for full page reload which guarantees:
+                // 1. Window focus event fires
+                // 2. Polling mechanism starts fresh
+                // 3. returnToSection is detected and modal reopens
+                window.location.href = returnTo || window.location.origin + '/';
+              }
+            }, 100);
+          } catch (error) {
+            console.error('❌ Navigation error:', error);
+            // Fallback: reload the page
+            window.location.href = returnTo || window.location.origin + '/';
+          }
         }, 500);
 
       } catch (error) {
         console.error('❌ Error saving annotated image:', error);
-        alert('Failed to save annotated image. Please try again.');
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+        alert(`Failed to save annotated image: ${errorMessage}\n\nPlease try again or check your internet connection.`);
         setIsSubmitting(false);
         setSubmitStatus('');
       }

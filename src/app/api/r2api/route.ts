@@ -1,6 +1,16 @@
 import { NextResponse } from "next/server";
 import { uploadToR2 } from "@/lib/r2";
 
+// Dynamic import for heic-convert (ESM module)
+let heicConvert: any = null;
+
+async function getHeicConvert() {
+  if (!heicConvert) {
+    heicConvert = (await import('heic-convert')).default;
+  }
+  return heicConvert;
+}
+
 // GET handler to proxy image fetching (avoid CORS issues)
 export async function GET(req: Request) {
   try {
@@ -70,33 +80,77 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
-    // Validate file size (limit to 5MB for example)
-    if (file.size > 5 * 1024 * 1024) {
+    // Validate file size (limit to 10MB to accommodate HEIC files which are larger)
+    if (file.size > 10 * 1024 * 1024) {
       return NextResponse.json(
-        { error: "File size exceeds the 5MB limit" },
+        { error: "File size exceeds the 10MB limit" },
         { status: 400 }
       );
     }
 
-    // Validate file type
-    const allowedTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
-    if (!allowedTypes.includes(file.type)) {
+    // Validate file type - now includes HEIC/HEIF formats
+    const allowedTypes = [
+      "image/jpeg", 
+      "image/png", 
+      "image/gif", 
+      "image/webp",
+      "image/heic",
+      "image/heif",
+      "image/heic-sequence",
+      "image/heif-sequence"
+    ];
+    
+    // Also check file extension for HEIC files (some browsers don't set correct MIME type)
+    const fileExtension = file.name.toLowerCase().split('.').pop();
+    const isHeicFile = fileExtension === 'heic' || fileExtension === 'heif' || 
+                       file.type.toLowerCase().includes('heic') || 
+                       file.type.toLowerCase().includes('heif');
+    
+    if (!allowedTypes.includes(file.type) && !isHeicFile) {
       return NextResponse.json(
-        { error: "Only JPG, PNG, GIF, and WebP images are supported" },
+        { error: "Only JPG, PNG, GIF, WebP, and HEIC/HEIF images are supported" },
         { status: 400 }
       );
     }
 
-    // Convert to Buffer for AWS SDK
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    // Convert to Buffer for processing
+    let arrayBuffer = await file.arrayBuffer();
+    let buffer = Buffer.from(arrayBuffer);
+    let finalContentType = file.type;
+    let finalFileName = file.name;
+
+    // Convert HEIC/HEIF to JPEG
+    if (isHeicFile) {
+      try {
+        console.log("📸 Converting HEIC/HEIF image to JPEG...");
+        const convert = await getHeicConvert();
+        
+        const jpegBuffer = await convert({
+          buffer: buffer,
+          format: 'JPEG',
+          quality: 0.92 // High quality conversion
+        });
+        
+        buffer = Buffer.from(jpegBuffer);
+        finalContentType = 'image/jpeg';
+        // Change file extension to .jpg
+        finalFileName = file.name.replace(/\.(heic|heif)$/i, '.jpg');
+        console.log("✅ HEIC/HEIF converted to JPEG successfully");
+      } catch (conversionError) {
+        console.error("❌ HEIC conversion failed:", conversionError);
+        return NextResponse.json(
+          { error: "Failed to convert HEIC/HEIF image. Please try a different format." },
+          { status: 500 }
+        );
+      }
+    }
 
     // Create unique filename with sanitized name
-    const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const sanitizedName = finalFileName.replace(/[^a-zA-Z0-9._-]/g, '_');
     const key = `uploads/${Date.now()}-${sanitizedName}`;
 
     console.log("Starting R2 upload process...");
-    const result = await uploadToR2(buffer, key, file.type);
+    const result = await uploadToR2(buffer, key, finalContentType);
 
     return NextResponse.json(
       { success: true, url: result },

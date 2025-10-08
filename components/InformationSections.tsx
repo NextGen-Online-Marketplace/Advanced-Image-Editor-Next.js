@@ -74,6 +74,28 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
   // Custom answer inputs for ad-hoc answers during inspection
   const [customAnswerInputs, setCustomAnswerInputs] = useState<Record<string, string>>({});
 
+  // Location dropdown management
+  const [locationDropdownOpen, setLocationDropdownOpen] = useState<Record<string, boolean>>({});
+
+  // Predefined location options (same as defect upload page)
+  const LOCATION_OPTIONS = [
+    'Addition', 'All Locations', 'Apartment', 'Attic', 'Back Porch', 'Back Room', 'Balcony',
+    'Bedroom 1', 'Bedroom 2', 'Bedroom 3', 'Bedroom 4', 'Bedroom 5', 'Both Locations', 'Breakfast',
+    'Carport', 'Carport Entry', 'Closet', 'Crawlspace', 'Dining', 'Downstairs', 'Downstairs Bathroom',
+    'Downstairs Bathroom Closet', 'Downstairs Hallway', 'Downstairs Hall Closet', 'Driveway', 'Entry',
+    'Family Room', 'Front Entry', 'Front of House', 'Front Porch', 'Front Room', 'Garage', 'Garage Entry',
+    'Garage Storage Closet', 'Guest Bathroom', 'Guest Bedroom', 'Guest Bedroom Closet', 'Half Bathroom',
+    'Hallway', 'Heater Operation Temp', 'HVAC Closet', 'Keeping Room', 'Kitchen', 'Kitchen Pantry',
+    'Left Side of House', 'Left Wall', 'Living Room', 'Living Room Closet', 'Laundry Room',
+    'Laundry Room Closet', 'Master Bathroom', 'Master Bedroom', 'Master Closet', 'Most Locations',
+    'Multiple Locations', 'Office', 'Office Closet', 'Outdoor Storage', 'Patio', 'Rear Entry',
+    'Rear of House', 'Rear Wall', 'Right Side of House', 'Right Wall', 'Shop', 'Side Entry', 'Staircase',
+    'Sun Room', 'Top of Stairs', 'Upstairs Bathroom', 'Upstairs Bedroom 1', 'Upstairs Bedroom 1 Closet',
+    'Upstairs Bedroom 2', 'Upstairs Bedroom 2 Closet', 'Upstairs Bedroom 3', 'Upstairs Bedroom 3 Closet',
+    'Upstairs Bedroom 4', 'Upstairs Bedroom 4 Closet', 'Upstairs Hallway', 'Upstairs Laundry Room',
+    'Utility Room', 'Water Heater Closet', 'Water Heater Output Temp'
+  ];
+
   // Admin checklist management
   const [checklistFormOpen, setChecklistFormOpen] = useState(false);
   const [editingChecklistId, setEditingChecklistId] = useState<string | null>(null);
@@ -155,169 +177,198 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
   useEffect(() => {
     const checkPendingAnnotation = async () => {
       const pendingData = localStorage.getItem('pendingAnnotation');
-      if (pendingData) {
-        try {
-          const annotation = JSON.parse(pendingData);
-          console.log('🎨 Found pending annotation:', annotation);
+      if (!pendingData) return;
 
-          // Clear the pending annotation immediately
-          localStorage.removeItem('pendingAnnotation');
+      try {
+        const annotation = JSON.parse(pendingData);
+        console.log('🎨 Found pending annotation:', annotation);
 
-          // Check if we should auto-reopen the modal
-          const returnToSectionData = localStorage.getItem('returnToSection');
-          const shouldReopenModal = returnToSectionData && !modalOpen;
+        // Check if we should auto-reopen the modal
+        const returnToSectionData = localStorage.getItem('returnToSection');
+        const shouldReopenModal = returnToSectionData && !modalOpen;
 
-          // If modal is open, update the formState immediately
-          if (modalOpen && formState) {
-            // Find the image in formState that matches the checklistId
-            const imageIndex = formState.images.findIndex(img => img.checklist_id === annotation.checklistId);
+        // If modal is open, update the formState immediately
+        if (modalOpen && formState) {
+          console.log('📝 Modal is open, updating formState with annotation');
+          
+          // Find the image in formState that matches the checklistId
+          const imageIndex = formState.images.findIndex(img => img.checklist_id === annotation.checklistId);
 
-            if (imageIndex !== -1) {
-              // Update the existing image with the annotated version
-              const updatedImages = [...formState.images];
-              updatedImages[imageIndex] = {
-                ...updatedImages[imageIndex],
-                url: annotation.imageUrl,
-                annotations: annotation.annotations
-              };
+          if (imageIndex !== -1) {
+            console.log(`✅ Found image at index ${imageIndex}, updating with annotated version`);
+            
+            // Update the existing image with the annotated version
+            const updatedImages = [...formState.images];
+            updatedImages[imageIndex] = {
+              ...updatedImages[imageIndex],
+              url: annotation.imageUrl,
+              annotations: annotation.annotations
+            };
 
-              const updatedFormState = {
-                ...formState,
-                images: updatedImages
-              };
+            const updatedFormState = {
+              ...formState,
+              images: updatedImages
+            };
 
-              setFormState(updatedFormState);
+            setFormState(updatedFormState);
 
-              console.log('✅ Updated image with annotations in formState');
-              
-              // Trigger auto-save to persist the change
-              await performAutoSaveWithState(updatedFormState);
-            }
+            console.log('✅ Updated image with annotations in formState');
+            
+            // Trigger auto-save to persist the change
+            await performAutoSaveWithState(updatedFormState);
+            
+            // Clear the pending annotation ONLY after successful save
+            localStorage.removeItem('pendingAnnotation');
+            console.log('✅ Annotation processing complete, cleared from localStorage');
           } else {
-            // Modal is closed - save to database and optionally reopen
-            console.log('💾 Modal closed, saving annotation directly to database');
+            console.warn('⚠️ Image not found in formState images, will retry...');
+            // Don't clear localStorage - let polling retry
+          }
+        } else {
+          // Modal is closed - save to database and optionally reopen
+          console.log('💾 Modal closed, saving annotation directly to database');
 
-            try {
-              // Fetch all blocks to find the one containing this checklist
-              const blocksRes = await fetch(`/api/information-sections/${inspectionId}`);
-              const blocksJson = await blocksRes.json();
+          try {
+            // Fetch all blocks to find the one containing this checklist
+            const blocksRes = await fetch(`/api/information-sections/${inspectionId}`);
+            const blocksJson = await blocksRes.json();
 
-              if (blocksJson.success) {
-                // Find the block that has this checklist selected
-                const targetBlock = blocksJson.data.find((block: IInformationBlock) => {
-                  const checklistIds = Array.isArray(block.selected_checklist_ids)
-                    ? block.selected_checklist_ids.map((cl: any) => typeof cl === 'string' ? cl : cl._id)
-                    : [];
-                  return checklistIds.includes(annotation.checklistId);
-                });
+            if (blocksJson.success) {
+              // Find the block that has this checklist selected
+              const targetBlock = blocksJson.data.find((block: IInformationBlock) => {
+                const checklistIds = Array.isArray(block.selected_checklist_ids)
+                  ? block.selected_checklist_ids.map((cl: any) => typeof cl === 'string' ? cl : cl._id)
+                  : [];
+                return checklistIds.includes(annotation.checklistId);
+              });
 
-                if (targetBlock) {
-                  console.log('📦 Found target block:', targetBlock._id);
+              if (targetBlock) {
+                console.log('📦 Found target block:', targetBlock._id);
 
-                  // Find the image to update
-                  const imageIndex = targetBlock.images.findIndex((img: IBlockImage) => img.checklist_id === annotation.checklistId);
+                // Find the image to update
+                const imageIndex = targetBlock.images.findIndex((img: IBlockImage) => img.checklist_id === annotation.checklistId);
 
-                  if (imageIndex !== -1) {
-                    // Update the image with the annotated version
-                    const updatedImages = [...targetBlock.images];
-                    updatedImages[imageIndex] = {
-                      ...updatedImages[imageIndex],
-                      url: annotation.imageUrl,
-                      annotations: annotation.annotations
-                    };
+                if (imageIndex !== -1) {
+                  console.log(`✅ Found image at index ${imageIndex} in block`);
+                  
+                  // Update the image with the annotated version
+                  const updatedImages = [...targetBlock.images];
+                  updatedImages[imageIndex] = {
+                    ...updatedImages[imageIndex],
+                    url: annotation.imageUrl,
+                    annotations: annotation.annotations
+                  };
 
-                    // Create updated block with new image
-                    const updatedBlock = {
-                      ...targetBlock,
-                      images: updatedImages
-                    };
+                  // Create updated block with new image
+                  const updatedBlock = {
+                    ...targetBlock,
+                    images: updatedImages
+                  };
 
-                    // Check if we should reopen the modal
-                    const returnToSectionData = localStorage.getItem('returnToSection');
-                    const shouldReopenModal = returnToSectionData && !modalOpen;
+                  // Check if we should reopen the modal
+                  const shouldReopenModal = returnToSectionData && !modalOpen;
 
-                    // INSTANT REOPEN: Open modal immediately with updated data (before saving)
-                    if (shouldReopenModal && returnToSectionData) {
-                      try {
-                        const { sectionId } = JSON.parse(returnToSectionData);
-                        console.log('� INSTANT REOPEN: Opening modal immediately');
+                  // INSTANT REOPEN: Open modal immediately with updated data (before saving)
+                  if (shouldReopenModal && returnToSectionData) {
+                    try {
+                      const { sectionId } = JSON.parse(returnToSectionData);
+                      console.log('🚀 INSTANT REOPEN: Opening modal immediately');
+                      
+                      // Find the section - if sections is empty, fetch it
+                      let section = sections.find((s: ISection) => s._id === sectionId);
+                      
+                      if (!section) {
+                        console.log('⚠️ Sections not loaded yet, fetching...');
+                        // Fetch sections if not available
+                        const sectionsRes = await fetch('/api/information-sections/sections');
+                        const sectionsJson = await sectionsRes.json();
                         
-                        // Find the section - if sections is empty, fetch it
-                        let section = sections.find((s: ISection) => s._id === sectionId);
-                        
-                        if (!section) {
-                          console.log('⚠️ Sections not loaded yet, fetching...');
-                          // Fetch sections if not available
-                          const sectionsRes = await fetch('/api/information-sections/sections');
-                          const sectionsJson = await sectionsRes.json();
-                          
-                          if (sectionsJson.success) {
-                            setSections(sectionsJson.data);
-                            section = sectionsJson.data.find((s: ISection) => s._id === sectionId);
-                          }
+                        if (sectionsJson.success) {
+                          setSections(sectionsJson.data);
+                          section = sectionsJson.data.find((s: ISection) => s._id === sectionId);
                         }
-                        
-                        if (section) {
-                          console.log('✅ Opening modal INSTANTLY with annotated image');
-                          // Update blocks state immediately
-                          setBlocks(blocksJson.data.map((b: IInformationBlock) => 
-                            b._id === targetBlock._id ? updatedBlock : b
-                          ));
-                          
-                          // Open modal immediately - user sees annotated image instantly!
-                          openAddModal(section, updatedBlock);
-                        }
-                        
-                        // Clear the return section data
-                        localStorage.removeItem('returnToSection');
-                      } catch (e) {
-                        console.error('Error auto-opening section:', e);
-                        localStorage.removeItem('returnToSection');
                       }
+                      
+                      if (section) {
+                        console.log('✅ Opening modal INSTANTLY with annotated image');
+                        // Update blocks state immediately
+                        setBlocks(blocksJson.data.map((b: IInformationBlock) => 
+                          b._id === targetBlock._id ? updatedBlock : b
+                        ));
+                        
+                        // Open modal immediately - user sees annotated image instantly!
+                        openAddModal(section, updatedBlock);
+                      }
+                      
+                      // Clear the return section data
+                      localStorage.removeItem('returnToSection');
+                    } catch (e) {
+                      console.error('❌ Error auto-opening section:', e);
+                      localStorage.removeItem('returnToSection');
                     }
+                  }
 
                     // BACKGROUND SAVE: Save to database in the background (doesn't block UI)
                     console.log('💾 Saving annotation to database in background...');
-                    const updateRes = await fetch(`/api/information-sections/${inspectionId}?blockId=${targetBlock._id}`, {
-                      method: 'PUT',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        selected_checklist_ids: Array.isArray(targetBlock.selected_checklist_ids)
-                          ? targetBlock.selected_checklist_ids.map((cl: any) => typeof cl === 'string' ? cl : cl._id)
-                          : [],
-                        custom_text: targetBlock.custom_text || '',
-                        images: updatedImages,
-                      }),
-                    });
+                    try {
+                      const updateRes = await fetch(`/api/information-sections/${inspectionId}?blockId=${targetBlock._id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          selected_checklist_ids: Array.isArray(targetBlock.selected_checklist_ids)
+                            ? targetBlock.selected_checklist_ids.map((cl: any) => typeof cl === 'string' ? cl : cl._id)
+                            : [],
+                          custom_text: targetBlock.custom_text || '',
+                          images: updatedImages,
+                        }),
+                      });
 
-                    const updateJson = await updateRes.json();
-                    if (updateJson.success) {
-                      console.log('✅ Annotation saved to database (background)');
-                      
-                      // Refresh blocks if modal wasn't reopened
-                      if (!shouldReopenModal) {
-                        await fetchBlocks();
+                      const updateJson = await updateRes.json();
+                      if (updateJson.success) {
+                        console.log('✅ Annotation saved to database (background)');
+                        
+                        // Clear the pending annotation ONLY after successful database save
+                        localStorage.removeItem('pendingAnnotation');
+                        console.log('✅ Cleared pendingAnnotation from localStorage after successful save');
+                        
+                        // Refresh blocks if modal wasn't reopened
+                        if (!shouldReopenModal) {
+                          await fetchBlocks();
+                        }
+                      } else {
+                        console.error('❌ Failed to save annotation:', updateJson.error);
+                        alert('❌ Failed to save annotation. Please try again.');
+                        // Don't clear localStorage - allow retry
                       }
-                    } else {
-                      console.error('❌ Failed to save annotation:', updateJson.error);
-                      alert('❌ Failed to save annotation. Please try again.');
+                    } catch (saveError) {
+                      console.error('❌ Error saving annotation to database:', saveError);
+                      alert('❌ Error saving annotation. Please try again.');
+                      // Don't clear localStorage - allow retry
                     }
                   } else {
                     console.warn('⚠️ Image not found in block images');
+                    // Clear anyway - bad data
+                    localStorage.removeItem('pendingAnnotation');
                   }
                 } else {
                   console.warn('⚠️ Block not found for checklist:', annotation.checklistId);
+                  // Clear anyway - bad data
+                  localStorage.removeItem('pendingAnnotation');
                 }
+              } else {
+                console.error('❌ Failed to fetch blocks');
+                // Don't clear - let retry happen
               }
             } catch (error) {
               console.error('❌ Error saving annotation to database:', error);
+              // Don't clear localStorage - allow retry
             }
           }
         } catch (error) {
           console.error('❌ Error processing pending annotation:', error);
+          // Only clear if it's a parse error (bad JSON)
           localStorage.removeItem('pendingAnnotation');
         }
-      }
     };
 
     // Check immediately
@@ -340,21 +391,23 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
     window.addEventListener('focus', handleFocus);
     window.addEventListener('storage', handleStorageChange);
 
-    // Poll localStorage every 500ms for 3 seconds to catch race conditions
-    // (storage events don't fire in the same tab, and focus events might be missed)
+    // IMPROVED POLLING: More aggressive to catch race conditions
+    // Poll localStorage every 300ms for 6 seconds (20 attempts instead of 6)
+    // This gives much better reliability when events don't fire
     let pollCount = 0;
-    const maxPolls = 6; // 3 seconds total
+    const maxPolls = 20; // 6 seconds total (20 * 300ms)
     const pollInterval = setInterval(() => {
       pollCount++;
       const pending = localStorage.getItem('pendingAnnotation');
-      if (pending || pollCount >= maxPolls) {
-        if (pending) {
-          console.log('📡 Polling detected pendingAnnotation');
-          checkPendingAnnotation();
-        }
+      if (pending) {
+        console.log(`📡 Poll #${pollCount}/${maxPolls}: Found pending annotation, processing...`);
+        checkPendingAnnotation();
+      }
+      if (pollCount >= maxPolls) {
+        console.log(`⏱️ Polling complete after ${pollCount} attempts`);
         clearInterval(pollInterval);
       }
-    }, 500);
+    }, 300); // Check every 300ms (was 500ms)
 
     return () => {
       window.removeEventListener('focus', handleFocus);
@@ -1683,47 +1736,54 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                         </button>
                                       </div>
 
-                                      {/* Location Input */}
-                                      <input
-                                        type="text"
-                                        placeholder="Location (e.g., Garage, Left Side)"
-                                        value={locationInputs[`${cl._id}-${idx}`] ?? img.location ?? ''}
-                                        onChange={(e) => {
-                                          const newLocation = e.target.value;
-                                          const inputKey = `${cl._id}-${idx}`;
-                                          
-                                          // Update local input state immediately for instant feedback
-                                          setLocationInputs(prev => ({
-                                            ...prev,
-                                            [inputKey]: newLocation
-                                          }));
-                                          
-                                          // Update formState (this might have slight delay)
-                                          const checklistImages = formState.images.filter(i => i.checklist_id === cl._id);
-                                          const imageToUpdate = checklistImages[idx];
-                                          const updatedImages = formState.images.map(i =>
-                                            i === imageToUpdate ? { ...i, location: newLocation } : i
-                                          );
-                                          const updatedFormState = {
-                                            ...formState,
-                                            images: updatedImages,
-                                          };
-                                          setFormState(updatedFormState);
-                                          
-                                          // Trigger debounced auto-save with the updated state
-                                          triggerAutoSave(updatedFormState);
-                                        }}
-                                        style={{
-                                          padding: '0.5rem',
-                                          fontSize: '0.75rem',
-                                          borderRadius: '0.25rem',
-                                          border: '1px solid #d1d5db',
-                                          width: '180px',
-                                          outline: 'none'
-                                        }}
-                                        onFocus={(e) => e.currentTarget.style.borderColor = '#3b82f6'}
-                                        onBlur={(e) => e.currentTarget.style.borderColor = '#d1d5db'}
-                                      />
+                                      {/* Location Dropdown */}
+                                      <div style={{ position: 'relative', width: '180px' }}>
+                                        <select
+                                          value={locationInputs[`${cl._id}-${idx}`] ?? img.location ?? ''}
+                                          onChange={(e) => {
+                                            const newLocation = e.target.value;
+                                            const inputKey = `${cl._id}-${idx}`;
+                                            
+                                            // Update local input state immediately for instant feedback
+                                            setLocationInputs(prev => ({
+                                              ...prev,
+                                              [inputKey]: newLocation
+                                            }));
+                                            
+                                            // Update formState
+                                            const checklistImages = formState.images.filter(i => i.checklist_id === cl._id);
+                                            const imageToUpdate = checklistImages[idx];
+                                            const updatedImages = formState.images.map(i =>
+                                              i === imageToUpdate ? { ...i, location: newLocation } : i
+                                            );
+                                            const updatedFormState = {
+                                              ...formState,
+                                              images: updatedImages,
+                                            };
+                                            setFormState(updatedFormState);
+                                            
+                                            // Trigger auto-save
+                                            setTimeout(() => performAutoSaveWithState(updatedFormState), 100);
+                                          }}
+                                          style={{
+                                            padding: '0.5rem',
+                                            fontSize: '0.75rem',
+                                            borderRadius: '0.25rem',
+                                            border: '1px solid #d1d5db',
+                                            width: '180px',
+                                            outline: 'none',
+                                            backgroundColor: 'white',
+                                            cursor: 'pointer'
+                                          }}
+                                          onFocus={(e) => e.currentTarget.style.borderColor = '#3b82f6'}
+                                          onBlur={(e) => e.currentTarget.style.borderColor = '#d1d5db'}
+                                        >
+                                          <option value="">Select Location</option>
+                                          {LOCATION_OPTIONS.map((loc) => (
+                                            <option key={loc} value={loc}>{loc}</option>
+                                          ))}
+                                        </select>
+                                      </div>
 
                                       <button
                                         onClick={() => {
@@ -2054,47 +2114,54 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                         </button>
                                       </div>
 
-                                      {/* Location Input */}
-                                      <input
-                                        type="text"
-                                        placeholder="Location (e.g., Garage, Left Side)"
-                                        value={locationInputs[`${cl._id}-${idx}`] ?? img.location ?? ''}
-                                        onChange={(e) => {
-                                          const newLocation = e.target.value;
-                                          const inputKey = `${cl._id}-${idx}`;
-                                          
-                                          // Update local input state immediately for instant feedback
-                                          setLocationInputs(prev => ({
-                                            ...prev,
-                                            [inputKey]: newLocation
-                                          }));
-                                          
-                                          // Update formState (this might have slight delay)
-                                          const checklistImages = formState.images.filter(i => i.checklist_id === cl._id);
-                                          const imageToUpdate = checklistImages[idx];
-                                          const updatedImages = formState.images.map(i =>
-                                            i === imageToUpdate ? { ...i, location: newLocation } : i
-                                          );
-                                          const updatedFormState = {
-                                            ...formState,
-                                            images: updatedImages,
-                                          };
-                                          setFormState(updatedFormState);
-                                          
-                                          // Trigger debounced auto-save with the updated state
-                                          triggerAutoSave(updatedFormState);
-                                        }}
-                                        style={{
-                                          padding: '0.5rem',
-                                          fontSize: '0.75rem',
-                                          borderRadius: '0.25rem',
-                                          border: '1px solid #d1d5db',
-                                          width: '180px',
-                                          outline: 'none'
-                                        }}
-                                        onFocus={(e) => e.currentTarget.style.borderColor = '#10b981'}
-                                        onBlur={(e) => e.currentTarget.style.borderColor = '#d1d5db'}
-                                      />
+                                      {/* Location Dropdown */}
+                                      <div style={{ position: 'relative', width: '180px' }}>
+                                        <select
+                                          value={locationInputs[`${cl._id}-${idx}`] ?? img.location ?? ''}
+                                          onChange={(e) => {
+                                            const newLocation = e.target.value;
+                                            const inputKey = `${cl._id}-${idx}`;
+                                            
+                                            // Update local input state immediately for instant feedback
+                                            setLocationInputs(prev => ({
+                                              ...prev,
+                                              [inputKey]: newLocation
+                                            }));
+                                            
+                                            // Update formState
+                                            const checklistImages = formState.images.filter(i => i.checklist_id === cl._id);
+                                            const imageToUpdate = checklistImages[idx];
+                                            const updatedImages = formState.images.map(i =>
+                                              i === imageToUpdate ? { ...i, location: newLocation } : i
+                                            );
+                                            const updatedFormState = {
+                                              ...formState,
+                                              images: updatedImages,
+                                            };
+                                            setFormState(updatedFormState);
+                                            
+                                            // Trigger auto-save
+                                            setTimeout(() => performAutoSaveWithState(updatedFormState), 100);
+                                          }}
+                                          style={{
+                                            padding: '0.5rem',
+                                            fontSize: '0.75rem',
+                                            borderRadius: '0.25rem',
+                                            border: '1px solid #d1d5db',
+                                            width: '180px',
+                                            outline: 'none',
+                                            backgroundColor: 'white',
+                                            cursor: 'pointer'
+                                          }}
+                                          onFocus={(e) => e.currentTarget.style.borderColor = '#10b981'}
+                                          onBlur={(e) => e.currentTarget.style.borderColor = '#d1d5db'}
+                                        >
+                                          <option value="">Select Location</option>
+                                          {LOCATION_OPTIONS.map((loc) => (
+                                            <option key={loc} value={loc}>{loc}</option>
+                                          ))}
+                                        </select>
+                                      </div>
 
                                       <button
                                         onClick={() => {

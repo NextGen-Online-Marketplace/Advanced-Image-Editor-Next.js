@@ -2274,14 +2274,19 @@ export default function InspectionReportPage() {
                                           // Join selected answers with comma
                                           const answerValue = selectedAnswers.join(', ');
                                           
+                                          // Hide "General:" prefix, only show the field name in bold
+                                          const shouldHideLabel = label === 'General';
+                                          
                                           return (
                                             <div key={itemId} className={styles.informationGridItem}>
                                               <div>
-                                                <span style={{ fontWeight: 700, color: '#000000' }}>{label}:</span>
+                                                {!shouldHideLabel && (
+                                                  <span style={{ fontWeight: 700, color: '#000000' }}>{label}:</span>
+                                                )}
                                                 <span style={{ 
-                                                  marginLeft: '0.25rem',
-                                                  fontWeight: 400,
-                                                  color: '#374151'
+                                                  marginLeft: shouldHideLabel ? '0' : '0.25rem',
+                                                  fontWeight: shouldHideLabel ? 700 : 400,
+                                                  color: shouldHideLabel ? '#000000' : '#374151'
                                                 }}>
                                                   {displayLabel}
                                                 </span>
