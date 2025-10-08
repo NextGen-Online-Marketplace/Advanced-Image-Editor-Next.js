@@ -40,6 +40,7 @@ interface AddBlockFormState {
   section_id: string;
   selected_checklist_ids: Set<string>;
   selected_answers: Map<string, Set<string>>; // NEW: Maps checklist_id to set of selected answer choices
+  custom_answers: Map<string, Set<string>>; // Track custom answers added via "Add" button (inspection-specific)
   custom_text: string;
   images: IBlockImage[]; // Store images for the block
 }
@@ -69,6 +70,9 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
 
   // Local input values for location fields (to prevent last character issue)
   const [locationInputs, setLocationInputs] = useState<Record<string, string>>({});
+
+  // Custom answer inputs for ad-hoc answers during inspection
+  const [customAnswerInputs, setCustomAnswerInputs] = useState<Record<string, string>>({});
 
   // Admin checklist management
   const [checklistFormOpen, setChecklistFormOpen] = useState(false);
@@ -384,10 +388,13 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                 .filter(Boolean)
               : [];
 
+            const selectedAnswersMap = convertSelectedAnswersToMap(latestBlock.selected_answers);
+            
             setFormState({
               section_id: section._id,
               selected_checklist_ids: new Set(selectedIds),
-              selected_answers: convertSelectedAnswersToMap(latestBlock.selected_answers),
+              selected_answers: selectedAnswersMap,
+              custom_answers: extractCustomAnswers(selectedAnswersMap, section._id),
               custom_text: latestBlock.custom_text || '',
               images: latestBlock.images || [],
             });
@@ -401,10 +408,13 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                 .filter(Boolean)
               : [];
 
+            const selectedAnswersMap = convertSelectedAnswersToMap(existingBlock.selected_answers);
+            
             setFormState({
               section_id: section._id,
               selected_checklist_ids: new Set(selectedIds),
-              selected_answers: convertSelectedAnswersToMap(existingBlock.selected_answers),
+              selected_answers: selectedAnswersMap,
+              custom_answers: extractCustomAnswers(selectedAnswersMap, section._id),
               custom_text: existingBlock.custom_text || '',
               images: existingBlock.images || [],
             });
@@ -422,10 +432,13 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
             .filter(Boolean)
           : [];
 
+        const selectedAnswersMap = convertSelectedAnswersToMap(existingBlock.selected_answers);
+        
         setFormState({
           section_id: section._id,
           selected_checklist_ids: new Set(selectedIds),
-          selected_answers: convertSelectedAnswersToMap(existingBlock.selected_answers),
+          selected_answers: selectedAnswersMap,
+          custom_answers: extractCustomAnswers(selectedAnswersMap, section._id),
           custom_text: existingBlock.custom_text || '',
           images: existingBlock.images || [],
         });
@@ -437,6 +450,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
         section_id: section._id,
         selected_checklist_ids: new Set(),
         selected_answers: new Map(), // Empty for new blocks
+        custom_answers: new Map(), // Empty for new blocks
         custom_text: '',
         images: [],
       });
@@ -478,6 +492,37 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
     return answersMap;
   };
 
+  // Helper function to extract custom answers (answers not in template) from selected_answers
+  const extractCustomAnswers = (
+    selectedAnswersMap: Map<string, Set<string>>, 
+    sectionId: string
+  ): Map<string, Set<string>> => {
+    const customAnswersMap = new Map<string, Set<string>>();
+    const section = sections.find(s => s._id === sectionId);
+    
+    if (!section) return customAnswersMap;
+    
+    selectedAnswersMap.forEach((answers, checklistId) => {
+      const checklist = section.checklists.find(cl => cl._id === checklistId);
+      if (!checklist) return;
+      
+      const templateChoices = checklist.answer_choices || [];
+      const customAnswers = new Set<string>();
+      
+      answers.forEach(answer => {
+        if (!templateChoices.includes(answer)) {
+          customAnswers.add(answer);
+        }
+      });
+      
+      if (customAnswers.size > 0) {
+        customAnswersMap.set(checklistId, customAnswers);
+      }
+    });
+    
+    return customAnswersMap;
+  };
+
   // Toggle answer choice for a specific checklist item
   const toggleAnswer = (checklistId: string, answer: string) => {
     if (!formState) return;
@@ -508,6 +553,168 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
   // Get selected answers for a checklist item
   const getSelectedAnswers = (checklistId: string): Set<string> => {
     return formState?.selected_answers.get(checklistId) || new Set<string>();
+  };
+
+  // Get all answers for a checklist (template + custom answers added via "Add" button)
+  const getAllAnswers = (checklistId: string, templateChoices: string[] = []): string[] => {
+    const customAnswersForItem = formState?.custom_answers.get(checklistId) || new Set<string>();
+    const allAnswers = new Set([...templateChoices, ...Array.from(customAnswersForItem)]);
+    
+    return Array.from(allAnswers);
+  };
+
+  // Check if an answer is a custom answer (not in template)
+  const isCustomAnswer = (checklistId: string, answer: string, templateChoices: string[] = []): boolean => {
+    return !templateChoices.includes(answer) && (formState?.custom_answers.get(checklistId)?.has(answer) || false);
+  };
+
+  // Add custom answer for inspection (one-time use, not saved to template)
+  const addCustomAnswer = (checklistId: string) => {
+    const inputKey = `custom-${checklistId}`;
+    const customAnswer = customAnswerInputs[inputKey]?.trim();
+    
+    if (!customAnswer) {
+      alert('Please enter a custom answer');
+      return;
+    }
+    
+    // Check if already exists in template
+    const checklist = activeSection?.checklists.find(cl => cl._id === checklistId);
+    const templateChoices = checklist?.answer_choices || [];
+    
+    if (templateChoices.includes(customAnswer)) {
+      alert('This option already exists in the template. Please use the existing option.');
+      return;
+    }
+    
+    // Check if already exists in custom answers
+    const customAnswersForItem = formState?.custom_answers.get(checklistId) || new Set<string>();
+    if (customAnswersForItem.has(customAnswer)) {
+      alert('This custom answer already exists');
+      return;
+    }
+    
+    // Add to custom_answers map so it persists in UI even when unchecked
+    const newCustomAnswers = new Map(formState?.custom_answers || new Map());
+    const currentCustomAnswers = new Set(newCustomAnswers.get(checklistId) || new Set<string>());
+    currentCustomAnswers.add(customAnswer);
+    newCustomAnswers.set(checklistId, currentCustomAnswers);
+    
+    // Also add to selected answers (auto-select it)
+    const newAnswers = new Map(formState?.selected_answers || new Map());
+    const currentAnswers = new Set(newAnswers.get(checklistId) || new Set<string>());
+    currentAnswers.add(customAnswer);
+    newAnswers.set(checklistId, currentAnswers);
+    
+    const updatedFormState = { 
+      ...formState!, 
+      custom_answers: newCustomAnswers,
+      selected_answers: newAnswers 
+    };
+    setFormState(updatedFormState);
+    
+    // Clear input
+    setCustomAnswerInputs(prev => ({
+      ...prev,
+      [inputKey]: ''
+    }));
+    
+    // Trigger auto-save
+    setTimeout(() => performAutoSaveWithState(updatedFormState), 100);
+  };
+
+  // Add custom answer AND save it permanently to the template
+  const addCustomAnswerPermanently = async (checklistId: string) => {
+    const inputKey = `custom-${checklistId}`;
+    const customAnswer = customAnswerInputs[inputKey]?.trim();
+    
+    if (!customAnswer) {
+      alert('Please enter a custom answer');
+      return;
+    }
+
+    try {
+      // Find the checklist item
+      const checklist = sections
+        .flatMap(s => s.checklists)
+        .find(cl => cl._id === checklistId);
+      
+      if (!checklist) {
+        alert('Checklist item not found');
+        return;
+      }
+
+      // Check if answer already exists in template
+      if (checklist.answer_choices?.includes(customAnswer)) {
+        alert('This option already exists in the template');
+        return;
+      }
+
+      // Add to template via API
+      const updatedChoices = [...(checklist.answer_choices || []), customAnswer];
+      const res = await fetch(`/api/checklists/${checklistId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: checklist.text,
+          comment: checklist.comment,
+          type: checklist.type,
+          answer_choices: updatedChoices
+        }),
+      });
+      
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || 'Failed to save to template');
+
+      // Refresh sections to show new choice
+      await fetchSections();
+
+      // Update activeSection to reflect the new choice immediately
+      if (activeSection) {
+        const updatedChecklist = activeSection.checklists.find(cl => cl._id === checklistId);
+        if (updatedChecklist) {
+          updatedChecklist.answer_choices = updatedChoices;
+          setActiveSection({ ...activeSection });
+        }
+      }
+
+      // Remove from custom_answers since it's now a template choice
+      const newCustomAnswers = new Map(formState?.custom_answers || new Map());
+      const currentCustomAnswers = new Set(newCustomAnswers.get(checklistId) || new Set<string>());
+      currentCustomAnswers.delete(customAnswer);
+      
+      if (currentCustomAnswers.size > 0) {
+        newCustomAnswers.set(checklistId, currentCustomAnswers);
+      } else {
+        newCustomAnswers.delete(checklistId);
+      }
+
+      // Add to selected answers for current inspection
+      const newAnswers = new Map(formState?.selected_answers || new Map());
+      const currentAnswers = new Set(newAnswers.get(checklistId) || new Set<string>());
+      currentAnswers.add(customAnswer);
+      newAnswers.set(checklistId, currentAnswers);
+
+      const updatedFormState = {
+        ...formState!,
+        custom_answers: newCustomAnswers,
+        selected_answers: newAnswers
+      };
+      setFormState(updatedFormState);
+
+      // Clear input
+      setCustomAnswerInputs(prev => ({
+        ...prev,
+        [inputKey]: ''
+      }));
+
+      // Trigger auto-save
+      setTimeout(() => performAutoSaveWithState(updatedFormState), 100);
+
+      alert('✅ Answer saved to template and selected for this inspection!');
+    } catch (e: any) {
+      alert('Error saving to template: ' + e.message);
+    }
   };
 
   const handleSave = async () => {
@@ -811,11 +1018,19 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
   const openChecklistForm = (type: 'status' | 'information', existingChecklist?: ISectionChecklist) => {
     if (existingChecklist) {
       setEditingChecklistId(existingChecklist._id);
+      
+      // Get custom answers for this checklist item from current inspection
+      const customAnswersForItem = formState?.custom_answers.get(existingChecklist._id) || new Set<string>();
+      const templateChoices = existingChecklist.answer_choices || [];
+      
+      // Combine template choices with custom answers
+      const allChoices = [...templateChoices, ...Array.from(customAnswersForItem)];
+      
       setChecklistFormData({
         text: existingChecklist.text,
         comment: existingChecklist.comment || '',
         type: existingChecklist.type,
-        answer_choices: existingChecklist.answer_choices || [],
+        answer_choices: allChoices,
       });
     } else {
       setEditingChecklistId(null);
@@ -887,14 +1102,71 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
     setSavingChecklist(true);
     try {
       if (editingChecklistId) {
-        // Update existing checklist
+        // Get the original checklist to determine which choices are custom
+        const originalChecklist = activeSection.checklists.find(cl => cl._id === editingChecklistId);
+        const originalTemplateChoices = originalChecklist?.answer_choices || [];
+        const existingCustomAnswers = formState?.custom_answers.get(editingChecklistId) || new Set<string>();
+        
+        // Separate current choices (from checklistFormData) into template vs custom
+        const templateChoices: string[] = [];
+        const customAnswers = new Set<string>();
+        
+        checklistFormData.answer_choices.forEach(choice => {
+          // Check if this was a custom answer
+          if (existingCustomAnswers.has(choice)) {
+            // It's a custom answer, keep it custom
+            customAnswers.add(choice);
+          } else {
+            // It's a template choice (either original or newly added via "Save to Template")
+            templateChoices.push(choice);
+          }
+        });
+        
+        // Update existing checklist - only save template choices to DB
         const res = await fetch(`/api/checklists/${editingChecklistId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(checklistFormData),
+          body: JSON.stringify({
+            text: checklistFormData.text,
+            comment: checklistFormData.comment,
+            type: checklistFormData.type,
+            answer_choices: templateChoices,
+          }),
         });
         const json = await res.json();
         if (!json.success) throw new Error(json.error || 'Failed to update checklist');
+        
+        // Update custom_answers in formState
+        const newCustomAnswers = new Map(formState?.custom_answers || new Map());
+        if (customAnswers.size > 0) {
+          newCustomAnswers.set(editingChecklistId, customAnswers);
+        } else {
+          newCustomAnswers.delete(editingChecklistId);
+        }
+        setFormState({
+          ...formState!,
+          custom_answers: newCustomAnswers
+        });
+        
+        // Update activeSection immediately to show changes
+        if (activeSection) {
+          const updatedChecklists = activeSection.checklists.map(cl => {
+            if (cl._id === editingChecklistId) {
+              return {
+                ...cl,
+                text: checklistFormData.text,
+                comment: checklistFormData.comment,
+                type: checklistFormData.type,
+                answer_choices: templateChoices
+              };
+            }
+            return cl;
+          });
+          setActiveSection({
+            ...activeSection,
+            checklists: updatedChecklists
+          });
+        }
       } else {
         // Create new checklist
         const res = await fetch('/api/checklists', {
@@ -1160,24 +1432,73 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
 
                       return (
                         <div key={cl._id} style={{ padding: '0.5rem', borderRadius: '0.25rem', backgroundColor: isSelected ? '#eff6ff' : 'transparent', border: '1px solid #e5e7eb' }}>
-                          <label style={{ display: 'flex', fontSize: '0.875rem', cursor: 'pointer' }}>
-                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', flex: 1 }}>
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={() => toggleChecklist(cl._id)}
-                                style={{ marginTop: '0.2rem' }}
-                              />
-                              <div style={{ flex: 1 }}>
-                                <div style={{ fontWeight: 600, color: '#1f2937' }}>{cl.text}</div>
-                                {cl.comment && (
-                                  <div style={{ marginLeft: '0rem', marginTop: '0.25rem', color: '#6b7280', fontSize: '0.8rem' }}>
-                                    {cl.comment.length > 150 ? cl.comment.slice(0, 150) + '…' : cl.comment}
-                                  </div>
-                                )}
+                          {/* Header - clickable to toggle selection */}
+                          <label style={{ display: 'flex', fontSize: '0.875rem', cursor: 'pointer', alignItems: 'flex-start', gap: '0.5rem' }}>
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleChecklist(cl._id)}
+                              style={{ marginTop: '0.2rem', cursor: 'pointer' }}
+                            />
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontWeight: 600, color: '#1f2937' }}>{cl.text}</div>
+                              {cl.comment && (
+                                <div style={{ marginLeft: '0rem', marginTop: '0.25rem', color: '#6b7280', fontSize: '0.8rem' }}>
+                                  {cl.comment.length > 150 ? cl.comment.slice(0, 150) + '…' : cl.comment}
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ display: 'flex', gap: '0.25rem', marginLeft: '0.5rem' }} onClick={(e) => e.preventDefault()}>
+                              <button
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  openChecklistForm('status', cl);
+                                }}
+                                style={{
+                                  padding: '0.2rem 0.35rem',
+                                  fontSize: '0.7rem',
+                                  borderRadius: '0.2rem',
+                                  backgroundColor: '#f59e0b',
+                                  color: 'white',
+                                  border: 'none',
+                                  cursor: 'pointer'
+                                }}
+                                onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#d97706'}
+                                onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#f59e0b'}
+                                title="Edit checklist"
+                              >
+                                ✏️
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  handleDeleteChecklist(cl._id);
+                                }}
+                                style={{
+                                  padding: '0.2rem 0.35rem',
+                                  fontSize: '0.7rem',
+                                  borderRadius: '0.2rem',
+                                  backgroundColor: '#ef4444',
+                                  color: 'white',
+                                  border: 'none',
+                                  cursor: 'pointer'
+                                }}
+                                onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#dc2626'}
+                                onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#ef4444'}
+                                title="Delete checklist"
+                              >
+                                🗑️
+                              </button>
+                            </div>
+                          </label>
+
+                          {/* Content area - NOT clickable to toggle */}
+                          <div>
                                 
-                                {/* Answer Choices - show when selected and choices exist */}
-                                {isSelected && cl.answer_choices && cl.answer_choices.length > 0 && (
+                                {/* Answer Choices - show when selected */}
+                                {isSelected && (cl.answer_choices && cl.answer_choices.length > 0 || getSelectedAnswers(cl._id).size > 0) && (
                                   <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid #e5e7eb' }}>
                                     <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#4b5563', marginBottom: '0.5rem' }}>
                                       Select Options:
@@ -1187,9 +1508,10 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                       gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', 
                                       gap: '0.5rem' 
                                     }}>
-                                      {cl.answer_choices.map((choice, idx) => {
+                                      {getAllAnswers(cl._id, cl.answer_choices || []).map((choice, idx) => {
                                         const selectedAnswers = getSelectedAnswers(cl._id);
                                         const isAnswerSelected = selectedAnswers.has(choice);
+                                        const isCustom = isCustomAnswer(cl._id, choice, cl.answer_choices || []);
                                         
                                         return (
                                           <label 
@@ -1205,6 +1527,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                               cursor: 'pointer',
                                               fontSize: '0.75rem',
                                               transition: 'all 0.15s ease',
+                                              position: 'relative'
                                             }}
                                             onMouseEnter={(e) => {
                                               if (!isAnswerSelected) {
@@ -1226,62 +1549,96 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                               style={{ cursor: 'pointer' }}
                                               onClick={(e) => e.stopPropagation()}
                                             />
-                                            <span style={{ color: '#374151', userSelect: 'none' }}>
+                                            <span style={{ color: '#374151', userSelect: 'none', flex: 1 }}>
                                               {choice}
                                             </span>
+                                            {isCustom && (
+                                              <span style={{ 
+                                                fontSize: '0.6rem', 
+                                                backgroundColor: '#fbbf24', 
+                                                color: '#78350f',
+                                                padding: '0.1rem 0.3rem',
+                                                borderRadius: '0.2rem',
+                                                fontWeight: 600
+                                              }}>
+                                                Custom
+                                              </span>
+                                            )}
                                           </label>
                                         );
                                       })}
                                     </div>
+
+                                    {/* Custom Answer Input */}
+                                    <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid #e5e7eb' }}>
+                                      <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#4b5563', marginBottom: '0.5rem' }}>
+                                        Add Custom Answer:
+                                      </div>
+                                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                                        <input
+                                          type="text"
+                                          placeholder="Type custom answer..."
+                                          value={customAnswerInputs[`custom-${cl._id}`] || ''}
+                                          onChange={(e) => setCustomAnswerInputs(prev => ({
+                                            ...prev,
+                                            [`custom-${cl._id}`]: e.target.value
+                                          }))}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                              e.preventDefault();
+                                              addCustomAnswer(cl._id);
+                                            }
+                                          }}
+                                          style={{
+                                            flex: 1,
+                                            padding: '0.5rem',
+                                            fontSize: '0.75rem',
+                                            borderRadius: '0.25rem',
+                                            border: '1px solid #d1d5db',
+                                            outline: 'none'
+                                          }}
+                                        />
+                                        <button
+                                          onClick={() => addCustomAnswer(cl._id)}
+                                          style={{
+                                            padding: '0.5rem 0.75rem',
+                                            fontSize: '0.7rem',
+                                            borderRadius: '0.25rem',
+                                            backgroundColor: '#3b82f6',
+                                            color: 'white',
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                            whiteSpace: 'nowrap',
+                                            fontWeight: 600
+                                          }}
+                                          title="Add answer for this inspection only"
+                                        >
+                                          Add
+                                        </button>
+                                        <button
+                                          onClick={() => addCustomAnswerPermanently(cl._id)}
+                                          style={{
+                                            padding: '0.5rem 0.75rem',
+                                            fontSize: '0.7rem',
+                                            borderRadius: '0.25rem',
+                                            backgroundColor: '#10b981',
+                                            color: 'white',
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                            whiteSpace: 'nowrap',
+                                            fontWeight: 600
+                                          }}
+                                          title="Save to template permanently for all future inspections"
+                                        >
+                                          Save to Template
+                                        </button>
+                                      </div>
+                                      <div style={{ fontSize: '0.65rem', color: '#6b7280', marginTop: '0.375rem', fontStyle: 'italic' }}>
+                                        💡 <strong>Add</strong> = Use only for this inspection • <strong>Save to Template</strong> = Add permanently for all inspections
+                                      </div>
+                                    </div>
                                   </div>
                                 )}
-                              </div>
-                              <div style={{ display: 'flex', gap: '0.25rem', marginLeft: '0.5rem' }}>
-                                <button
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    openChecklistForm('status', cl);
-                                  }}
-                                  style={{
-                                    padding: '0.2rem 0.35rem',
-                                    fontSize: '0.7rem',
-                                    borderRadius: '0.2rem',
-                                    backgroundColor: '#f59e0b',
-                                    color: 'white',
-                                    border: 'none',
-                                    cursor: 'pointer'
-                                  }}
-                                  onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#d97706'}
-                                  onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#f59e0b'}
-                                  title="Edit checklist"
-                                >
-                                  ✏️
-                                </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    handleDeleteChecklist(cl._id);
-                                  }}
-                                  style={{
-                                    padding: '0.2rem 0.35rem',
-                                    fontSize: '0.7rem',
-                                    borderRadius: '0.2rem',
-                                    backgroundColor: '#ef4444',
-                                    color: 'white',
-                                    border: 'none',
-                                    cursor: 'pointer'
-                                  }}
-                                  onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#dc2626'}
-                                  onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#ef4444'}
-                                  title="Delete checklist"
-                                >
-                                  🗑️
-                                </button>
-                              </div>
-                            </div>
-                          </label>
 
                           {/* Image upload section - show only when item is selected */}
                           {isSelected && (
@@ -1404,6 +1761,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                               )}
                             </div>
                           )}
+                          </div>
                         </div>
                       );
                     })}
@@ -1445,24 +1803,73 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
 
                       return (
                         <div key={cl._id} style={{ padding: '0.5rem', borderRadius: '0.25rem', backgroundColor: isSelected ? '#f0fdf4' : 'transparent', border: '1px solid #e5e7eb' }}>
-                          <label style={{ display: 'flex', fontSize: '0.875rem', cursor: 'pointer' }}>
-                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', flex: 1 }}>
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={() => toggleChecklist(cl._id)}
-                                style={{ marginTop: '0.2rem' }}
-                              />
-                              <div style={{ flex: 1 }}>
-                                <div style={{ fontWeight: 600, color: '#1f2937' }}>{cl.text}</div>
-                                {cl.comment && (
-                                  <div style={{ marginLeft: '0rem', marginTop: '0.25rem', color: '#6b7280', fontSize: '0.8rem' }}>
-                                    {cl.comment.length > 150 ? cl.comment.slice(0, 150) + '…' : cl.comment}
-                                  </div>
-                                )}
+                          {/* Header - clickable to toggle selection */}
+                          <label style={{ display: 'flex', fontSize: '0.875rem', cursor: 'pointer', alignItems: 'flex-start', gap: '0.5rem' }}>
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleChecklist(cl._id)}
+                              style={{ marginTop: '0.2rem', cursor: 'pointer' }}
+                            />
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontWeight: 600, color: '#1f2937' }}>{cl.text}</div>
+                              {cl.comment && (
+                                <div style={{ marginLeft: '0rem', marginTop: '0.25rem', color: '#6b7280', fontSize: '0.8rem' }}>
+                                  {cl.comment.length > 150 ? cl.comment.slice(0, 150) + '…' : cl.comment}
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ display: 'flex', gap: '0.25rem', marginLeft: '0.5rem' }} onClick={(e) => e.preventDefault()}>
+                              <button
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  openChecklistForm('information', cl);
+                                }}
+                                style={{
+                                  padding: '0.2rem 0.35rem',
+                                  fontSize: '0.7rem',
+                                  borderRadius: '0.2rem',
+                                  backgroundColor: '#f59e0b',
+                                  color: 'white',
+                                  border: 'none',
+                                  cursor: 'pointer'
+                                }}
+                                onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#d97706'}
+                                onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#f59e0b'}
+                                title="Edit checklist"
+                              >
+                                ✏️
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  handleDeleteChecklist(cl._id);
+                                }}
+                                style={{
+                                  padding: '0.2rem 0.35rem',
+                                  fontSize: '0.7rem',
+                                  borderRadius: '0.2rem',
+                                  backgroundColor: '#ef4444',
+                                  color: 'white',
+                                  border: 'none',
+                                  cursor: 'pointer'
+                                }}
+                                onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#dc2626'}
+                                onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#ef4444'}
+                                title="Delete checklist"
+                              >
+                                🗑️
+                              </button>
+                            </div>
+                          </label>
+
+                          {/* Content area - NOT clickable to toggle */}
+                          <div>
                                 
-                                {/* Answer Choices - show when selected and choices exist */}
-                                {isSelected && cl.answer_choices && cl.answer_choices.length > 0 && (
+                                {/* Answer Choices - show when selected */}
+                                {isSelected && (cl.answer_choices && cl.answer_choices.length > 0 || getSelectedAnswers(cl._id).size > 0) && (
                                   <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid #e5e7eb' }}>
                                     <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#4b5563', marginBottom: '0.5rem' }}>
                                       Select Options:
@@ -1472,9 +1879,10 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                       gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', 
                                       gap: '0.5rem' 
                                     }}>
-                                      {cl.answer_choices.map((choice, idx) => {
+                                      {getAllAnswers(cl._id, cl.answer_choices || []).map((choice, idx) => {
                                         const selectedAnswers = getSelectedAnswers(cl._id);
                                         const isAnswerSelected = selectedAnswers.has(choice);
+                                        const isCustom = isCustomAnswer(cl._id, choice, cl.answer_choices || []);
                                         
                                         return (
                                           <label 
@@ -1490,6 +1898,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                               cursor: 'pointer',
                                               fontSize: '0.75rem',
                                               transition: 'all 0.15s ease',
+                                              position: 'relative'
                                             }}
                                             onMouseEnter={(e) => {
                                               if (!isAnswerSelected) {
@@ -1511,62 +1920,96 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                               style={{ cursor: 'pointer' }}
                                               onClick={(e) => e.stopPropagation()}
                                             />
-                                            <span style={{ color: '#374151', userSelect: 'none' }}>
+                                            <span style={{ color: '#374151', userSelect: 'none', flex: 1 }}>
                                               {choice}
                                             </span>
+                                            {isCustom && (
+                                              <span style={{ 
+                                                fontSize: '0.6rem', 
+                                                backgroundColor: '#fbbf24', 
+                                                color: '#78350f',
+                                                padding: '0.1rem 0.3rem',
+                                                borderRadius: '0.2rem',
+                                                fontWeight: 600
+                                              }}>
+                                                Custom
+                                              </span>
+                                            )}
                                           </label>
                                         );
                                       })}
                                     </div>
+
+                                    {/* Custom Answer Input */}
+                                    <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid #e5e7eb' }}>
+                                      <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#4b5563', marginBottom: '0.5rem' }}>
+                                        Add Custom Answer:
+                                      </div>
+                                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                                        <input
+                                          type="text"
+                                          placeholder="Type custom answer..."
+                                          value={customAnswerInputs[`custom-${cl._id}`] || ''}
+                                          onChange={(e) => setCustomAnswerInputs(prev => ({
+                                            ...prev,
+                                            [`custom-${cl._id}`]: e.target.value
+                                          }))}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                              e.preventDefault();
+                                              addCustomAnswer(cl._id);
+                                            }
+                                          }}
+                                          style={{
+                                            flex: 1,
+                                            padding: '0.5rem',
+                                            fontSize: '0.75rem',
+                                            borderRadius: '0.25rem',
+                                            border: '1px solid #d1d5db',
+                                            outline: 'none'
+                                          }}
+                                        />
+                                        <button
+                                          onClick={() => addCustomAnswer(cl._id)}
+                                          style={{
+                                            padding: '0.5rem 0.75rem',
+                                            fontSize: '0.7rem',
+                                            borderRadius: '0.25rem',
+                                            backgroundColor: '#10b981',
+                                            color: 'white',
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                            whiteSpace: 'nowrap',
+                                            fontWeight: 600
+                                          }}
+                                          title="Add answer for this inspection only"
+                                        >
+                                          Add
+                                        </button>
+                                        <button
+                                          onClick={() => addCustomAnswerPermanently(cl._id)}
+                                          style={{
+                                            padding: '0.5rem 0.75rem',
+                                            fontSize: '0.7rem',
+                                            borderRadius: '0.25rem',
+                                            backgroundColor: '#059669',
+                                            color: 'white',
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                            whiteSpace: 'nowrap',
+                                            fontWeight: 600
+                                          }}
+                                          title="Save to template permanently for all future inspections"
+                                        >
+                                          Save to Template
+                                        </button>
+                                      </div>
+                                      <div style={{ fontSize: '0.65rem', color: '#6b7280', marginTop: '0.375rem', fontStyle: 'italic' }}>
+                                        💡 <strong>Add</strong> = Use only for this inspection • <strong>Save to Template</strong> = Add permanently for all inspections
+                                      </div>
+                                    </div>
                                   </div>
                                 )}
-                              </div>
-                              <div style={{ display: 'flex', gap: '0.25rem', marginLeft: '0.5rem' }}>
-                                <button
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    openChecklistForm('information', cl);
-                                  }}
-                                  style={{
-                                    padding: '0.2rem 0.35rem',
-                                    fontSize: '0.7rem',
-                                    borderRadius: '0.2rem',
-                                    backgroundColor: '#f59e0b',
-                                    color: 'white',
-                                    border: 'none',
-                                    cursor: 'pointer'
-                                  }}
-                                  onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#d97706'}
-                                  onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#f59e0b'}
-                                  title="Edit checklist"
-                                >
-                                  ✏️
-                                </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    handleDeleteChecklist(cl._id);
-                                  }}
-                                  style={{
-                                    padding: '0.2rem 0.35rem',
-                                    fontSize: '0.7rem',
-                                    borderRadius: '0.2rem',
-                                    backgroundColor: '#ef4444',
-                                    color: 'white',
-                                    border: 'none',
-                                    cursor: 'pointer'
-                                  }}
-                                  onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#dc2626'}
-                                  onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#ef4444'}
-                                  title="Delete checklist"
-                                >
-                                  🗑️
-                                </button>
-                              </div>
-                            </div>
-                          </label>
 
                           {/* Image upload section - show only when item is selected */}
                           {isSelected && (
@@ -1689,6 +2132,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                               )}
                             </div>
                           )}
+                          </div>
                         </div>
                       );
                     })}
@@ -1862,52 +2306,8 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                   📋 Answer Choices (Select Options)
                 </label>
                 <p style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.75rem' }}>
-                  Add predefined options that users can select for this checklist item
+                  Manage predefined options for this checklist item. Add new options using "Add Custom Answer" in the inspection block editor.
                 </p>
-
-                {/* Add New Choice */}
-                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-                  <input
-                    type="text"
-                    value={newAnswerChoice}
-                    onChange={(e) => setNewAnswerChoice(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddAnswerChoice();
-                      }
-                    }}
-                    placeholder="Enter new option..."
-                    style={{
-                      flex: 1,
-                      border: '1px solid #d1d5db',
-                      borderRadius: '0.375rem',
-                      padding: '0.5rem 0.75rem',
-                      fontSize: '0.875rem',
-                      outline: 'none'
-                    }}
-                    onFocus={(e) => e.currentTarget.style.borderColor = '#3b82f6'}
-                    onBlur={(e) => e.currentTarget.style.borderColor = '#d1d5db'}
-                  />
-                  <button
-                    onClick={handleAddAnswerChoice}
-                    style={{
-                      padding: '0.5rem 1rem',
-                      fontSize: '0.875rem',
-                      borderRadius: '0.375rem',
-                      backgroundColor: '#10b981',
-                      color: 'white',
-                      border: 'none',
-                      cursor: 'pointer',
-                      fontWeight: 500,
-                      whiteSpace: 'nowrap'
-                    }}
-                    onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#059669'}
-                    onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#10b981'}
-                  >
-                    + Add
-                  </button>
-                </div>
 
                 {/* List of Choices */}
                 {checklistFormData.answer_choices.length > 0 ? (
@@ -1921,7 +2321,12 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                     borderRadius: '0.375rem',
                     padding: '0.75rem'
                   }}>
-                    {checklistFormData.answer_choices.map((choice, index) => (
+                    {checklistFormData.answer_choices.map((choice, index) => {
+                      // Check if this choice is a custom answer (inspection-specific)
+                      const originalChecklist = activeSection?.checklists.find(cl => cl._id === editingChecklistId);
+                      const isCustomAnswer = originalChecklist && !(originalChecklist.answer_choices || []).includes(choice);
+                      
+                      return (
                       <div 
                         key={index}
                         style={{
@@ -1929,9 +2334,9 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                           alignItems: 'center',
                           gap: '0.5rem',
                           padding: '0.5rem',
-                          backgroundColor: '#f9fafb',
+                          backgroundColor: isCustomAnswer ? '#fef3c7' : '#f9fafb',
                           borderRadius: '0.25rem',
-                          border: '1px solid #e5e7eb'
+                          border: `1px solid ${isCustomAnswer ? '#f59e0b' : '#e5e7eb'}`
                         }}
                       >
                         {editingAnswerIndex === index ? (
@@ -1995,8 +2400,20 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                           </>
                         ) : (
                           <>
-                            <span style={{ flex: 1, fontSize: '0.875rem', color: '#374151' }}>
+                            <span style={{ flex: 1, fontSize: '0.875rem', color: '#374151', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                               {choice}
+                              {isCustomAnswer && (
+                                <span style={{
+                                  fontSize: '0.65rem',
+                                  fontWeight: 600,
+                                  padding: '0.125rem 0.375rem',
+                                  borderRadius: '0.25rem',
+                                  backgroundColor: '#f59e0b',
+                                  color: 'white'
+                                }}>
+                                  Custom
+                                </span>
+                              )}
                             </span>
                             <button
                               onClick={() => startEditingAnswer(index)}
@@ -2031,7 +2448,8 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                           </>
                         )}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <div style={{
