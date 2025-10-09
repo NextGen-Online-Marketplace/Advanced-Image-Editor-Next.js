@@ -22,19 +22,42 @@ export async function PUT(
     }
 
     const body = await req.json();
-    const { text, comment, type, answer_choices } = body || {};
+    const { text, comment, type, tab, answer_choices } = body || {};
 
     const updateData: any = {};
+    const unsetData: any = {};
+    
     if (text !== undefined) updateData.text = typeof text === 'string' ? text.trim() : text;
-    if (comment !== undefined) updateData.comment = comment ? comment.trim() : undefined;
+    
+    // Handle comment: if empty, remove it from database using $unset
+    if (comment !== undefined) {
+      const trimmedComment = typeof comment === 'string' ? comment.trim() : comment;
+      if (trimmedComment && trimmedComment.length > 0) {
+        updateData.comment = trimmedComment;
+      } else {
+        // Comment is empty - remove it from database
+        unsetData.comment = '';
+      }
+    }
+    
     if (type !== undefined && ['status', 'information'].includes(type)) updateData.type = type;
+    if (tab !== undefined && ['information', 'limitations'].includes(tab)) updateData.tab = tab;
     if (answer_choices !== undefined) {
       updateData.answer_choices = Array.isArray(answer_choices) && answer_choices.length > 0 ? answer_choices : undefined;
     }
 
+    // Build the update object with both $set and $unset operations
+    const updateOperation: any = {};
+    if (Object.keys(updateData).length > 0) {
+      updateOperation.$set = updateData;
+    }
+    if (Object.keys(unsetData).length > 0) {
+      updateOperation.$unset = unsetData;
+    }
+
     const updated = await SectionChecklist.findByIdAndUpdate(
       checklistId,
-      updateData,
+      updateOperation,
       { new: true, runValidators: true }
     ).lean();
 

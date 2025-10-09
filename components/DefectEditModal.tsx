@@ -402,50 +402,57 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
   if (!isOpen) return null;
 
   return (
-    <div className="modal-overlay">
-      <div className="modal-content defect-edit-modal">
-        <div className="modal-header">
-          <h2>Edit Inspection - {inspectionName}</h2>
-          <button className="modal-close-btn" onClick={onClose}>
-            <i className="fas fa-times"></i>
-          </button>
-        </div>
-
-        {/* Tabs */}
-        <div style={{ padding: '0 1.5rem', borderBottom: '1px solid #e5e7eb' }}>
-          <div style={{ display: 'flex', gap: '1rem' }}>
-            <button
-              onClick={() => setActiveTab('defects')}
-              style={{
-                padding: '0.75rem 1rem',
-                border: 'none',
-                background: 'none',
-                borderBottom: activeTab === 'defects' ? '3px solid #dc2626' : '3px solid transparent',
-                fontWeight: 600,
-                color: activeTab === 'defects' ? '#dc2626' : '#6b7280',
-                cursor: 'pointer'
-              }}
-            >
-              Defects
-            </button>
-            <button
-              onClick={() => setActiveTab('information')}
-              style={{
-                padding: '0.75rem 1rem',
-                border: 'none',
-                background: 'none',
-                borderBottom: activeTab === 'information' ? '3px solid #dc2626' : '3px solid transparent',
-                fontWeight: 600,
-                color: activeTab === 'information' ? '#dc2626' : '#6b7280',
-                cursor: 'pointer'
-              }}
-            >
-              Information Sections
+    <div 
+      className="modal-overlay"
+      onClick={onClose}
+    >
+      <div 
+        className="modal-content defect-edit-modal"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="modal-body">
+          <div className="modal-header">
+            <h2>Edit Inspection - {inspectionName}</h2>
+            <button className="modal-close-btn" onClick={onClose}>
+              <i className="fas fa-times"></i>
             </button>
           </div>
-        </div>
 
-        <div className="modal-body">
+          {/* Tabs */}
+          <div className="modal-tabs-container" style={{ padding: '0 1.5rem', borderBottom: '1px solid #e5e7eb' }}>
+            <div style={{ display: 'flex', gap: '1rem' }}>
+              <button
+                onClick={() => setActiveTab('defects')}
+                style={{
+                  padding: '0.75rem 1rem',
+                  border: 'none',
+                  background: 'none',
+                  borderBottom: activeTab === 'defects' ? '3px solid #dc2626' : '3px solid transparent',
+                  fontWeight: 600,
+                  color: activeTab === 'defects' ? '#dc2626' : '#6b7280',
+                  cursor: 'pointer'
+                }}
+              >
+                Defects
+              </button>
+              <button
+                onClick={() => setActiveTab('information')}
+                style={{
+                  padding: '0.75rem 1rem',
+                  border: 'none',
+                  background: 'none',
+                  borderBottom: activeTab === 'information' ? '3px solid #dc2626' : '3px solid transparent',
+                  fontWeight: 600,
+                  color: activeTab === 'information' ? '#dc2626' : '#6b7280',
+                  cursor: 'pointer'
+                }}
+              >
+                Information Sections
+              </button>
+            </div>
+          </div>
+
+          <div style={{ padding: '24px' }}>
           {activeTab === 'defects' && (
             <>
               {/* Header Image Upload */}
@@ -750,12 +757,13 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
           {activeTab === 'information' && (
             <InformationSections inspectionId={inspectionId} />
           )}
-        </div>
+          </div>
 
-        <div className="modal-footer">
-          <button className="modal-btn secondary-btn" onClick={onClose}>
-            Close
-          </button>
+          <div className="modal-footer">
+            <button className="modal-btn secondary-btn" onClick={onClose}>
+              Close
+            </button>
+          </div>
         </div>
       </div>
     </div>

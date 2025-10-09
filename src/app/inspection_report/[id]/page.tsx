@@ -363,6 +363,44 @@ export default function InspectionReportPage() {
     }
   }, [id]);
 
+  // Load inspection-only checklists from localStorage and merge into informationBlocks
+  useEffect(() => {
+    if (!id || !informationBlocks || informationBlocks.length === 0) return;
+
+    try {
+      const storageKey = `inspection_checklists_${id}`;
+      const stored = localStorage.getItem(storageKey);
+      
+      if (!stored) return; // No inspection-only checklists
+      
+      const inspectionChecklistsMap = JSON.parse(stored);
+      if (!inspectionChecklistsMap || typeof inspectionChecklistsMap !== 'object') return;
+      
+      // Merge inspection-only checklists into informationBlocks
+      const updatedBlocks = informationBlocks.map(block => {
+        const sectionId = block.section_id?._id || block.section_id;
+        const inspectionChecklists = inspectionChecklistsMap[sectionId];
+        
+        if (!inspectionChecklists || !Array.isArray(inspectionChecklists) || inspectionChecklists.length === 0) {
+          return block; // No inspection-only items for this section
+        }
+        
+        // Merge inspection-only checklists with existing checklist IDs
+        const existingIds = block.selected_checklist_ids || [];
+        const mergedIds = [...existingIds, ...inspectionChecklists];
+        
+        return {
+          ...block,
+          selected_checklist_ids: mergedIds
+        };
+      });
+      
+      setInformationBlocks(updatedBlocks);
+    } catch (error) {
+      console.error('Error loading inspection-only checklists:', error);
+    }
+  }, [id, informationBlocks.length]); // Only re-run when id changes or informationBlocks initially loads
+
   const handleDownloadPDF = async (reportType: 'full' | 'summary' = 'full') => {
     try {
       // Filter sections based on report type

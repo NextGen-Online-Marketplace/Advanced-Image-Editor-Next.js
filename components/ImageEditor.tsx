@@ -154,6 +154,11 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
 
   // Load preloaded image if provided
   useEffect(() => {
+    console.log('🔍 preloadedImage useEffect triggered');
+    console.log('  - preloadedImage exists:', !!preloadedImage);
+    console.log('  - preloadedFile exists:', !!preloadedFile);
+    console.log('  - current image state exists:', !!image);
+    
     if (preloadedImage && preloadedFile) {
       console.log('📥 Setting preloaded image in ImageEditor');
       setImage(preloadedImage);
@@ -164,6 +169,9 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
       if (onEditedFile) {
         onEditedFile(preloadedFile);
       }
+    } else if (!preloadedImage && image) {
+      console.log('⚠️ preloadedImage became null/undefined but image state still exists - NOT clearing');
+      // DON'T clear the image if preloadedImage becomes null
     }
   }, [preloadedImage, preloadedFile, onImageChange, onEditedFile]);
 
@@ -671,11 +679,19 @@ const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
   };
 
   useEffect(() => {
+    console.log('🎯 exportEditedFile useEffect triggered!');
+    console.log('  - imageRotation:', imageRotation, '°');
+    console.log('  - lines.length:', lines.length);
+    console.log('  - has image:', !!image);
+    console.log('  - has onEditedFile:', !!onEditedFile);
+    
     try {
       const file = exportEditedFile();
       if (file && onEditedFile) {
         console.log('🔄 Updating edited file in parent component:', file.size, 'bytes');
         onEditedFile(file);
+      } else {
+        console.log('⚠️ exportEditedFile returned null or no onEditedFile callback');
       }
     } catch (error) {
       console.error('❌ Error in useEffect for exportEditedFile:', error);
@@ -699,9 +715,8 @@ const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
       setActionHistory(lastAction.previousActionHistory);
       onCropStateChange(false);
       if (onImageChange) onImageChange(lastAction.previousImage);
-    } else if (lastAction.type === 'rotate') {
-      setImageRotation(lastAction.previousRotation);
     } else {
+      // Handle undo for drawing actions (arrow, circle, square)
       setLines(prev => prev.filter(line => line.id !== lastAction.id));
     }
     
@@ -768,10 +783,10 @@ const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
         };
         croppedImage.src = canvas.toDataURL();
       }
-    } else if (lastRedoAction.type === 'rotate') {
-      setImageRotation(lastRedoAction.newRotation);
-    } else {
-      setLines(prev => [...prev, lastRedoAction]);
+    } else if (lastRedoAction.type !== 'rotate') {
+      // Handle redo for drawing actions (arrow, circle, square) only
+      // Skip rotation actions (they should never be in redoHistory anymore)
+      setLines(prev => [...prev, lastRedoAction as Line]);
     }
     
     setActionHistory(prev => [...prev, lastRedoAction]);
@@ -854,27 +869,21 @@ const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     croppedImage.src = canvas.toDataURL();
   };
 
-  const rotateImage = () => {
+  const rotateImage = useCallback(() => {
     if (!image) {
-      console.log('No image to rotate');
+      console.log('❌ rotateImage: No image to rotate');
       return;
     }
     
     const newRotation = (imageRotation + 90) % 360;
-    console.log('Rotating image from', imageRotation, 'to', newRotation);
+    console.log('🔄 rotateImage: Rotating from', imageRotation, '° to', newRotation, '°');
+    console.log('🔄 rotateImage: Current lines count:', lines.length);
     
-    // Add to action history for undo/redo
-    const rotateAction: RotateAction = {
-      type: 'rotate',
-      previousRotation: imageRotation,
-      newRotation: newRotation,
-      id: Date.now()
-    };
-    
-    setActionHistory(prev => [...prev, rotateAction]);
-    setRedoHistory([]); // Clear redo history when new action is performed
+    // Rotation is now independent - NOT added to action history
+    // This allows unlimited rotations without affecting undo/redo of annotations
     setImageRotation(newRotation);
-  };
+    console.log('✅ rotateImage: setImageRotation called with', newRotation, '°');
+  }, [image, imageRotation, lines.length]);
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1023,7 +1032,7 @@ const captureImage = () => {
       window.removeEventListener('applyCrop', handleApplyCrop);
       window.removeEventListener('rotateImage', handleRotateImage);
     };
-  }, [actionHistory, redoHistory, cropFrame]);
+  }, [actionHistory, redoHistory, cropFrame, rotateImage]);
 
   const handleColorChange = (newColor: string) => {
     setDrawingColor(newColor);
@@ -2125,6 +2134,10 @@ const drawSquare = (
 
   // Draw everything on canvas
   useEffect(() => {
+    console.log('🎨 Canvas render useEffect triggered!');
+    console.log('  - imageRotation:', imageRotation, '°');
+    console.log('  - lines.length:', lines.length);
+    
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -2138,6 +2151,7 @@ const drawSquare = (
       
       // Apply rotation if needed
       if (imageRotation !== 0) {
+        console.log('✅ Drawing rotated image at', imageRotation, '°');
         ctx.save();
         ctx.translate(canvas.width / 2, canvas.height / 2);
         ctx.rotate((imageRotation * Math.PI) / 180);

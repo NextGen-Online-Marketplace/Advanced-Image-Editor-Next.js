@@ -8,6 +8,7 @@ interface ISectionChecklist {
   text: string;
   comment?: string;
   type: 'status' | 'information';
+  tab: 'information' | 'limitations'; // Which tab to display this item in
   answer_choices?: string[]; // NEW: Predefined answer choices for this checklist item
   order_index: number;
 }
@@ -63,6 +64,10 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
   const [saving, setSaving] = useState(false);
   const [editingBlockId, setEditingBlockId] = useState<string | null>(null);
 
+  // Track inspection-specific checklists (not saved to template)
+  // Key: sectionId, Value: array of inspection-only checklists for that section
+  const [inspectionChecklists, setInspectionChecklists] = useState<Map<string, ISectionChecklist[]>>(new Map());
+
   // Auto-save state
   const [autoSaving, setAutoSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
@@ -103,8 +108,9 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
     text: string;
     comment: string;
     type: 'status' | 'information';
+    tab: 'information' | 'limitations';
     answer_choices: string[];
-  }>({ text: '', comment: '', type: 'status', answer_choices: [] });
+  }>({ text: '', comment: '', type: 'status', tab: 'information', answer_choices: [] });
   const [savingChecklist, setSavingChecklist] = useState(false);
   const [newAnswerChoice, setNewAnswerChoice] = useState('');
   const [editingAnswerIndex, setEditingAnswerIndex] = useState<number | null>(null);
@@ -142,6 +148,74 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
 
   useEffect(() => { fetchSections(); }, [fetchSections]);
   useEffect(() => { fetchBlocks(); }, [fetchBlocks]);
+
+  // Load inspection-specific checklists from localStorage on mount
+  useEffect(() => {
+    if (!inspectionId) return;
+    
+    try {
+      const storageKey = `inspection_checklists_${inspectionId}`;
+      const stored = localStorage.getItem(storageKey);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        // Convert plain object to Map
+        const checklistsMap = new Map<string, ISectionChecklist[]>();
+        Object.entries(parsed).forEach(([sectionId, checklists]) => {
+          checklistsMap.set(sectionId, checklists as ISectionChecklist[]);
+        });
+        setInspectionChecklists(checklistsMap);
+        console.log('📂 Loaded inspection-specific checklists from localStorage:', checklistsMap);
+      }
+    } catch (error) {
+      console.error('Error loading inspection checklists:', error);
+    }
+  }, [inspectionId]);
+
+  // Save inspection-specific checklists to localStorage whenever they change
+  useEffect(() => {
+    if (!inspectionId || inspectionChecklists.size === 0) return;
+    
+    try {
+      const storageKey = `inspection_checklists_${inspectionId}`;
+      // Convert Map to plain object for JSON storage
+      const checklistsObj: Record<string, ISectionChecklist[]> = {};
+      inspectionChecklists.forEach((checklists, sectionId) => {
+        if (checklists.length > 0) {
+          checklistsObj[sectionId] = checklists;
+        }
+      });
+      localStorage.setItem(storageKey, JSON.stringify(checklistsObj));
+      console.log('💾 Saved inspection-specific checklists to localStorage');
+    } catch (error) {
+      console.error('Error saving inspection checklists:', error);
+    }
+  }, [inspectionId, inspectionChecklists]);
+
+  // Helper function to get all checklist items for a block (including inspection-only)
+  const getBlockChecklists = (block: IInformationBlock): any[] => {
+    const sectionId = typeof block.section_id === 'string' ? block.section_id : block.section_id._id;
+    const existingIds = block.selected_checklist_ids || [];
+    
+    // Check if there are inspection-only selections for this section
+    const blockStorageKey = `inspection_selections_${inspectionId}_${sectionId}`;
+    const storedSelections = localStorage.getItem(blockStorageKey);
+    const inspectionOnlyIds = storedSelections ? JSON.parse(storedSelections) : [];
+    
+    if (inspectionOnlyIds.length === 0) {
+      return existingIds; // No inspection-only items selected
+    }
+    
+    // Get inspection checklists for this section
+    const inspectionChecklistsForSection = inspectionChecklists.get(sectionId) || [];
+    
+    // Filter to only selected inspection-only checklists
+    const selectedInspectionChecklists = inspectionChecklistsForSection.filter(
+      checklist => inspectionOnlyIds.includes(checklist._id)
+    );
+    
+    // Merge with existing checklists
+    return [...existingIds, ...selectedInspectionChecklists];
+  };
 
   // Initialize locationInputs from formState when images load
   useEffect(() => {
@@ -417,7 +491,14 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
   }, [modalOpen, formState, inspectionId, fetchBlocks]);
 
   const openAddModal = async (section: ISection, existingBlock?: IInformationBlock) => {
-    setActiveSection(section);
+    // Merge template checklists with inspection-specific checklists
+    const inspectionSpecificChecklists = inspectionChecklists.get(section._id) || [];
+    const mergedSection: ISection = {
+      ...section,
+      checklists: [...section.checklists, ...inspectionSpecificChecklists]
+    };
+    
+    setActiveSection(mergedSection);
 
     if (existingBlock) {
       // Editing existing block - fetch the latest data from the database to ensure we have the most recent version
@@ -441,11 +522,19 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                 .filter(Boolean)
               : [];
 
+            // Load inspection-only selections from localStorage
+            const storageKey = `inspection_selections_${inspectionId}_${section._id}`;
+            const storedSelections = localStorage.getItem(storageKey);
+            const inspectionOnlyIds = storedSelections ? JSON.parse(storedSelections) : [];
+            
+            // Merge database selections with inspection-only selections
+            const allSelectedIds = Array.from(new Set([...selectedIds, ...inspectionOnlyIds]));
+
             const selectedAnswersMap = convertSelectedAnswersToMap(latestBlock.selected_answers);
             
             setFormState({
               section_id: section._id,
-              selected_checklist_ids: new Set(selectedIds),
+              selected_checklist_ids: new Set(allSelectedIds),
               selected_answers: selectedAnswersMap,
               custom_answers: extractCustomAnswers(selectedAnswersMap, section._id),
               custom_text: latestBlock.custom_text || '',
@@ -461,11 +550,19 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                 .filter(Boolean)
               : [];
 
+            // Load inspection-only selections from localStorage
+            const storageKey = `inspection_selections_${inspectionId}_${section._id}`;
+            const storedSelections = localStorage.getItem(storageKey);
+            const inspectionOnlyIds = storedSelections ? JSON.parse(storedSelections) : [];
+            
+            // Merge database selections with inspection-only selections
+            const allSelectedIds = Array.from(new Set([...selectedIds, ...inspectionOnlyIds]));
+
             const selectedAnswersMap = convertSelectedAnswersToMap(existingBlock.selected_answers);
             
             setFormState({
               section_id: section._id,
-              selected_checklist_ids: new Set(selectedIds),
+              selected_checklist_ids: new Set(allSelectedIds),
               selected_answers: selectedAnswersMap,
               custom_answers: extractCustomAnswers(selectedAnswersMap, section._id),
               custom_text: existingBlock.custom_text || '',
@@ -485,11 +582,19 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
             .filter(Boolean)
           : [];
 
+        // Load inspection-only selections from localStorage
+        const storageKey = `inspection_selections_${inspectionId}_${section._id}`;
+        const storedSelections = localStorage.getItem(storageKey);
+        const inspectionOnlyIds = storedSelections ? JSON.parse(storedSelections) : [];
+        
+        // Merge database selections with inspection-only selections
+        const allSelectedIds = Array.from(new Set([...selectedIds, ...inspectionOnlyIds]));
+
         const selectedAnswersMap = convertSelectedAnswersToMap(existingBlock.selected_answers);
         
         setFormState({
           section_id: section._id,
-          selected_checklist_ids: new Set(selectedIds),
+          selected_checklist_ids: new Set(allSelectedIds),
           selected_answers: selectedAnswersMap,
           custom_answers: extractCustomAnswers(selectedAnswersMap, section._id),
           custom_text: existingBlock.custom_text || '',
@@ -688,14 +793,15 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
 
     try {
       // Find the checklist item
-      const checklist = sections
-        .flatMap(s => s.checklists)
-        .find(cl => cl._id === checklistId);
+      const checklist = activeSection?.checklists.find(cl => cl._id === checklistId);
       
       if (!checklist) {
         alert('Checklist item not found');
         return;
       }
+
+      console.log('📝 Before save - Current answer_choices:', checklist.answer_choices);
+      console.log('➕ Adding new answer:', customAnswer);
 
       // Check if answer already exists in template
       if (checklist.answer_choices?.includes(customAnswer)) {
@@ -705,6 +811,8 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
 
       // Add to template via API
       const updatedChoices = [...(checklist.answer_choices || []), customAnswer];
+      console.log('📤 Sending to API - updatedChoices:', updatedChoices);
+      
       const res = await fetch(`/api/checklists/${checklistId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -712,6 +820,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
           text: checklist.text,
           comment: checklist.comment,
           type: checklist.type,
+          tab: checklist.tab,
           answer_choices: updatedChoices
         }),
       });
@@ -719,17 +828,30 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
       const json = await res.json();
       if (!json.success) throw new Error(json.error || 'Failed to save to template');
 
-      // Refresh sections to show new choice
-      await fetchSections();
+      console.log('✅ API response:', json.data);
 
-      // Update activeSection to reflect the new choice immediately
+      // Update activeSection immediately with new choice (before fetching sections)
       if (activeSection) {
-        const updatedChecklist = activeSection.checklists.find(cl => cl._id === checklistId);
-        if (updatedChecklist) {
-          updatedChecklist.answer_choices = updatedChoices;
-          setActiveSection({ ...activeSection });
-        }
+        const updatedChecklists = activeSection.checklists.map(cl => {
+          if (cl._id === checklistId) {
+            return {
+              ...cl,
+              answer_choices: updatedChoices
+            };
+          }
+          return cl;
+        });
+        const newActiveSection = {
+          ...activeSection,
+          checklists: updatedChecklists
+        };
+        setActiveSection(newActiveSection);
+        console.log('✅ Updated activeSection with new answer choice:', customAnswer);
+        console.log('📋 Current answer_choices for this item:', updatedChoices);
       }
+
+      // Refresh sections in background to sync with database
+      fetchSections();
 
       // Remove from custom_answers since it's now a template choice
       const newCustomAnswers = new Map(formState?.custom_answers || new Map());
@@ -764,7 +886,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
       // Trigger auto-save
       setTimeout(() => performAutoSaveWithState(updatedFormState), 100);
 
-      alert('✅ Answer saved to template and selected for this inspection!');
+      console.log('✅ Answer saved to template and selected for this inspection!');
     } catch (e: any) {
       alert('Error saving to template: ' + e.message);
     }
@@ -780,6 +902,21 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
       imagesWithChecklistId: formState.images.filter(img => img.checklist_id).length
     });
 
+    // Separate template checklist IDs from inspection-only IDs
+    const allSelectedIds = Array.from(formState.selected_checklist_ids);
+    const templateIds = allSelectedIds.filter(id => !id.startsWith('temp_'));
+    const inspectionOnlyIds = allSelectedIds.filter(id => id.startsWith('temp_'));
+    
+    // Save inspection-only selections to localStorage
+    if (activeSection) {
+      const storageKey = `inspection_selections_${inspectionId}_${activeSection._id}`;
+      if (inspectionOnlyIds.length > 0) {
+        localStorage.setItem(storageKey, JSON.stringify(inspectionOnlyIds));
+      } else {
+        localStorage.removeItem(storageKey);
+      }
+    }
+
     // Convert selected_answers Map to array format for API
     const selectedAnswersArray = Array.from(formState.selected_answers.entries()).map(([checklist_id, answers]) => ({
       checklist_id,
@@ -788,12 +925,12 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
 
     try {
       if (editingBlockId) {
-        // Update existing block
+        // Update existing block (only save template IDs to database)
         const res = await fetch(`/api/information-sections/${inspectionId}?blockId=${editingBlockId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            selected_checklist_ids: Array.from(formState.selected_checklist_ids),
+            selected_checklist_ids: templateIds,
             selected_answers: selectedAnswersArray,
             custom_text: formState.custom_text,
             images: formState.images,
@@ -802,13 +939,13 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
         const json = await res.json();
         if (!json.success) throw new Error(json.error || 'Failed to update block');
       } else {
-        // Create new block
+        // Create new block (only save template IDs to database)
         const res = await fetch(`/api/information-sections/${inspectionId}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             section_id: formState.section_id,
-            selected_checklist_ids: Array.from(formState.selected_checklist_ids),
+            selected_checklist_ids: templateIds,
             selected_answers: selectedAnswersArray,
             custom_text: formState.custom_text,
             images: formState.images,
@@ -865,6 +1002,21 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
       imagesWithChecklistId: stateToSave.images.filter(img => img.checklist_id).length
     });
 
+    // Separate template checklist IDs from inspection-only IDs
+    const allSelectedIds = Array.from(stateToSave.selected_checklist_ids);
+    const templateIds = allSelectedIds.filter(id => !id.startsWith('temp_'));
+    const inspectionOnlyIds = allSelectedIds.filter(id => id.startsWith('temp_'));
+    
+    // Save inspection-only selections to localStorage
+    if (activeSection) {
+      const storageKey = `inspection_selections_${inspectionId}_${activeSection._id}`;
+      if (inspectionOnlyIds.length > 0) {
+        localStorage.setItem(storageKey, JSON.stringify(inspectionOnlyIds));
+      } else {
+        localStorage.removeItem(storageKey);
+      }
+    }
+
     // Convert selected_answers Map to array format for API
     const selectedAnswersArray = Array.from(stateToSave.selected_answers.entries()).map(([checklist_id, answers]) => ({
       checklist_id,
@@ -872,8 +1024,8 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
     }));
 
     try {
-      // Check if the block is now empty (no selected items and no custom text)
-      const hasSelectedItems = stateToSave.selected_checklist_ids.size > 0;
+      // Check if the block is now empty (no template items and no custom text)
+      const hasSelectedItems = templateIds.length > 0;
       const hasCustomText = stateToSave.custom_text && stateToSave.custom_text.trim().length > 0;
       const isEmpty = !hasSelectedItems && !hasCustomText;
 
@@ -894,12 +1046,12 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
         
         console.log('✅ Empty block deleted successfully (modal stays open)');
       } else if (editingBlockId) {
-        // Update existing block
+        // Update existing block (only save template IDs to database)
         const res = await fetch(`/api/information-sections/${inspectionId}?blockId=${editingBlockId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            selected_checklist_ids: Array.from(stateToSave.selected_checklist_ids),
+            selected_checklist_ids: templateIds,
             selected_answers: selectedAnswersArray,
             custom_text: stateToSave.custom_text,
             images: stateToSave.images,
@@ -908,13 +1060,13 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
         const json = await res.json();
         if (!json.success) throw new Error(json.error || 'Failed to update block');
       } else if (!isEmpty) {
-        // Create new block only if it's not empty
+        // Create new block only if it's not empty (only save template IDs to database)
         const res = await fetch(`/api/information-sections/${inspectionId}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             section_id: stateToSave.section_id,
-            selected_checklist_ids: Array.from(stateToSave.selected_checklist_ids),
+            selected_checklist_ids: templateIds,
             selected_answers: selectedAnswersArray,
             custom_text: stateToSave.custom_text,
             images: stateToSave.images,
@@ -1068,7 +1220,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
   };
 
   // Admin: Open checklist form for creating/editing
-  const openChecklistForm = (type: 'status' | 'information', existingChecklist?: ISectionChecklist) => {
+  const openChecklistForm = (type: 'status' | 'information', existingChecklist?: ISectionChecklist, tab?: 'information' | 'limitations') => {
     if (existingChecklist) {
       setEditingChecklistId(existingChecklist._id);
       
@@ -1083,11 +1235,18 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
         text: existingChecklist.text,
         comment: existingChecklist.comment || '',
         type: existingChecklist.type,
+        tab: existingChecklist.tab || 'information',
         answer_choices: allChoices,
       });
     } else {
       setEditingChecklistId(null);
-      setChecklistFormData({ text: '', comment: '', type, answer_choices: [] });
+      setChecklistFormData({ 
+        text: '', 
+        comment: '', 
+        type, 
+        tab: tab || 'information',
+        answer_choices: [] 
+      });
     }
     setNewAnswerChoice('');
     setEditingAnswerIndex(null);
@@ -1146,7 +1305,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
   };
 
   // Admin: Save checklist (create or update)
-  const handleSaveChecklist = async () => {
+  const handleSaveChecklist = async (saveToTemplate: boolean = true) => {
     if (!activeSection || !checklistFormData.text.trim()) {
       alert('Checklist name is required');
       return;
@@ -1155,54 +1314,33 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
     setSavingChecklist(true);
     try {
       if (editingChecklistId) {
-        // Get the original checklist to determine which choices are custom
-        const originalChecklist = activeSection.checklists.find(cl => cl._id === editingChecklistId);
-        const originalTemplateChoices = originalChecklist?.answer_choices || [];
-        const existingCustomAnswers = formState?.custom_answers.get(editingChecklistId) || new Set<string>();
+        // EDITING EXISTING CHECKLIST
+        const isTemporary = editingChecklistId.startsWith('temp_');
         
-        // Separate current choices (from checklistFormData) into template vs custom
-        const templateChoices: string[] = [];
-        const customAnswers = new Set<string>();
-        
-        checklistFormData.answer_choices.forEach(choice => {
-          // Check if this was a custom answer
-          if (existingCustomAnswers.has(choice)) {
-            // It's a custom answer, keep it custom
-            customAnswers.add(choice);
-          } else {
-            // It's a template choice (either original or newly added via "Save to Template")
-            templateChoices.push(choice);
-          }
-        });
-        
-        // Update existing checklist - only save template choices to DB
-        const res = await fetch(`/api/checklists/${editingChecklistId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            text: checklistFormData.text,
-            comment: checklistFormData.comment,
-            type: checklistFormData.type,
-            answer_choices: templateChoices,
-          }),
-        });
-        const json = await res.json();
-        if (!json.success) throw new Error(json.error || 'Failed to update checklist');
-        
-        // Update custom_answers in formState
-        const newCustomAnswers = new Map(formState?.custom_answers || new Map());
-        if (customAnswers.size > 0) {
-          newCustomAnswers.set(editingChecklistId, customAnswers);
-        } else {
-          newCustomAnswers.delete(editingChecklistId);
-        }
-        setFormState({
-          ...formState!,
-          custom_answers: newCustomAnswers
-        });
-        
-        // Update activeSection immediately to show changes
-        if (activeSection) {
+        if (isTemporary) {
+          // Editing inspection-only item - update in inspectionChecklists Map
+          const sectionId = activeSection._id;
+          const currentInspectionChecklists = inspectionChecklists.get(sectionId) || [];
+          
+          const updatedInspectionChecklists = currentInspectionChecklists.map(cl => {
+            if (cl._id === editingChecklistId) {
+              return {
+                ...cl,
+                text: checklistFormData.text,
+                comment: checklistFormData.comment,
+                type: checklistFormData.type,
+                tab: checklistFormData.tab,
+                answer_choices: checklistFormData.answer_choices
+              };
+            }
+            return cl;
+          });
+          
+          const newInspectionChecklistsMap = new Map(inspectionChecklists);
+          newInspectionChecklistsMap.set(sectionId, updatedInspectionChecklists);
+          setInspectionChecklists(newInspectionChecklistsMap);
+          
+          // Update activeSection immediately
           const updatedChecklists = activeSection.checklists.map(cl => {
             if (cl._id === editingChecklistId) {
               return {
@@ -1210,7 +1348,8 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                 text: checklistFormData.text,
                 comment: checklistFormData.comment,
                 type: checklistFormData.type,
-                answer_choices: templateChoices
+                tab: checklistFormData.tab,
+                answer_choices: checklistFormData.answer_choices
               };
             }
             return cl;
@@ -1219,26 +1358,133 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
             ...activeSection,
             checklists: updatedChecklists
           });
+          
+          console.log('✅ Updated inspection-only checklist:', editingChecklistId);
+        } else {
+          // Editing template item - save to database
+          // Get the original checklist to determine which choices are custom
+          const originalChecklist = activeSection.checklists.find(cl => cl._id === editingChecklistId);
+          const originalTemplateChoices = originalChecklist?.answer_choices || [];
+          const existingCustomAnswers = formState?.custom_answers.get(editingChecklistId) || new Set<string>();
+          
+          // Separate current choices (from checklistFormData) into template vs custom
+          const templateChoices: string[] = [];
+          const customAnswers = new Set<string>();
+          
+          checklistFormData.answer_choices.forEach(choice => {
+            // Check if this was a custom answer
+            if (existingCustomAnswers.has(choice)) {
+              // It's a custom answer, keep it custom
+              customAnswers.add(choice);
+            } else {
+              // It's a template choice (either original or newly added via "Save to Template")
+              templateChoices.push(choice);
+            }
+          });
+          
+          // Update existing checklist - only save template choices to DB
+          const res = await fetch(`/api/checklists/${editingChecklistId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              text: checklistFormData.text,
+              comment: checklistFormData.comment,
+              type: checklistFormData.type,
+              tab: checklistFormData.tab,
+              answer_choices: templateChoices,
+            }),
+          });
+          const json = await res.json();
+          if (!json.success) throw new Error(json.error || 'Failed to update checklist');
+          
+          // Refresh sections from database to get the updated data
+          await fetchSections();
+          
+          // Update custom_answers in formState
+          const newCustomAnswers = new Map(formState?.custom_answers || new Map());
+          if (customAnswers.size > 0) {
+            newCustomAnswers.set(editingChecklistId, customAnswers);
+          } else {
+            newCustomAnswers.delete(editingChecklistId);
+          }
+          setFormState({
+            ...formState!,
+            custom_answers: newCustomAnswers
+          });
+          
+          // Update activeSection immediately to show changes
+          if (activeSection) {
+            // After fetching sections, we need to get the updated section with merged inspection checklists
+            const updatedSection = sections.find(s => s._id === activeSection._id);
+            if (updatedSection) {
+              const inspectionSpecificChecklists = inspectionChecklists.get(activeSection._id) || [];
+              const mergedSection: ISection = {
+                ...updatedSection,
+                checklists: [...updatedSection.checklists, ...inspectionSpecificChecklists]
+              };
+              setActiveSection(mergedSection);
+            }
+          }
         }
       } else {
-        // Create new checklist
-        const res = await fetch('/api/checklists', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            section_id: activeSection._id,
-            ...checklistFormData,
-          }),
-        });
-        const json = await res.json();
-        if (!json.success) throw new Error(json.error || 'Failed to create checklist');
+        // CREATING NEW CHECKLIST
+        if (saveToTemplate) {
+          // Save to Template - Create in database permanently
+          const res = await fetch('/api/checklists', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              section_id: activeSection._id,
+              ...checklistFormData,
+            }),
+          });
+          const json = await res.json();
+          if (!json.success) throw new Error(json.error || 'Failed to create checklist');
+          
+          // Add the newly created checklist to activeSection immediately
+          const newChecklist: ISectionChecklist = json.data;
+          setActiveSection({
+            ...activeSection,
+            checklists: [...activeSection.checklists, newChecklist]
+          });
+          
+          console.log('✅ Created template checklist:', newChecklist._id);
+        } else {
+          // Add to This Inspection Only - Save to inspectionChecklists state (persisted in localStorage)
+          const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          
+          const newChecklist: ISectionChecklist = {
+            _id: tempId,
+            text: checklistFormData.text,
+            comment: checklistFormData.comment || '',
+            type: checklistFormData.type,
+            tab: checklistFormData.tab,
+            answer_choices: checklistFormData.answer_choices,
+            order_index: activeSection.checklists.length
+          };
+          
+          // Add to inspection-specific checklists map
+          const currentInspectionChecklists = inspectionChecklists.get(activeSection._id) || [];
+          const updatedInspectionChecklists = [...currentInspectionChecklists, newChecklist];
+          
+          const newInspectionChecklistsMap = new Map(inspectionChecklists);
+          newInspectionChecklistsMap.set(activeSection._id, updatedInspectionChecklists);
+          setInspectionChecklists(newInspectionChecklistsMap);
+          
+          // Also add to activeSection's checklists (for immediate UI update)
+          setActiveSection({
+            ...activeSection,
+            checklists: [...activeSection.checklists, newChecklist]
+          });
+          
+          console.log('✅ Added inspection-only checklist:', tempId);
+          console.log('💾 Will be saved to localStorage for this inspection only');
+        }
       }
 
-      // Refresh sections to get updated checklists
-      await fetchSections();
       setChecklistFormOpen(false);
       setEditingChecklistId(null);
-      setChecklistFormData({ text: '', comment: '', type: 'status', answer_choices: [] });
+      setChecklistFormData({ text: '', comment: '', type: 'status', tab: 'information', answer_choices: [] });
       setNewAnswerChoice('');
       setEditingAnswerIndex(null);
       setEditingAnswerValue('');
@@ -1250,20 +1496,52 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
   };
 
   // Admin: Delete checklist
+  // Admin: Delete checklist
   const handleDeleteChecklist = async (checklistId: string) => {
-    if (!confirm('Are you sure you want to delete this checklist item? This will remove it from all inspections.')) return;
-
-    try {
-      const res = await fetch(`/api/checklists/${checklistId}`, {
-        method: 'DELETE',
+    // Check if this is a temporary inspection-only checklist
+    const isTemporary = checklistId.startsWith('temp_');
+    
+    if (isTemporary) {
+      // Delete from inspection-specific checklists (localStorage)
+      if (!confirm('Are you sure you want to delete this checklist item from this inspection?')) return;
+      
+      if (!activeSection) return;
+      
+      // Find and remove from inspectionChecklists
+      const currentInspectionChecklists = inspectionChecklists.get(activeSection._id) || [];
+      const updatedInspectionChecklists = currentInspectionChecklists.filter(cl => cl._id !== checklistId);
+      
+      const newInspectionChecklistsMap = new Map(inspectionChecklists);
+      if (updatedInspectionChecklists.length > 0) {
+        newInspectionChecklistsMap.set(activeSection._id, updatedInspectionChecklists);
+      } else {
+        newInspectionChecklistsMap.delete(activeSection._id);
+      }
+      setInspectionChecklists(newInspectionChecklistsMap);
+      
+      // Update activeSection to remove it from UI
+      setActiveSection({
+        ...activeSection,
+        checklists: activeSection.checklists.filter(cl => cl._id !== checklistId)
       });
-      const json = await res.json();
-      if (!json.success) throw new Error(json.error || 'Failed to delete checklist');
+      
+      console.log('✅ Deleted inspection-only checklist:', checklistId);
+    } else {
+      // Delete from template (database)
+      if (!confirm('Are you sure you want to delete this checklist item? This will remove it from all inspections.')) return;
 
-      // Refresh sections to get updated checklists
-      await fetchSections();
-    } catch (e: any) {
-      alert(e.message);
+      try {
+        const res = await fetch(`/api/checklists/${checklistId}`, {
+          method: 'DELETE',
+        });
+        const json = await res.json();
+        if (!json.success) throw new Error(json.error || 'Failed to delete checklist');
+
+        // Refresh sections to get updated checklists
+        await fetchSections();
+      } catch (e: any) {
+        alert(e.message);
+      }
     }
   };
 
@@ -1367,7 +1645,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                   </div>
                   <div style={{ fontSize: '0.875rem', color: '#374151' }}>
                     <div style={{ marginLeft: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      {(block.selected_checklist_ids as any[]).map((cl: any) => (
+                      {getBlockChecklists(block).map((cl: any) => (
                         <div key={cl._id || cl} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                             <span style={{
@@ -1836,7 +2114,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
                   <h5 style={{ fontWeight: 600, fontSize: '1rem', color: '#1f2937', borderBottom: '2px solid #10b981', paddingBottom: '0.5rem', flex: 1 }}>Limitations / Information</h5>
                   <button
-                    onClick={() => openChecklistForm('information')}
+                    onClick={() => openChecklistForm('information', undefined, 'limitations')}
                     style={{
                       padding: '0.25rem 0.5rem',
                       fontSize: '0.75rem',
@@ -1856,7 +2134,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   {activeSection.checklists
-                    .filter(cl => cl.type === 'information')
+                    .filter(cl => cl.tab === 'limitations')
                     .map(cl => {
                       const isSelected = formState.selected_checklist_ids.has(cl._id);
                       const checklistImages = getChecklistImages(cl._id);
@@ -2293,7 +2571,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                 onClick={() => {
                   setChecklistFormOpen(false);
                   setEditingChecklistId(null);
-                  setChecklistFormData({ text: '', comment: '', type: 'status', answer_choices: [] });
+                  setChecklistFormData({ text: '', comment: '', type: 'status', tab: 'information', answer_choices: [] });
                   setNewAnswerChoice('');
                   setEditingAnswerIndex(null);
                   setEditingAnswerValue('');
@@ -2534,12 +2812,30 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
               </div>
             </div>
 
-            <div style={{ borderTop: '1px solid #e5e7eb', padding: '0.75rem 1rem', display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', backgroundColor: '#f9fafb' }}>
+            {/* Footer with Save Options and Help Text */}
+            <div style={{ borderTop: '1px solid #e5e7eb', backgroundColor: '#f9fafb' }}>
+              {/* Help text for new checklists */}
+              {!editingChecklistId && (
+                <div style={{ 
+                  padding: '0.75rem 1rem', 
+                  backgroundColor: '#eff6ff', 
+                  borderBottom: '1px solid #e5e7eb' 
+                }}>
+                  <div style={{ fontSize: '0.75rem', color: '#1e40af', display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                    <span style={{ fontSize: '1rem' }}>💡</span>
+                    <div>
+                      <strong>Add to This Inspection</strong> = Use only for this inspection • <strong>Save to Template</strong> = Add permanently for all inspections
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              <div style={{ padding: '0.75rem 1rem', display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
               <button
                 onClick={() => {
                   setChecklistFormOpen(false);
                   setEditingChecklistId(null);
-                  setChecklistFormData({ text: '', comment: '', type: 'status', answer_choices: [] });
+                  setChecklistFormData({ text: '', comment: '', type: 'status', tab: 'information', answer_choices: [] });
                   setNewAnswerChoice('');
                   setEditingAnswerIndex(null);
                   setEditingAnswerValue('');
@@ -2558,25 +2854,78 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                 onMouseOver={(e) => !savingChecklist && (e.currentTarget.style.backgroundColor = '#d1d5db')}
                 onMouseOut={(e) => !savingChecklist && (e.currentTarget.style.backgroundColor = '#e5e7eb')}
               >Cancel</button>
-              <button
-                onClick={handleSaveChecklist}
-                style={{
-                  padding: '0.5rem 1rem',
-                  fontSize: '0.875rem',
-                  borderRadius: '0.375rem',
-                  backgroundColor: '#3b82f6',
-                  color: 'white',
-                  border: 'none',
-                  cursor: 'pointer',
-                  opacity: savingChecklist ? 0.5 : 1,
-                  fontWeight: 500
-                }}
-                disabled={savingChecklist}
-                onMouseOver={(e) => !savingChecklist && (e.currentTarget.style.backgroundColor = '#2563eb')}
-                onMouseOut={(e) => !savingChecklist && (e.currentTarget.style.backgroundColor = '#3b82f6')}
-              >
-                {savingChecklist ? 'Saving...' : editingChecklistId ? 'Update' : 'Create'}
-              </button>
+              
+              {/* Show two-tier save options only when creating NEW checklist (not editing) */}
+              {!editingChecklistId ? (
+                <>
+                  {/* Add to This Inspection Only button */}
+                  <button
+                    onClick={() => handleSaveChecklist(false)}
+                    style={{
+                      padding: '0.5rem 1rem',
+                      fontSize: '0.875rem',
+                      borderRadius: '0.375rem',
+                      backgroundColor: '#3b82f6',
+                      color: 'white',
+                      border: 'none',
+                      cursor: 'pointer',
+                      opacity: savingChecklist ? 0.5 : 1,
+                      fontWeight: 500,
+                      whiteSpace: 'nowrap'
+                    }}
+                    disabled={savingChecklist}
+                    onMouseOver={(e) => !savingChecklist && (e.currentTarget.style.backgroundColor = '#2563eb')}
+                    onMouseOut={(e) => !savingChecklist && (e.currentTarget.style.backgroundColor = '#3b82f6')}
+                    title="Add this checklist item only for this inspection"
+                  >
+                    {savingChecklist ? 'Adding...' : 'Add to This Inspection'}
+                  </button>
+                  {/* Save to Template button */}
+                  <button
+                    onClick={() => handleSaveChecklist(true)}
+                    style={{
+                      padding: '0.5rem 1rem',
+                      fontSize: '0.875rem',
+                      borderRadius: '0.375rem',
+                      backgroundColor: '#059669',
+                      color: 'white',
+                      border: 'none',
+                      cursor: 'pointer',
+                      opacity: savingChecklist ? 0.5 : 1,
+                      fontWeight: 500,
+                      whiteSpace: 'nowrap'
+                    }}
+                    disabled={savingChecklist}
+                    onMouseOver={(e) => !savingChecklist && (e.currentTarget.style.backgroundColor = '#047857')}
+                    onMouseOut={(e) => !savingChecklist && (e.currentTarget.style.backgroundColor = '#059669')}
+                    title="Save to template permanently for all future inspections"
+                  >
+                    {savingChecklist ? 'Saving...' : 'Save to Template'}
+                  </button>
+                </>
+              ) : (
+                /* When editing existing checklist, show single Update button */
+                <button
+                  onClick={() => handleSaveChecklist(true)}
+                  style={{
+                    padding: '0.5rem 1rem',
+                    fontSize: '0.875rem',
+                    borderRadius: '0.375rem',
+                    backgroundColor: '#3b82f6',
+                    color: 'white',
+                    border: 'none',
+                    cursor: 'pointer',
+                    opacity: savingChecklist ? 0.5 : 1,
+                    fontWeight: 500
+                  }}
+                  disabled={savingChecklist}
+                  onMouseOver={(e) => !savingChecklist && (e.currentTarget.style.backgroundColor = '#2563eb')}
+                  onMouseOut={(e) => !savingChecklist && (e.currentTarget.style.backgroundColor = '#3b82f6')}
+                >
+                  {savingChecklist ? 'Updating...' : 'Update'}
+                </button>
+              )}
+              </div>
             </div>
           </div>
         </div>
