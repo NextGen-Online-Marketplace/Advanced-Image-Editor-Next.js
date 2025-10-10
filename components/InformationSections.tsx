@@ -491,11 +491,29 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
   }, [modalOpen, formState, inspectionId, fetchBlocks]);
 
   const openAddModal = async (section: ISection, existingBlock?: IInformationBlock) => {
+    // First, fetch the latest section data from database to ensure we have fresh checklist data
+    let latestSection = section;
+    try {
+      const sectionsRes = await fetch('/api/information-sections/sections');
+      if (sectionsRes.ok) {
+        const sectionsData = await sectionsRes.json();
+        if (sectionsData.success && sectionsData.data) {
+          const freshSection = sectionsData.data.find((s: ISection) => s._id === section._id);
+          if (freshSection) {
+            latestSection = freshSection;
+            console.log('✅ Loaded fresh section data with', freshSection.checklists.length, 'checklists');
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('⚠️ Could not fetch latest section data, using cached version:', error);
+    }
+    
     // Merge template checklists with inspection-specific checklists
     const inspectionSpecificChecklists = inspectionChecklists.get(section._id) || [];
     const mergedSection: ISection = {
-      ...section,
-      checklists: [...section.checklists, ...inspectionSpecificChecklists]
+      ...latestSection,
+      checklists: [...latestSection.checklists, ...inspectionSpecificChecklists]
     };
     
     setActiveSection(mergedSection);
@@ -1400,7 +1418,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
           // Refresh sections from database to get the updated data
           await fetchSections();
           
-          // Wait a bit for state to update, then refresh activeSection
+          // Wait a bit for state to update, then refresh activeSection and sections
           setTimeout(async () => {
             // Refetch to get the latest sections
             const sectionsRes = await fetch('/api/information-sections/sections');
@@ -1408,6 +1426,11 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
               const sectionsData = await sectionsRes.json();
               if (sectionsData.success && sectionsData.data) {
                 const freshSections = sectionsData.data;
+                
+                // Update sections state so the list reflects changes
+                setSections(freshSections);
+                
+                // Update activeSection so the modal reflects changes
                 const updatedSection = freshSections.find((s: ISection) => s._id === activeSection._id);
                 if (updatedSection) {
                   const inspectionSpecificChecklists = inspectionChecklists.get(activeSection._id) || [];
@@ -1416,6 +1439,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                     checklists: [...updatedSection.checklists, ...inspectionSpecificChecklists]
                   };
                   setActiveSection(mergedSection);
+                  console.log('✅ Refreshed section and activeSection with latest checklist data');
                 }
               }
             }
