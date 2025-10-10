@@ -1896,77 +1896,81 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                           {/* Content area - NOT clickable to toggle */}
                           <div>
                                 
-                                {/* Answer Choices - show when selected */}
-                                {isSelected && (cl.answer_choices && cl.answer_choices.length > 0 || getSelectedAnswers(cl._id).size > 0) && (
+                                {/* Answer Choices & Custom Answer - show when selected */}
+                                {isSelected && (
                                   <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid #e5e7eb' }}>
-                                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#4b5563', marginBottom: '0.5rem' }}>
-                                      Select Options:
-                                    </div>
-                                    <div style={{ 
-                                      display: 'grid', 
-                                      gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', 
-                                      gap: '0.5rem' 
-                                    }}>
-                                      {getAllAnswers(cl._id, cl.answer_choices || []).map((choice, idx) => {
-                                        const selectedAnswers = getSelectedAnswers(cl._id);
-                                        const isAnswerSelected = selectedAnswers.has(choice);
-                                        const isCustom = isCustomAnswer(cl._id, choice, cl.answer_choices || []);
-                                        
-                                        return (
-                                          <label 
-                                            key={idx}
-                                            style={{ 
-                                              display: 'flex', 
-                                              alignItems: 'center',
-                                              gap: '0.4rem',
-                                              padding: '0.4rem 0.5rem',
-                                              borderRadius: '0.25rem',
-                                              backgroundColor: isAnswerSelected ? '#dbeafe' : '#f9fafb',
-                                              border: `1px solid ${isAnswerSelected ? '#3b82f6' : '#e5e7eb'}`,
-                                              cursor: 'pointer',
-                                              fontSize: '0.75rem',
-                                              transition: 'all 0.15s ease',
-                                              position: 'relative'
-                                            }}
-                                            onMouseEnter={(e) => {
-                                              if (!isAnswerSelected) {
-                                                e.currentTarget.style.backgroundColor = '#f3f4f6';
-                                                e.currentTarget.style.borderColor = '#d1d5db';
-                                              }
-                                            }}
-                                            onMouseLeave={(e) => {
-                                              if (!isAnswerSelected) {
-                                                e.currentTarget.style.backgroundColor = '#f9fafb';
-                                                e.currentTarget.style.borderColor = '#e5e7eb';
-                                              }
-                                            }}
-                                          >
-                                            <input
-                                              type="checkbox"
-                                              checked={isAnswerSelected}
-                                              onChange={() => toggleAnswer(cl._id, choice)}
-                                              style={{ cursor: 'pointer' }}
-                                              onClick={(e) => e.stopPropagation()}
-                                            />
-                                            <span style={{ color: '#374151', userSelect: 'none', flex: 1 }}>
-                                              {choice}
-                                            </span>
-                                            {isCustom && (
-                                              <span style={{ 
-                                                fontSize: '0.6rem', 
-                                                backgroundColor: '#fbbf24', 
-                                                color: '#78350f',
-                                                padding: '0.1rem 0.3rem',
-                                                borderRadius: '0.2rem',
-                                                fontWeight: 600
-                                              }}>
-                                                Custom
-                                              </span>
-                                            )}
-                                          </label>
-                                        );
-                                      })}
-                                    </div>
+                                    {getAllAnswers(cl._id, cl.answer_choices || []).length > 0 && (
+                                      <>
+                                        <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#4b5563', marginBottom: '0.5rem' }}>
+                                          Select Options:
+                                        </div>
+                                        <div style={{ 
+                                          display: 'grid', 
+                                          gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', 
+                                          gap: '0.5rem' 
+                                        }}>
+                                          {getAllAnswers(cl._id, cl.answer_choices || []).map((choice, idx) => {
+                                            const selectedAnswers = getSelectedAnswers(cl._id);
+                                            const isAnswerSelected = selectedAnswers.has(choice);
+                                            const isCustom = isCustomAnswer(cl._id, choice, cl.answer_choices || []);
+                                            
+                                            return (
+                                              <label 
+                                                key={idx}
+                                                style={{ 
+                                                  display: 'flex', 
+                                                  alignItems: 'center',
+                                                  gap: '0.4rem',
+                                                  padding: '0.4rem 0.5rem',
+                                                  borderRadius: '0.25rem',
+                                                  backgroundColor: isAnswerSelected ? '#dbeafe' : '#f9fafb',
+                                                  border: `1px solid ${isAnswerSelected ? '#3b82f6' : '#e5e7eb'}`,
+                                                  cursor: 'pointer',
+                                                  fontSize: '0.75rem',
+                                                  transition: 'all 0.15s ease',
+                                                  position: 'relative'
+                                                }}
+                                                onMouseEnter={(e) => {
+                                                  if (!isAnswerSelected) {
+                                                    e.currentTarget.style.backgroundColor = '#f3f4f6';
+                                                    e.currentTarget.style.borderColor = '#d1d5db';
+                                                  }
+                                                }}
+                                                onMouseLeave={(e) => {
+                                                  if (!isAnswerSelected) {
+                                                    e.currentTarget.style.backgroundColor = '#f9fafb';
+                                                    e.currentTarget.style.borderColor = '#e5e7eb';
+                                                  }
+                                                }}
+                                              >
+                                                <input
+                                                  type="checkbox"
+                                                  checked={isAnswerSelected}
+                                                  onChange={() => toggleAnswer(cl._id, choice)}
+                                                  style={{ cursor: 'pointer' }}
+                                                  onClick={(e) => e.stopPropagation()}
+                                                />
+                                                <span style={{ color: '#374151', userSelect: 'none', flex: 1 }}>
+                                                  {choice}
+                                                </span>
+                                                {isCustom && (
+                                                  <span style={{ 
+                                                    fontSize: '0.6rem', 
+                                                    backgroundColor: '#fbbf24', 
+                                                    color: '#78350f',
+                                                    padding: '0.1rem 0.3rem',
+                                                    borderRadius: '0.2rem',
+                                                    fontWeight: 600
+                                                  }}>
+                                                    Custom
+                                                  </span>
+                                                )}
+                                              </label>
+                                            );
+                                          })}
+                                        </div>
+                                      </>
+                                    )}
 
                                     {/* Custom Answer Input */}
                                     <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid #e5e7eb' }}>
