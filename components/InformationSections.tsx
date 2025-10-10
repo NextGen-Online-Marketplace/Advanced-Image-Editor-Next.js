@@ -68,6 +68,9 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
   // Key: sectionId, Value: array of inspection-only checklists for that section
   const [inspectionChecklists, setInspectionChecklists] = useState<Map<string, ISectionChecklist[]>>(new Map());
 
+  // Force modal re-render key for production environment issues
+  const [modalRefreshKey, setModalRefreshKey] = useState(0);
+
   // Auto-save state
   const [autoSaving, setAutoSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
@@ -494,7 +497,8 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
     // First, fetch the latest section data from database to ensure we have fresh checklist data
     let latestSection = section;
     try {
-      const sectionsRes = await fetch('/api/information-sections/sections');
+      const cacheBuster = Date.now();
+      const sectionsRes = await fetch(`/api/information-sections/sections?_=${cacheBuster}`);
       if (sectionsRes.ok) {
         const sectionsData = await sectionsRes.json();
         if (sectionsData.success && sectionsData.data) {
@@ -1418,10 +1422,20 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
           // Refresh sections from database to get the updated data
           await fetchSections();
           
-          // Wait a bit for state to update, then refresh activeSection and sections
+          // Clear current modal state to force fresh load
+          setActiveSection(null);
+          setFormState(null);
+          setChecklistFormData({ text: '', comment: '', type: 'status', tab: 'information', answer_choices: [] });
+          setChecklistFormOpen(false);
+          setEditingChecklistId(null);
+          
+          console.log('✅ Checklist updated successfully, refreshing modal data...');
+          
+          // Wait longer for state to clear, then refresh with fresh data
           setTimeout(async () => {
-            // Refetch to get the latest sections
-            const sectionsRes = await fetch('/api/information-sections/sections');
+            // Refetch to get the latest sections with cache-busting
+            const cacheBuster = Date.now();
+            const sectionsRes = await fetch(`/api/information-sections/sections?_=${cacheBuster}`);
             if (sectionsRes.ok) {
               const sectionsData = await sectionsRes.json();
               if (sectionsData.success && sectionsData.data) {
@@ -1440,10 +1454,13 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                   };
                   setActiveSection(mergedSection);
                   console.log('✅ Refreshed section and activeSection with latest checklist data');
+                  
+                  // Force modal re-render by updating key
+                  setModalRefreshKey(prev => prev + 1);
                 }
               }
             }
-          }, 100);
+          }, 200);
           
           // Update custom_answers in formState
           const newCustomAnswers = new Map(formState?.custom_answers || new Map());
@@ -1740,6 +1757,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
       {/* Modal */}
       {modalOpen && activeSection && formState && (
         <div
+          key={`modal-${activeSection._id}-${modalRefreshKey}`}
           style={{
             position: 'fixed',
             inset: 0,
