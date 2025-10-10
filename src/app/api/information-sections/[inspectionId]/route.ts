@@ -37,7 +37,16 @@ export async function GET(
       .sort({ created_at: 1 })
       .lean();
 
-    return NextResponse.json({ success: true, data: blocks });
+    return NextResponse.json(
+      { success: true, data: blocks },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          Pragma: 'no-cache',
+          Expires: '0',
+        },
+      }
+    );
   } catch (err: any) {
     console.error('GET /api/information-sections/[inspectionId] error:', err);
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
@@ -129,7 +138,17 @@ export async function POST(
       .populate('selected_checklist_ids')
       .lean();
 
-    return NextResponse.json({ success: true, data: populated }, { status: 201 });
+    return NextResponse.json(
+      { success: true, data: populated },
+      {
+        status: 201,
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          Pragma: 'no-cache',
+          Expires: '0',
+        },
+      }
+    );
   } catch (err: any) {
     console.error('POST /api/information-sections/[inspectionId] error:', err);
     
@@ -234,7 +253,16 @@ export async function PUT(
       return NextResponse.json({ success: false, error: 'Block not found' }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true, data: updated });
+    return NextResponse.json(
+      { success: true, data: updated },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          Pragma: 'no-cache',
+          Expires: '0',
+        },
+      }
+    );
   } catch (err: any) {
     console.error('PUT /api/information-sections/[inspectionId] error:', err);
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
@@ -269,9 +297,23 @@ export async function DELETE(
       return NextResponse.json({ success: false, error: 'Block not found' }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true, data: { _id: blockId } });
+    return NextResponse.json(
+      { success: true, data: { _id: blockId } },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          Pragma: 'no-cache',
+          Expires: '0',
+        },
+      }
+    );
   } catch (err: any) {
     console.error('DELETE /api/information-sections/[inspectionId] error:', err);
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }
+
+// Force this route to be dynamic and bypass any caching at the framework level
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';

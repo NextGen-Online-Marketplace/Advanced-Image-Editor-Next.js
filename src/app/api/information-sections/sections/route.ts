@@ -39,9 +39,24 @@ export async function GET() {
       checklists: (checklistMap[section._id.toString()] || []).sort((a, b) => a.order_index - b.order_index),
     }));
 
-    return NextResponse.json({ success: true, data: result });
+    // Ensure no caching in production to always get fresh section/checklist data
+    return NextResponse.json(
+      { success: true, data: result },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          Pragma: 'no-cache',
+          Expires: '0',
+        },
+      }
+    );
   } catch (err: any) {
     console.error('GET /api/information-sections/sections error:', err);
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }
+
+// Force this route to be dynamic and bypass any caching at the framework level
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';

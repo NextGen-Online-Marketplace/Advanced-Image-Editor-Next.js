@@ -65,7 +65,16 @@ export async function PUT(
       return NextResponse.json({ success: false, error: 'Checklist not found' }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true, data: updated });
+    return NextResponse.json(
+      { success: true, data: updated },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          Pragma: 'no-cache',
+          Expires: '0',
+        },
+      }
+    );
   } catch (err: any) {
     console.error('PUT /api/checklists/[checklistId] error:', err);
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
@@ -91,9 +100,23 @@ export async function DELETE(
       return NextResponse.json({ success: false, error: 'Checklist not found' }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true, data: { _id: checklistId } });
+    return NextResponse.json(
+      { success: true, data: { _id: checklistId } },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          Pragma: 'no-cache',
+          Expires: '0',
+        },
+      }
+    );
   } catch (err: any) {
     console.error('DELETE /api/checklists/[checklistId] error:', err);
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }
+
+// Force this route to be dynamic and bypass any caching at the framework level
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
