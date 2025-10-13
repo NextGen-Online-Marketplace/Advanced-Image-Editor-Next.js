@@ -24,6 +24,92 @@ interface ReportSection {
   };
 }
 
+type DefectTextParts = {
+  title: string;
+  body: string;
+  paragraphs: string[];
+};
+
+const splitDefectText = (raw?: string): DefectTextParts => {
+  const normalized = (raw ?? "").replace(/\r\n/g, "\n").trim();
+  if (!normalized) {
+    return { title: "", body: "", paragraphs: [] };
+  }
+
+  const paragraphBlocks = normalized
+    .split(/\n\s*\n/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+
+  if (paragraphBlocks.length > 1) {
+    const [title, ...rest] = paragraphBlocks;
+    return {
+      title,
+      body: rest.join("\n\n").trim(),
+      paragraphs: rest,
+    };
+  }
+
+  const lineBlocks = normalized
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lineBlocks.length > 1) {
+    const [title, ...restLines] = lineBlocks;
+    const restCombined = restLines.join(" ").trim();
+    return {
+      title,
+      body: restCombined,
+      paragraphs: restCombined ? [restCombined] : [],
+    };
+  }
+
+  const colonMatch = normalized.match(/^([^:]{3,120}):\s*([\s\S]+)$/);
+  if (colonMatch) {
+    const [, title, remainder] = colonMatch;
+    const trimmedRemainder = remainder.trim();
+    const paragraphs = trimmedRemainder
+      ? trimmedRemainder.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean)
+      : [];
+    return {
+      title: title.trim(),
+      body: trimmedRemainder,
+      paragraphs: paragraphs.length ? paragraphs : trimmedRemainder ? [trimmedRemainder] : [],
+    };
+  }
+
+  const dashMatch = normalized.match(/^([^–-]{3,120})[–-]\s*([\s\S]+)$/);
+  if (dashMatch) {
+    const [, title, remainder] = dashMatch;
+    const trimmedRemainder = remainder.trim();
+    const paragraphs = trimmedRemainder
+      ? trimmedRemainder.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean)
+      : [];
+    return {
+      title: title.trim(),
+      body: trimmedRemainder,
+      paragraphs: paragraphs.length ? paragraphs : trimmedRemainder ? [trimmedRemainder] : [],
+    };
+  }
+
+  const periodIndex = normalized.indexOf(".");
+  if (periodIndex > 0 && periodIndex < normalized.length - 1) {
+    const title = normalized.slice(0, periodIndex).trim();
+    const remainder = normalized.slice(periodIndex + 1).trim();
+    const paragraphs = remainder
+      ? remainder.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean)
+      : [];
+    return {
+      title,
+      body: remainder,
+      paragraphs: paragraphs.length ? paragraphs : remainder ? [remainder] : [],
+    };
+  }
+
+  return { title: normalized, body: "", paragraphs: [] };
+};
+
 export default function UserReport() {
   const router = useRouter();
   const [currentDate, setCurrentDate] = useState("");
@@ -297,7 +383,19 @@ export default function UserReport() {
     >
       <main className="py-8">
         <div className={styles.reportSectionsContainer}>
-          {reportSections.map((section) => (
+          {reportSections.map((section) => {
+            const defectPartsView = splitDefectText(section.defect);
+            const defectTitle = defectPartsView.title;
+            const defectParagraphsRaw = defectPartsView.paragraphs.length
+              ? defectPartsView.paragraphs
+              : defectPartsView.body && defectPartsView.body !== defectTitle
+                ? [defectPartsView.body]
+                : [];
+            const defectParagraphs = defectParagraphsRaw
+              .map((paragraph) => paragraph?.trim?.())
+              .filter((paragraph): paragraph is string => Boolean(paragraph));
+
+            return (
             <div key={section.id} className={styles.reportSection}>
               {/* Heading */}
               <div className={styles.sectionHeading}>
@@ -364,7 +462,25 @@ export default function UserReport() {
                           onChange={(e) => handleInputChange("defect", e.target.value)}
                         />
                       ) : (
-                        <p className={styles.sectionContent}>{section.defect}</p>
+                        <div>
+                          {defectTitle ? (
+                            <p
+                              className={styles.defectHeadline}
+                              style={{ color: getSelectedColor() }}
+                            >
+                              {defectTitle}
+                            </p>
+                          ) : null}
+                          {defectParagraphs.length > 0 ? (
+                            defectParagraphs.map((paragraph, idx) => (
+                              <p key={idx} className={styles.defectBody}>
+                                {paragraph}
+                              </p>
+                            ))
+                          ) : !defectTitle && section.defect ? (
+                            <p className={styles.defectBody}>{section.defect}</p>
+                          ) : null}
+                        </div>
                       )}
                     </div>
 
@@ -461,7 +577,8 @@ export default function UserReport() {
                 </div>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Buttons */}
