@@ -26,12 +26,34 @@ interface AnalysisResult {
 
 import { Client } from "@upstash/qstash";
 
-const client = new Client({
-  token: process.env.QSTASH_TOKEN!,
-});
+const getQstashClient = () => {
+  const token = process.env.QSTASH_TOKEN;
+  if (!token) {
+    throw new Error("Missing QSTASH_TOKEN environment variable");
+  }
+  return new Client({ token });
+};
+
+const decodeBase64Image = (dataString: string) => {
+  const matches = dataString.match(/^data:(.+);base64,(.+)$/);
+  if (!matches || matches.length !== 3) {
+    throw new Error("Invalid base64 image string");
+  }
+  return {
+    mime: matches[1],
+    buffer: Buffer.from(matches[2], "base64"),
+  };
+};
 
 export async function POST(request: Request) {
   try {
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+    if (!baseUrl) {
+      throw new Error("Missing NEXT_PUBLIC_BASE_URL environment variable");
+    }
+
+    const client = getQstashClient();
+
     let imageUrl: string | undefined;
     let description: string | undefined;
     let file: File | null = null;
@@ -92,6 +114,8 @@ export async function POST(request: Request) {
 
     console.log(videoFile);
     let finalVideoUrl = null;
+    let finalImageUrl = imageUrl;
+    let finalThumbnailUrl = thumbnail;
   
     if (videoFile) {
         // Generate R2 key
@@ -106,6 +130,27 @@ export async function POST(request: Request) {
       console.log('no video found')
     }
 
+    if (file) {
+      const extension = file.name.split(".").pop() || "jpg";
+      const key = `inspections/${inspectionId}/${Date.now()}.${extension}`;
+      const buffer = Buffer.from(await file.arrayBuffer());
+      finalImageUrl = await uploadToR2(buffer, key, file.type || 'image/jpeg');
+      console.log("✅ Image file uploaded to R2:", finalImageUrl);
+    } else if (imageUrl && imageUrl.startsWith('data:')) {
+      const { mime, buffer } = decodeBase64Image(imageUrl);
+      const isJpeg = mime.includes('jpeg') || mime.includes('jpg');
+      const key = `inspections/${inspectionId}/${Date.now()}${isJpeg ? '.jpg' : '.png'}`;
+      finalImageUrl = await uploadToR2(buffer, key, isJpeg ? 'image/jpeg' : mime);
+      console.log("✅ Base64 image uploaded to R2:", finalImageUrl);
+    }
+
+    if (thumbnail && thumbnail.startsWith('data:')) {
+      const { mime, buffer } = decodeBase64Image(thumbnail);
+      const key = `inspections/${inspectionId}/${Date.now()}-thumbnail.png`;
+      finalThumbnailUrl = await uploadToR2(buffer, key, mime);
+      console.log("✅ Thumbnail uploaded to R2:", finalThumbnailUrl);
+    }
+
   // Unique ID for job
   const analysisId = `${inspectionId}-${Date.now()}`;
 
@@ -113,9 +158,9 @@ export async function POST(request: Request) {
 
   // Publish job to QStash -> will call /api/process-analysis
   await client.publishJSON({
-    url: `${process.env.NEXT_PUBLIC_BASE_URL}/api/process-analysis`,
+    url: `${baseUrl}/api/process-analysis`,
     body: {
-      imageUrl,
+      imageUrl: finalImageUrl,
       description,
       location,
       inspectionId,
@@ -124,7 +169,7 @@ export async function POST(request: Request) {
       selectedColor,
       analysisId,
       finalVideoUrl,
-      thumbnail,
+      thumbnail: finalThumbnailUrl,
       type,
       isThreeSixty
     },
@@ -138,8 +183,16 @@ export async function POST(request: Request) {
     },
     { status: 202 }
   );
-} catch {
-  console.log('error getting the input')
+} catch (error) {
+  console.error('❌ Error handling analyze-image request:', error);
+  const message = error instanceof Error ? error.message : 'Unknown error';
+  return NextResponse.json(
+    {
+      error: 'analyze_image_failed',
+      message,
+    },
+    { status: 500 }
+  );
 }
 }
 
