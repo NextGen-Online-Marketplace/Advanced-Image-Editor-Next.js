@@ -3,9 +3,6 @@
 import React, { useRef, useState, useEffect, useCallback } from "react";
 import styles from './ImageEditor.module.css';
 
-// Use in JSX:
-<div className={styles.cameraFullscreen}></div>
-
 interface Point {
   x: number;
   y: number;
@@ -113,6 +110,9 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
   // Circle and square states
   const [circleColor, setCircleColor] = useState('#d63636');
   const [squareColor, setSquareColor] = useState('#d63636');
+  // Unified thickness for circle/square strokes (user-adjustable)
+  const [shapeThickness, setShapeThickness] = useState(6);
+  const [defaultThickness, setDefaultThickness] = useState(6);
   const [isResizingShape, setIsResizingShape] = useState(false);
   const [resizeHandle, setResizeHandle] = useState<string | null>(null);
   const [initialShapeData, setInitialShapeData] = useState<any>(null);
@@ -333,16 +333,51 @@ const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
       console.log('Color synchronized across all tools:', color);
     };
 
+    const handleThicknessChange = (e: CustomEvent) => {
+      const thickness = Number(e.detail);
+      if (!Number.isFinite(thickness)) return;
+      // Clamp to a reasonable range
+      const clamped = Math.max(2, Math.min(24, thickness));
+      setShapeThickness(clamped);
+      // If a shape is selected, update only that shape's thickness; otherwise update default for new shapes
+      if (selectedArrowId !== null) {
+        setLines(prev => prev.map(l => l.id === selectedArrowId ? { ...l, size: clamped } : l));
+      } else {
+        setDefaultThickness(clamped);
+      }
+      console.log('Shape thickness set:', clamped);
+    };
+
     window.addEventListener('setArrowColor', handleColorChange as EventListener);
     window.addEventListener('setCircleColor', handleColorChange as EventListener);
     window.addEventListener('setSquareColor', handleColorChange as EventListener);
+    // Optional external control for thickness
+    window.addEventListener('setShapeThickness', handleThicknessChange as EventListener);
+    window.addEventListener('setCircleThickness', handleThicknessChange as EventListener);
+    window.addEventListener('setSquareThickness', handleThicknessChange as EventListener);
     
     return () => {
       window.removeEventListener('setArrowColor', handleColorChange as EventListener);
       window.removeEventListener('setCircleColor', handleColorChange as EventListener);
       window.removeEventListener('setSquareColor', handleColorChange as EventListener);
+      window.removeEventListener('setShapeThickness', handleThicknessChange as EventListener);
+      window.removeEventListener('setCircleThickness', handleThicknessChange as EventListener);
+      window.removeEventListener('setSquareThickness', handleThicknessChange as EventListener);
     };
   }, []);
+
+  // Keep slider in sync with the selected shape's thickness
+  useEffect(() => {
+    if (selectedArrowId !== null) {
+      const sel = lines.find(l => l.id === selectedArrowId);
+      if (sel && Number.isFinite(sel.size as number)) {
+        const sz = Math.max(2, Math.min(24, sel.size || 6));
+        if (sz !== shapeThickness) setShapeThickness(sz);
+      }
+    } else {
+      if (shapeThickness !== defaultThickness) setShapeThickness(defaultThickness);
+    }
+  }, [selectedArrowId, lines, defaultThickness]);
 
   // Smooth rotation animation
   useEffect(() => {
@@ -689,13 +724,15 @@ const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
           scaledLine.width !== undefined &&
           scaledLine.height !== undefined
         ) {
+          const scaledThickness = Math.max(2, scaledLine.size);
           drawCircle(
             ctx,
             scaledLine.center.x,
             scaledLine.center.y,
             scaledLine.width,
             scaledLine.height,
-            scaledLine.color
+            scaledLine.color,
+            scaledThickness
           );
         } else if (
           scaledLine.type === 'square' &&
@@ -703,13 +740,15 @@ const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
           scaledLine.width !== undefined &&
           scaledLine.height !== undefined
         ) {
+          const scaledThickness = Math.max(2, scaledLine.size);
           drawSquare(
             ctx,
             scaledLine.center.x,
             scaledLine.center.y,
             scaledLine.width,
             scaledLine.height,
-            scaledLine.color
+            scaledLine.color,
+            scaledThickness
           );
         }
       });
@@ -1537,19 +1576,7 @@ const captureImage = () => {
       
       if (isDrawing) {
         setCurrentLine(prev => [...prev!, { x: mouseX, y: mouseY }]);
-        
-        // Calculate and update arrow size based on distance
-        // In the handleMouseMove function, replace the size calculation:
-// Calculate and update arrow size based on distance
-if (currentLine && currentLine.length > 1) {
-  const from = currentLine[0];
-  const to = { x: mouseX, y: mouseY };
-  const distance = Math.sqrt(Math.pow(to.x - from.x, 2) + Math.pow(to.y - from.y, 2));
-  
-  // Extremely subtle size increase (from 3 to 6 over the entire drawing area)
-  const newSize = Math.min(0.1, Math.max(3, 3 + distance / 150));
-  setCurrentArrowSize(newSize);
-}
+
       } else {  
         // Check for hover effects on arrows with increased selection area
         const hoveredArrow = lines.find(line => 
@@ -1765,12 +1792,12 @@ if (currentLine && currentLine.length > 1) {
       const newLine: Line = {
         points: [...currentLine],
         color: drawingColor,
-        size: currentArrowSize, // Use the dynamic size instead of brushSize
+        size: Math.max(2, shapeThickness), // thickness per arrow
         type: lineType,
         id: lineIdCounter,
         rotation: 0,
         scale: 1,
-        center: getArrowCenter({ points: currentLine, color: drawingColor, size: currentArrowSize, type: 'arrow', id: lineIdCounter })
+        center: getArrowCenter({ points: currentLine, color: drawingColor, size: Math.max(2, shapeThickness), type: 'arrow', id: lineIdCounter })
       };
       
       setLineIdCounter(prev => prev + 1);
@@ -1796,7 +1823,7 @@ if (currentLine && currentLine.length > 1) {
         newLine = {
           points: [startPoint, endPoint],
           color: circleColor,
-          size: 3,
+          size: Math.max(2, shapeThickness),
           type: 'circle',
           id: lineIdCounter,
           center: center,
@@ -1809,7 +1836,7 @@ if (currentLine && currentLine.length > 1) {
         newLine = {
           points: [startPoint, endPoint],
           color: squareColor,
-          size: 3,
+          size: Math.max(2, shapeThickness),
           type: 'square',
           id: lineIdCounter,
           center: center,
@@ -2137,15 +2164,25 @@ const drawCircle = (
   centerY: number,
   width: number,
   height: number,
-  color: string
+  color: string,
+  lineWidth: number = 3,
+  withHalo: boolean = true
 ) => {
-  ctx.strokeStyle = color;
-  ctx.fillStyle = color;
   ctx.setLineDash([]);
-  ctx.lineWidth = 3;
-  
   ctx.beginPath();
   ctx.ellipse(centerX, centerY, width / 2, height / 2, 0, 0, 2 * Math.PI);
+
+  if (withHalo) {
+    // Subtle dark halo to increase contrast on busy backgrounds
+    ctx.save();
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.lineWidth = Math.max(1, lineWidth + 3);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
   ctx.stroke();
 };
 
@@ -2155,18 +2192,27 @@ const drawSquare = (
   centerY: number,
   width: number,
   height: number,
-  color: string
+  color: string,
+  lineWidth: number = 3,
+  withHalo: boolean = true
 ) => {
-  ctx.strokeStyle = color;
-  ctx.fillStyle = color;
-  ctx.setLineDash([]);
-  ctx.lineWidth = 3;
-  
   const left = centerX - width / 2;
   const top = centerY - height / 2;
-  
+
+  ctx.setLineDash([]);
   ctx.beginPath();
   ctx.rect(left, top, width, height);
+
+  if (withHalo) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.lineWidth = Math.max(1, lineWidth + 3);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
   ctx.stroke();
 };
 
@@ -2342,14 +2388,14 @@ const drawSquare = (
         // Draw hover effect if this circle is hovered
         if (hoveredArrowId === line.id && selectedArrowId !== line.id) {
           ctx.strokeStyle = line.color;
-          ctx.lineWidth = line.size + 4;
+          ctx.lineWidth = (line.size || 3) + 4;
           ctx.globalAlpha = 0.3;
-          drawCircle(ctx, line.center.x, line.center.y, line.width || 0, line.height || 0, line.color);
+          drawCircle(ctx, line.center.x, line.center.y, line.width || 0, line.height || 0, line.color, line.size || shapeThickness);
           ctx.globalAlpha = 1.0;
         }
         
         // Draw the main circle
-        drawCircle(ctx, line.center.x, line.center.y, line.width || 0, line.height || 0, line.color);
+        drawCircle(ctx, line.center.x, line.center.y, line.width || 0, line.height || 0, line.color, line.size || shapeThickness);
         
         // Show selection indicator
         if (selectedArrowId === line.id) {
@@ -2399,14 +2445,14 @@ const drawSquare = (
         // Draw hover effect if this square is hovered
         if (hoveredArrowId === line.id && selectedArrowId !== line.id) {
           ctx.strokeStyle = line.color;
-          ctx.lineWidth = line.size + 4;
+          ctx.lineWidth = (line.size || 3) + 4;
           ctx.globalAlpha = 0.3;
-          drawSquare(ctx, line.center.x, line.center.y, line.width, line.height, line.color);
+          drawSquare(ctx, line.center.x, line.center.y, line.width, line.height, line.color, line.size || shapeThickness);
           ctx.globalAlpha = 1.0;
         }
         
         // Draw the main square
-        drawSquare(ctx, line.center.x, line.center.y, line.width, line.height, line.color);
+        drawSquare(ctx, line.center.x, line.center.y, line.width, line.height, line.color, line.size || shapeThickness);
         
         // Show selection indicator
         if (selectedArrowId === line.id) {
@@ -2472,8 +2518,8 @@ const drawSquare = (
         const from = currentLine[0];
         const to = currentLine[currentLine.length - 1];
         
-        // Use the currentArrowSize for drawing
-        drawArrow(ctx, from.x, from.y, to.x, to.y, currentArrowSize);
+  // Use the current shapeThickness for preview to match slider
+  drawArrow(ctx, from.x, from.y, to.x, to.y, Math.max(2, shapeThickness));
       } else if (activeMode === 'circle' && currentLine.length >= 2 && hasDragged) {
         const startPoint = currentLine[0];
         const endPoint = currentLine[1];
@@ -2483,7 +2529,7 @@ const drawSquare = (
         };
         const width = Math.abs(endPoint.x - startPoint.x);
         const height = Math.abs(endPoint.y - startPoint.y);
-        drawCircle(ctx, center.x, center.y, width, height, circleColor);
+  drawCircle(ctx, center.x, center.y, width, height, circleColor, Math.max(2, shapeThickness));
       } else if (activeMode === 'square' && currentLine.length >= 2 && hasDragged) {
         const startPoint = currentLine[0];
         const endPoint = currentLine[1];
@@ -2493,7 +2539,7 @@ const drawSquare = (
         };
         const width = Math.abs(endPoint.x - startPoint.x);
         const height = Math.abs(endPoint.y - startPoint.y);
-        drawSquare(ctx, center.x, center.y, width, height, squareColor);
+  drawSquare(ctx, center.x, center.y, width, height, squareColor, Math.max(2, shapeThickness));
       } else {
         ctx.beginPath();
         currentLine.forEach((pt, i) => {
@@ -2720,6 +2766,28 @@ const drawSquare = (
   ) : (
     // 👇 Fallback: image canvas
     <div className={styles.imageDisplayArea}>
+      {/* Small thickness control */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <label style={{ fontSize: 12, color: '#555' }}>Shape thickness</label>
+        <input
+          type="range"
+          min={2}
+          max={24}
+          step={1}
+          value={shapeThickness}
+          onChange={(e) => {
+            const next = Math.max(2, Math.min(24, Number(e.target.value)));
+            setShapeThickness(next);
+            if (selectedArrowId !== null) {
+              setLines(prev => prev.map(l => l.id === selectedArrowId ? { ...l, size: next } : l));
+            } else {
+              setDefaultThickness(next);
+            }
+          }}
+          style={{ width: 140 }}
+        />
+        <span style={{ fontSize: 12, color: '#333', width: 24, textAlign: 'right' }}>{shapeThickness}</span>
+      </div>
       <canvas
         ref={canvasRef}
         width={300}

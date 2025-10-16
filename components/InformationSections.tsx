@@ -69,6 +69,17 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
   // Key: sectionId, Value: array of inspection-only checklists for that section
   const [inspectionChecklists, setInspectionChecklists] = useState<Map<string, ISectionChecklist[]>>(new Map());
 
+  // Track hidden template checklist items per inspection/section (persisted in localStorage)
+  // Map key: sectionId, value: array of template checklist IDs hidden for this inspection
+  const [hiddenChecklists, setHiddenChecklists] = useState<Map<string, string[]>>(new Map());
+
+  // UI state: which checklist id currently has the delete options menu open
+  const [deleteMenuForId, setDeleteMenuForId] = useState<string | null>(null);
+
+  // UI state: show hidden manager panels inside modal for each area
+  const [showHiddenManagerStatus, setShowHiddenManagerStatus] = useState(false);
+  const [showHiddenManagerLimits, setShowHiddenManagerLimits] = useState(false);
+
   // Auto-save state
   const [autoSaving, setAutoSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
@@ -170,6 +181,19 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
         setInspectionChecklists(checklistsMap);
         console.log('📂 Loaded inspection-specific checklists from localStorage:', checklistsMap);
       }
+
+      // Load hidden template checklist ids map
+      const hiddenKey = `inspection_hidden_checklists_${inspectionId}`;
+      const hiddenStored = localStorage.getItem(hiddenKey);
+      if (hiddenStored) {
+        const parsedHidden = JSON.parse(hiddenStored) as Record<string, string[]>;
+        const hiddenMap = new Map<string, string[]>();
+        Object.entries(parsedHidden).forEach(([sectionId, ids]) => {
+          hiddenMap.set(sectionId, ids as string[]);
+        });
+        setHiddenChecklists(hiddenMap);
+        console.log('🙈 Loaded hidden checklist ids from localStorage:', hiddenMap);
+      }
     } catch (error) {
       console.error('Error loading inspection checklists:', error);
     }
@@ -194,6 +218,61 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
       console.error('Error saving inspection checklists:', error);
     }
   }, [inspectionId, inspectionChecklists]);
+
+  // Persist hidden template checklist ids map
+  useEffect(() => {
+    if (!inspectionId) return;
+    try {
+      const key = `inspection_hidden_checklists_${inspectionId}`;
+      const obj: Record<string, string[]> = {};
+      hiddenChecklists.forEach((ids, sectionId) => {
+        if (ids.length > 0) obj[sectionId] = ids;
+      });
+      localStorage.setItem(key, JSON.stringify(obj));
+      console.log('💾 Saved hidden checklist ids to localStorage');
+    } catch (error) {
+      console.error('Error saving hidden checklist ids:', error);
+    }
+  }, [inspectionId, hiddenChecklists]);
+
+  // Helpers for hidden items
+  const getHiddenIdsForSection = (sectionId: string): string[] => {
+    return hiddenChecklists.get(sectionId) || [];
+  };
+
+  const isChecklistHidden = (sectionId: string, checklistId: string): boolean => {
+    const ids = hiddenChecklists.get(sectionId) || [];
+    return ids.includes(checklistId);
+  };
+
+  const hideChecklistForInspection = (sectionId: string, checklistId: string) => {
+    // Only template items can be hidden
+    if (checklistId.startsWith('temp_')) return;
+    const current = hiddenChecklists.get(sectionId) || [];
+    if (current.includes(checklistId)) return;
+    const updated = new Map(hiddenChecklists);
+    updated.set(sectionId, [...current, checklistId]);
+    setHiddenChecklists(updated);
+
+    // Also unselect it in current form state if selected
+    if (formState && formState.section_id === sectionId && formState.selected_checklist_ids.has(checklistId)) {
+      const newIds = new Set(formState.selected_checklist_ids);
+      newIds.delete(checklistId);
+      const newAnswers = new Map(formState.selected_answers);
+      newAnswers.delete(checklistId);
+      const updatedState = { ...formState, selected_checklist_ids: newIds, selected_answers: newAnswers };
+      setFormState(updatedState);
+      setTimeout(() => performAutoSaveWithState(updatedState), 100);
+    }
+  };
+
+  const unhideChecklistForInspection = (sectionId: string, checklistId: string) => {
+    const current = hiddenChecklists.get(sectionId) || [];
+    const updatedIds = current.filter(id => id !== checklistId);
+    const updated = new Map(hiddenChecklists);
+    if (updatedIds.length > 0) updated.set(sectionId, updatedIds); else updated.delete(sectionId);
+    setHiddenChecklists(updated);
+  };
 
   // Helper function to get all checklist items for a block (including inspection-only)
   const getBlockChecklists = (block: IInformationBlock): any[] => {
@@ -1212,7 +1291,48 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
       console.log(`⏳ Uploading large file (${fileSizeMB.toFixed(1)}MB), this may take a minute...`);
     }
 
+    // Normalize smartphone EXIF orientation for JPEG/PNG before upload (HEIC handled on server)
+    const fixOrientationIfNeeded = async (f: File): Promise<File> => {
+      try {
+        if (!f.type.startsWith('image/') || /heic|heif/i.test(f.type) || /\.(heic|heif)$/i.test(f.name)) return f;
+  // Use ESM build to avoid UMD warning
+  const exifr: any = (await import('exifr/dist/full.esm.mjs')) as any;
+        const orientation: number | undefined = await exifr.orientation(f);
+        if (!orientation || orientation === 1) return f;
+
+        const imgUrl = URL.createObjectURL(f);
+        const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const i = new Image();
+          i.onload = () => resolve(i);
+          i.onerror = reject;
+          i.src = imgUrl;
+        });
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { URL.revokeObjectURL(imgUrl); return f; }
+        const w = img.naturalWidth || img.width; const h = img.naturalHeight || img.height;
+        switch (orientation) {
+          case 2: canvas.width=w; canvas.height=h; ctx.translate(w,0); ctx.scale(-1,1); break;
+          case 3: canvas.width=w; canvas.height=h; ctx.translate(w,h); ctx.rotate(Math.PI); break;
+          case 4: canvas.width=w; canvas.height=h; ctx.translate(0,h); ctx.scale(1,-1); break;
+          case 5: canvas.width=h; canvas.height=w; ctx.rotate(0.5*Math.PI); ctx.scale(1,-1); ctx.translate(0,-h); break;
+          case 6: canvas.width=h; canvas.height=w; ctx.rotate(0.5*Math.PI); ctx.translate(0,-h); break;
+          case 7: canvas.width=h; canvas.height=w; ctx.rotate(0.5*Math.PI); ctx.translate(w,-h); ctx.scale(-1,1); break;
+          case 8: canvas.width=h; canvas.height=w; ctx.rotate(-0.5*Math.PI); ctx.translate(-w,0); break;
+          default: canvas.width=w; canvas.height=h; break;
+        }
+        ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0);
+        URL.revokeObjectURL(imgUrl);
+        const blob: Blob = await new Promise((resolve)=> canvas.toBlob((b)=> resolve(b || new Blob()), 'image/jpeg', 0.95));
+        return new File([blob], f.name.replace(/\.(png|jpg|jpeg|webp)$/i,'') + '.jpg', { type: 'image/jpeg' });
+      } catch (e) {
+        console.warn('EXIF normalize skipped:', e); return f;
+      }
+    };
+
     try {
+      file = await fixOrientationIfNeeded(file);
       // Upload image to R2
       const formData = new FormData();
       formData.append('file', file);
@@ -1620,45 +1740,33 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
     
     if (isTemporary) {
       // Delete from inspection-specific checklists (localStorage)
-      if (!confirm('Are you sure you want to delete this checklist item from this inspection?')) return;
-      
+      if (!confirm('Remove this inspection-only item? It will be deleted only from this inspection.')) return;
       if (!activeSection) return;
-      
-      // Find and remove from inspectionChecklists
       const currentInspectionChecklists = inspectionChecklists.get(activeSection._id) || [];
       const updatedInspectionChecklists = currentInspectionChecklists.filter(cl => cl._id !== checklistId);
-      
       const newInspectionChecklistsMap = new Map(inspectionChecklists);
-      if (updatedInspectionChecklists.length > 0) {
-        newInspectionChecklistsMap.set(activeSection._id, updatedInspectionChecklists);
-      } else {
-        newInspectionChecklistsMap.delete(activeSection._id);
-      }
+      if (updatedInspectionChecklists.length > 0) newInspectionChecklistsMap.set(activeSection._id, updatedInspectionChecklists); else newInspectionChecklistsMap.delete(activeSection._id);
       setInspectionChecklists(newInspectionChecklistsMap);
-      
-      // Update activeSection to remove it from UI
-      setActiveSection({
-        ...activeSection,
-        checklists: activeSection.checklists.filter(cl => cl._id !== checklistId)
-      });
-      
+      setActiveSection({ ...activeSection, checklists: activeSection.checklists.filter(cl => cl._id !== checklistId) });
       console.log('✅ Deleted inspection-only checklist:', checklistId);
     } else {
-      // Delete from template (database)
-      if (!confirm('Are you sure you want to delete this checklist item? This will remove it from all inspections.')) return;
+      // For template items, show two explicit choices via inline menu
+      setDeleteMenuForId(checklistId);
+    }
+  };
 
-      try {
-        const res = await fetch(`/api/checklists/${checklistId}`, {
-          method: 'DELETE',
-        });
-        const json = await res.json();
-        if (!json.success) throw new Error(json.error || 'Failed to delete checklist');
-
-        // Refresh sections to get updated checklists
-        await fetchSections();
-      } catch (e: any) {
-        alert(e.message);
-      }
+  // Execute the global template delete (with confirm)
+  const performGlobalChecklistDelete = async (checklistId: string) => {
+    if (!confirm('Delete from template? This removes the item from ALL inspections.')) return;
+    try {
+      const res = await fetch(`/api/checklists/${checklistId}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || 'Failed to delete checklist');
+      await fetchSections();
+      // Also close any open menu
+      setDeleteMenuForId(null);
+    } catch (e: any) {
+      alert(e.message);
     }
   };
 
@@ -1861,7 +1969,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
               <h4 style={{ fontWeight: 600, fontSize: '1.125rem' }}>
                 {editingBlockId ? 'Edit' : 'Add'} Information Block - {activeSection.name}
               </h4>
-              <button onClick={() => { setModalOpen(false); setActiveSection(null); setEditingBlockId(null); }} style={{ color: '#6b7280', cursor: 'pointer', border: 'none', background: 'none', fontSize: '1.25rem' }}>✕</button>
+              <button onClick={() => { setModalOpen(false); setActiveSection(null); setEditingBlockId(null); setDeleteMenuForId(null); }} style={{ color: '#6b7280', cursor: 'pointer', border: 'none', background: 'none', fontSize: '1.25rem' }}>✕</button>
             </div>
             <div style={{
               flex: 1,
@@ -1911,6 +2019,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   {activeSection.checklists
                     .filter(cl => cl.type === 'status')
+                    .filter(cl => !isChecklistHidden(activeSection._id, cl._id))
                     .map(cl => {
                       const isSelected = formState.selected_checklist_ids.has(cl._id);
                       const checklistImages = getChecklistImages(cl._id);
@@ -1933,7 +2042,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                 </div>
                               )}
                             </div>
-                            <div style={{ display: 'flex', gap: '0.25rem', marginLeft: '0.5rem' }} onClick={(e) => e.preventDefault()}>
+                            <div style={{ display: 'flex', gap: '0.25rem', marginLeft: '0.5rem', position: 'relative' }} onClick={(e) => e.preventDefault()}>
                               <button
                                 onClick={(e) => {
                                   e.preventDefault();
@@ -1976,6 +2085,44 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                               >
                                 🗑️
                               </button>
+                              {/* Inline delete options menu for template items */}
+                              {deleteMenuForId === cl._id && !cl._id.startsWith('temp_') && (
+                                <div style={{
+                                  position: 'absolute',
+                                  top: '100%',
+                                  right: 0,
+                                  backgroundColor: 'white',
+                                  border: '1px solid #e5e7eb',
+                                  borderRadius: '0.375rem',
+                                  boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                                  padding: '0.5rem',
+                                  zIndex: 10,
+                                  width: '240px'
+                                }}>
+                                  <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#111827', marginBottom: '0.25rem' }}>Delete Options</div>
+                                  <div style={{ fontSize: '0.75rem', color: '#374151', marginBottom: '0.5rem' }}>Choose how to remove this item:</div>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                    <button
+                                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); hideChecklistForInspection(activeSection._id, cl._id); setDeleteMenuForId(null); }}
+                                      style={{ padding: '0.35rem 0.5rem', fontSize: '0.75rem', borderRadius: '0.25rem', backgroundColor: '#f59e0b', color: 'white', border: 'none', cursor: 'pointer' }}
+                                    >
+                                      Hide in this inspection
+                                    </button>
+                                    <button
+                                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); performGlobalChecklistDelete(cl._id); }}
+                                      style={{ padding: '0.35rem 0.5rem', fontSize: '0.75rem', borderRadius: '0.25rem', backgroundColor: '#ef4444', color: 'white', border: 'none', cursor: 'pointer' }}
+                                    >
+                                      Delete from template (all)
+                                    </button>
+                                    <button
+                                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteMenuForId(null); }}
+                                      style={{ padding: '0.35rem 0.5rem', fontSize: '0.75rem', borderRadius: '0.25rem', backgroundColor: '#e5e7eb', color: '#111827', border: 'none', cursor: 'pointer' }}
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </label>
 
@@ -2338,6 +2485,30 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                   {activeSection.checklists.filter(cl => cl.type === 'status').length === 0 && (
                     <div style={{ fontSize: '0.75rem', color: '#9ca3af', fontStyle: 'italic' }}>No status fields available</div>
                   )}
+                  {/* Hidden manager for Status */}
+                  {showHiddenManagerStatus && (
+                    <div style={{ marginTop: '0.75rem', padding: '0.75rem', backgroundColor: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '0.375rem' }}>
+                      <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.5rem' }}>Hidden items (this inspection only)</div>
+                      {(() => {
+                        const hiddenIds = getHiddenIdsForSection(activeSection._id);
+                        const hiddenItems = activeSection.checklists.filter(cl => cl.type === 'status' && hiddenIds.includes(cl._id));
+                        if (hiddenItems.length === 0) return <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>No hidden status items.</div>;
+                        return (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                            {hiddenItems.map(item => (
+                              <div key={item._id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.4rem 0.5rem', borderRadius: '0.25rem', backgroundColor: 'white', border: '1px solid #e5e7eb' }}>
+                                <span style={{ fontSize: '0.85rem', color: '#374151' }}>{item.text}</span>
+                                <button
+                                  onClick={() => unhideChecklistForInspection(activeSection._id, item._id)}
+                                  style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', borderRadius: '0.25rem', backgroundColor: '#10b981', color: 'white', border: 'none', cursor: 'pointer' }}
+                                >Unhide</button>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -2379,6 +2550,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   {activeSection.checklists
                     .filter(cl => cl.tab === 'limitations')
+                    .filter(cl => !isChecklistHidden(activeSection._id, cl._id))
                     .map(cl => {
                       const isSelected = formState.selected_checklist_ids.has(cl._id);
                       const checklistImages = getChecklistImages(cl._id);
@@ -2401,7 +2573,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                 </div>
                               )}
                             </div>
-                            <div style={{ display: 'flex', gap: '0.25rem', marginLeft: '0.5rem' }} onClick={(e) => e.preventDefault()}>
+                            <div style={{ display: 'flex', gap: '0.25rem', marginLeft: '0.5rem', position: 'relative' }} onClick={(e) => e.preventDefault()}>
                               <button
                                 onClick={(e) => {
                                   e.preventDefault();
@@ -2444,6 +2616,44 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                               >
                                 🗑️
                               </button>
+                              {/* Inline delete options menu for template items */}
+                              {deleteMenuForId === cl._id && !cl._id.startsWith('temp_') && (
+                                <div style={{
+                                  position: 'absolute',
+                                  top: '100%',
+                                  right: 0,
+                                  backgroundColor: 'white',
+                                  border: '1px solid #e5e7eb',
+                                  borderRadius: '0.375rem',
+                                  boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                                  padding: '0.5rem',
+                                  zIndex: 10,
+                                  width: '240px'
+                                }}>
+                                  <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#111827', marginBottom: '0.25rem' }}>Delete Options</div>
+                                  <div style={{ fontSize: '0.75rem', color: '#374151', marginBottom: '0.5rem' }}>Choose how to remove this item:</div>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                    <button
+                                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); hideChecklistForInspection(activeSection._id, cl._id); setDeleteMenuForId(null); }}
+                                      style={{ padding: '0.35rem 0.5rem', fontSize: '0.75rem', borderRadius: '0.25rem', backgroundColor: '#f59e0b', color: 'white', border: 'none', cursor: 'pointer' }}
+                                    >
+                                      Hide in this inspection
+                                    </button>
+                                    <button
+                                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); performGlobalChecklistDelete(cl._id); }}
+                                      style={{ padding: '0.35rem 0.5rem', fontSize: '0.75rem', borderRadius: '0.25rem', backgroundColor: '#ef4444', color: 'white', border: 'none', cursor: 'pointer' }}
+                                    >
+                                      Delete from template (all)
+                                    </button>
+                                    <button
+                                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteMenuForId(null); }}
+                                      style={{ padding: '0.35rem 0.5rem', fontSize: '0.75rem', borderRadius: '0.25rem', backgroundColor: '#e5e7eb', color: '#111827', border: 'none', cursor: 'pointer' }}
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </label>
 
@@ -2794,6 +3004,30 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                   {activeSection.checklists.filter(cl => cl.type === 'information').length === 0 && (
                     <div style={{ fontSize: '0.75rem', color: '#9ca3af', fontStyle: 'italic' }}>No information items available</div>
                   )}
+                  {/* Hidden manager for Limitations/Information */}
+                  {showHiddenManagerLimits && (
+                    <div style={{ marginTop: '0.75rem', padding: '0.75rem', backgroundColor: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '0.375rem' }}>
+                      <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.5rem' }}>Hidden items (this inspection only)</div>
+                      {(() => {
+                        const hiddenIds = getHiddenIdsForSection(activeSection._id);
+                        const hiddenItems = activeSection.checklists.filter(cl => cl.tab === 'limitations' && hiddenIds.includes(cl._id));
+                        if (hiddenItems.length === 0) return <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>No hidden limitation/information items.</div>;
+                        return (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                            {hiddenItems.map(item => (
+                              <div key={item._id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.4rem 0.5rem', borderRadius: '0.25rem', backgroundColor: 'white', border: '1px solid #e5e7eb' }}>
+                                <span style={{ fontSize: '0.85rem', color: '#374151' }}>{item.text}</span>
+                                <button
+                                  onClick={() => unhideChecklistForInspection(activeSection._id, item._id)}
+                                  style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', borderRadius: '0.25rem', backgroundColor: '#10b981', color: 'white', border: 'none', cursor: 'pointer' }}
+                                >Unhide</button>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -2844,6 +3078,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                     setActiveSection(null); 
                     setEditingBlockId(null);
                     setLastSaved(null);
+                    setDeleteMenuForId(null);
                     // Clear any pending auto-save timer
                     if (autoSaveTimerRef.current) {
                       clearTimeout(autoSaveTimerRef.current);
@@ -2864,6 +3099,19 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                 onMouseOver={(e) => !saving && (e.currentTarget.style.backgroundColor = '#059669')}
                 onMouseOut={(e) => !saving && (e.currentTarget.style.backgroundColor = '#10b981')}
               >{saving ? 'Saving...' : '✓ Done'}</button>
+              {/* Manage hidden toggles when modal open */}
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button
+                  onClick={() => setShowHiddenManagerStatus(v => !v)}
+                  style={{ padding: '0.4rem 0.6rem', fontSize: '0.75rem', borderRadius: '0.25rem', backgroundColor: '#e5e7eb', color: '#111827', border: 'none', cursor: 'pointer' }}
+                  title="Manage hidden Status items for this inspection"
+                >{showHiddenManagerStatus ? 'Hide Status Manager' : 'Manage Hidden Status'}</button>
+                <button
+                  onClick={() => setShowHiddenManagerLimits(v => !v)}
+                  style={{ padding: '0.4rem 0.6rem', fontSize: '0.75rem', borderRadius: '0.25rem', backgroundColor: '#e5e7eb', color: '#111827', border: 'none', cursor: 'pointer' }}
+                  title="Manage hidden Limitation/Information items for this inspection"
+                >{showHiddenManagerLimits ? 'Hide Limitations Manager' : 'Manage Hidden Limitations'}</button>
+              </div>
             </div>
           </div>
         </div>

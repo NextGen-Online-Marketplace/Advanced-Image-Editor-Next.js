@@ -11,6 +11,15 @@
 				"$eslint-stylish"
 			],
 			"group": "build"
+		},
+		{
+			"label": "Next type-check",
+			"type": "shell",
+			"command": "npx tsc -noEmit",
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
 		}
 	]
 }

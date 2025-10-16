@@ -49,8 +49,9 @@ async function handler(request: Request) {
 
     console.log("🔄 Processing job", analysisId);
 
-    let finalImageUrl = imageUrl;
-    // let finalVideoUrl = '';
+  let finalImageUrl: string | undefined = imageUrl;
+  let finalThumbnailUrl: string | null = null;
+  // let finalVideoUrl = '';
 
       if (imageUrl && imageUrl.startsWith("data:")) {
         // Decode base64 into buffer + mime type
@@ -63,16 +64,19 @@ async function handler(request: Request) {
         finalImageUrl = await uploadToR2(buffer, key, mime);
       }
 
-      if (thumbnail && thumbnail.startsWith("data:")) {
-        // Decode base64 into buffer + mime type
-        const { mime, buffer } = decodeBase64Image(thumbnail);
-      
-        // Generate R2 key
-        const key = `inspections/${inspectionId}/${Date.now()}-thumbnail.png`;
-      
-        // Upload buffer to R2
-        finalImageUrl = await uploadToR2(buffer, key, mime);
-        console.log("✅ Thumbnail uploaded to R2:", finalImageUrl);
+      if (thumbnail) {
+        if (thumbnail.startsWith("data:")) {
+          // Decode base64 into buffer + mime type
+          const { mime, buffer } = decodeBase64Image(thumbnail);
+          // Generate R2 key
+          const key = `inspections/${inspectionId}/${Date.now()}-thumbnail.png`;
+          // Upload buffer to R2
+          finalThumbnailUrl = await uploadToR2(buffer, key, mime);
+          console.log("✅ Thumbnail uploaded to R2:", finalThumbnailUrl);
+        } else {
+          // Already a remote URL
+          finalThumbnailUrl = thumbnail;
+        }
       } else {
         console.log('no thumbnail found')
       }
@@ -167,7 +171,7 @@ async function handler(request: Request) {
       recommendation: parsed.recommendation || "",
       color: selectedColor || undefined,
       type: type,
-      thumbnail: finalImageUrl,
+      thumbnail: finalThumbnailUrl,
       video: finalVideoUrl,
       isThreeSixty: isThreeSixty || false
     };

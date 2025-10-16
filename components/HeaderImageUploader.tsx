@@ -31,6 +31,87 @@ const HeaderImageUploader: React.FC<HeaderImageUploaderProps> = ({
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const debounceTimeout = useRef<NodeJS.Timeout | null>(null);
 
+  // Normalize smartphone photo orientation using EXIF, return a new JPEG File if rotation/flip needed
+  const fixImageOrientation = async (inputFile: File): Promise<File> => {
+    try {
+      // Only attempt on images (skip videos) and common formats; HEIC is handled separately
+      if (!inputFile.type.startsWith('image/')) return inputFile;
+
+  // Use ESM build to avoid UMD warning
+  const exifr: any = (await import('exifr/dist/full.esm.mjs')) as any;
+      const orientation: number | undefined = await exifr.orientation(inputFile);
+      if (!orientation || orientation === 1) return inputFile; // No transform needed
+
+      // Draw onto canvas with the correct transform
+      const imgUrl = URL.createObjectURL(inputFile);
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const i = new Image();
+        i.onload = () => resolve(i);
+        i.onerror = reject;
+        i.src = imgUrl;
+      });
+
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        URL.revokeObjectURL(imgUrl);
+        return inputFile;
+      }
+
+      const width = img.naturalWidth || img.width;
+      const height = img.naturalHeight || img.height;
+
+      // Set canvas size and apply orientation-specific transforms
+      switch (orientation) {
+        case 2: // mirror horizontal
+          canvas.width = width; canvas.height = height;
+          ctx.translate(width, 0); ctx.scale(-1, 1);
+          break;
+        case 3: // rotate 180
+          canvas.width = width; canvas.height = height;
+          ctx.translate(width, height); ctx.rotate(Math.PI);
+          break;
+        case 4: // mirror vertical
+          canvas.width = width; canvas.height = height;
+          ctx.translate(0, height); ctx.scale(1, -1);
+          break;
+        case 5: // mirror horizontal and rotate 270 CW
+          canvas.width = height; canvas.height = width;
+          ctx.rotate(0.5 * Math.PI); ctx.scale(1, -1); ctx.translate(0, -height);
+          break;
+        case 6: // rotate 90 CW
+          canvas.width = height; canvas.height = width;
+          ctx.rotate(0.5 * Math.PI); ctx.translate(0, -height);
+          break;
+        case 7: // mirror horizontal and rotate 90 CW
+          canvas.width = height; canvas.height = width;
+          ctx.rotate(0.5 * Math.PI); ctx.translate(width, -height); ctx.scale(-1, 1);
+          break;
+        case 8: // rotate 270 CW
+          canvas.width = height; canvas.height = width;
+          ctx.rotate(-0.5 * Math.PI); ctx.translate(-width, 0);
+          break;
+        default:
+          canvas.width = width; canvas.height = height;
+      }
+
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(imgUrl);
+
+      // Convert canvas back to a JPEG File
+      const blob: Blob = await new Promise((resolve) =>
+        canvas.toBlob((b) => resolve(b || new Blob()), 'image/jpeg', 0.95)
+      );
+      const normalized = new File([blob], inputFile.name.replace(/\.(png|jpg|jpeg|webp)$/i, '') + '.jpg', { type: 'image/jpeg' });
+      return normalized;
+    } catch (err) {
+      console.warn('EXIF orientation normalization skipped:', err);
+      return inputFile;
+    }
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const originalFile = e.target.files?.[0];
     if (!originalFile) return;
@@ -48,6 +129,13 @@ const HeaderImageUploader: React.FC<HeaderImageUploaderProps> = ({
         const heic2any: any = (await import('heic2any')).default || (await import('heic2any'));
         const convertedBlob: Blob = await (heic2any as Heic2AnyModule)({ blob: file, toType: 'image/jpeg', quality: 0.9 });
         file = new File([convertedBlob], `${file.name.replace(/\.(heic|heif)$/i,'')}.jpg`, { type: 'image/jpeg' });
+      }
+
+      // Normalize EXIF orientation for JPEG/PNG after optional HEIC conversion
+      try {
+        file = await fixImageOrientation(file);
+      } catch (e) {
+        console.warn('Orientation fix failed, using original:', e);
       }
 
       tempUrl = URL.createObjectURL(file);
