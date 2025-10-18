@@ -147,6 +147,13 @@ export default function InspectionReportPage() {
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
   const baseSizeRef = useRef<{ w: number; h: number }>({ w: 0, h: 0 });
+  
+  // Ensure all media goes through the hardened proxy for reliable loading
+  const getProxiedSrc = useCallback((url: string | null | undefined) => {
+    if (!url) return '';
+    if (url.startsWith('/api/proxy-image?') || url.startsWith('data:')) return url;
+    return `/api/proxy-image?url=${encodeURIComponent(url)}`;
+  }, []);
   // Toolbar dropdown menu (Report Viewing Options)
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -298,7 +305,8 @@ export default function InspectionReportPage() {
   }, [isPanning]);
 
   const openLightbox = (src: string) => {
-    setLightboxSrc(src);
+    // Always use proxied src for lightbox as well
+    setLightboxSrc(getProxiedSrc(src));
     setZoomScale(1);
     setTranslate({ x: 0, y: 0 });
     setLightboxOpen(true);
@@ -455,16 +463,9 @@ export default function InspectionReportPage() {
         color: r.color || '#d63636',
       }));
 
-      // Use header image from inspection data (which was loaded at component mount)
-      // Or use manually selected header image from the UI
-      // Or find a suitable one from defects as a fallback
-      let headerImageUrl = headerImage;
-      
-      // If no image was manually selected or from inspection data, use the first defect with an image
-      if (!headerImageUrl) {
-        const defectWithImage = defectsPayload.find(d => d.image);
-        headerImageUrl = defectWithImage ? defectWithImage.image : null;
-      }
+      // Use header image only if explicitly set (inspection data or manual selection)
+      // Do NOT fallback to a defect image when none is set
+      const headerImageUrl = headerImage || null;
 
       const meta = {
         title: 'Inspection Report',
@@ -527,15 +528,9 @@ export default function InspectionReportPage() {
     try {
       const title = `inspection-${id}-${reportType}-report`;
       
-      // Use header image from inspection data or UI selection
-      // This is the same logic as in handleDownloadPDF
-      let headerImageUrl = headerImage;
-      
-      // If no image was manually selected or from inspection, use the first defect with an image
-      if (!headerImageUrl) {
-        const defectWithImage = reportSections.find(d => d.image);
-        headerImageUrl = defectWithImage ? defectWithImage.image : null;
-      }
+      // Use header image only if explicitly set (inspection data or UI selection)
+      // Do NOT fallback to a defect image when none is set
+      const headerImageUrl = headerImage || null;
       
       const escapeHtml = (s: any) =>
         String(s ?? '')
@@ -546,6 +541,15 @@ export default function InspectionReportPage() {
       // Helper: Generate information section HTML - MOVED HERE before it's used
       const generateInformationSectionHTMLForExport = (block: any): string => {
         const allItems = block.selected_checklist_ids || [];
+        // Ensure items reflect template order (saved via drag-and-drop)
+        const itemsArray: any[] = Array.isArray(allItems) ? allItems : [];
+        const sortedItems = itemsArray.some((i) => i && typeof i === 'object')
+          ? [...itemsArray].sort((a, b) => {
+              const ao = typeof a?.order_index === 'number' ? a.order_index : Number.POSITIVE_INFINITY;
+              const bo = typeof b?.order_index === 'number' ? b.order_index : Number.POSITIVE_INFINITY;
+              return ao - bo;
+            })
+          : itemsArray;
         const hasContent = allItems.length > 0 || block.custom_text;
         
         if (!hasContent) return '';
@@ -607,8 +611,9 @@ export default function InspectionReportPage() {
         };
         
         // Separate status items from information items (like in live report)
-        const statusItems = allItems.filter((item: any) => item.type === 'status');
-        const informationItems = allItems.filter((item: any) => item.type === 'information');
+  // Split by type and keep order per order_index
+  const statusItems = sortedItems.filter((item: any) => item.type === 'status');
+  const informationItems = sortedItems.filter((item: any) => item.type === 'information');
         
         // Create selectedAnswersMap for answer choices
         const selectedAnswersMap = new Map();
@@ -1596,19 +1601,9 @@ export default function InspectionReportPage() {
 </body>
 </html>`;
 
-      const blob = new Blob([doc], { type: 'text/html;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${title}.html`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      
-      // Upload HTML to R2 and save permanent URL
+      // Upload HTML to R2, receive processed HTML (with inlined images), then download that
       try {
-        console.log(`📤 Uploading HTML to R2...`);
+        console.log(`📤 Uploading HTML to R2 (for rewrite + permanence)...`);
         const uploadRes = await fetch('/api/reports/upload-html', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1618,25 +1613,46 @@ export default function InspectionReportPage() {
             reportMode: reportType
           })
         });
-        
+        let downloadHtml = doc;
         if (uploadRes.ok) {
-          const { url: permanentUrl } = await uploadRes.json();
+          const { url: permanentUrl, html: processedHtml } = await uploadRes.json();
+          if (processedHtml && typeof processedHtml === 'string') {
+            downloadHtml = processedHtml;
+          }
           console.log(`✅ HTML uploaded to: ${permanentUrl}`);
-          
           // Refresh inspection data to get the new permanent URL
           const inspectionRes = await fetch(`/api/inspections/${id}`);
           if (inspectionRes.ok) {
             const updatedInspection = await inspectionRes.json();
-            setInspection(updatedInspection); // Update state with new URLs
+            setInspection(updatedInspection);
             if (updatedInspection.htmlReportUrl) {
               console.log(`✅ Permanent HTML URL available: ${updatedInspection.htmlReportUrl}`);
             }
           }
         } else {
-          console.error('⚠️ Failed to upload HTML to R2');
+          console.error('⚠️ Failed to upload HTML to R2; downloading original HTML');
         }
+        // Trigger download using processed (or original) HTML
+        const blob = new Blob([downloadHtml], { type: 'text/html;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${title}.html`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
       } catch (uploadError) {
-        console.error('⚠️ HTML upload error:', uploadError);
+        console.error('⚠️ HTML upload error; downloading original HTML:', uploadError);
+        const blob = new Blob([doc], { type: 'text/html;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${title}.html`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
       }
       
     } catch (e) {
@@ -2551,7 +2567,7 @@ export default function InspectionReportPage() {
                                                         />
                                                       ) : /\.(mp4|mov|webm|3gp|3gpp|m4v)(\?.*)?$/i.test(img.url) ? (
                                                         <video
-                                                          src={img.url}
+                                                          src={getProxiedSrc(img.url)}
                                                           controls
                                                           onClick={() => openLightbox(img.url)}
                                                           className={styles.informationImage}
@@ -2559,7 +2575,7 @@ export default function InspectionReportPage() {
                                                         />
                                                       ) : (
                                                         <img
-                                                          src={img.url}
+                                                          src={getProxiedSrc(img.url)}
                                                           alt="Item image"
                                                           onClick={() => openLightbox(img.url)}
                                                           className={styles.informationImage}
@@ -2641,7 +2657,7 @@ export default function InspectionReportPage() {
                                                         </div>
                                                       ) : /\.(mp4|mov|webm|3gp|3gpp|m4v)(\?.*)?$/i.test(img.url) ? (
                                                         <video
-                                                          src={img.url}
+                                                          src={getProxiedSrc(img.url)}
                                                           controls
                                                           onClick={() => openLightbox(img.url)}
                                                           className={styles.informationImage}
@@ -2649,7 +2665,7 @@ export default function InspectionReportPage() {
                                                         />
                                                       ) : (
                                                         <img
-                                                          src={img.url}
+                                                          src={getProxiedSrc(img.url)}
                                                           alt="Item image"
                                                           onClick={() => openLightbox(img.url)}
                                                           className={styles.informationImage}
@@ -2959,7 +2975,6 @@ export default function InspectionReportPage() {
                                       className={styles.informationGrid}
                                       style={{ 
                                         display: 'grid',
-                                        gridTemplateColumns: 'repeat(3, 1fr)',
                                         gap: '1.25rem',
                                         marginBottom: informationItems.length > 0 || section1Block.custom_text ? '1.5rem' : '0'
                                       }}
@@ -3001,7 +3016,7 @@ export default function InspectionReportPage() {
                                                 {itemImages.map((img: any, imgIdx: number) => (
                                                   <div key={imgIdx} style={{ position: 'relative' }}>
                                                     <img
-                                                      src={img.url}
+                                                      src={getProxiedSrc(img.url)}
                                                       alt="Item image"
                                                       onClick={() => openLightbox(img.url)}
                                                       className={styles.informationImage}
@@ -3079,7 +3094,7 @@ export default function InspectionReportPage() {
                                                 {itemImages.map((img: any, imgIdx: number) => (
                                                   <div key={imgIdx} style={{ position: 'relative' }}>
                                                     <img
-                                                      src={img.url}
+                                                      src={getProxiedSrc(img.url)}
                                                       alt="Item image"
                                                       onClick={() => openLightbox(img.url)}
                                                       className={styles.informationImage}
@@ -3514,7 +3529,7 @@ export default function InspectionReportPage() {
                                                         marginBottom: '1rem' 
                                                       }}>
                                                         <ThreeSixtyViewer
-                                                          imageUrl={img.url}
+                                                          imageUrl={getProxiedSrc(img.url)}
                                                           alt={`360° view for information item`}
                                                           width="100%"
                                                           height={isMobile ? "300px" : "400px"}
@@ -3522,9 +3537,9 @@ export default function InspectionReportPage() {
                                                       </div>
                                                     ) : (
                                                       <img
-                                                        src={img.url}
+                                                        src={getProxiedSrc(img.url)}
                                                         alt="Item image"
-                                                        onClick={() => openLightbox(img.url)}
+                                                        onClick={() => openLightbox(getProxiedSrc(img.url))}
                                                         className={styles.informationImage}
                                                       />
                                                     )}
@@ -3894,9 +3909,9 @@ export default function InspectionReportPage() {
                                                 {itemImages.map((img: any, imgIdx: number) => (
                                                   <div key={imgIdx} style={{ position: 'relative' }}>
                                                     <img
-                                                      src={img.url}
+                                                      src={getProxiedSrc(img.url)}
                                                       alt="Item image"
-                                                      onClick={() => openLightbox(img.url)}
+                                                      onClick={() => openLightbox(getProxiedSrc(img.url))}
                                                       className={styles.informationImage}
                                                     />
                                                     {img.location && (
@@ -3993,7 +4008,7 @@ export default function InspectionReportPage() {
     <ThreeSixtyViewer
       imageUrl={
         typeof section.image === "string"
-          ? section.image
+          ? getProxiedSrc(section.image)
           : URL.createObjectURL(section.image)
       }
       alt={`360° view for ${section.subsectionName || "defect"}`}
@@ -4005,10 +4020,10 @@ export default function InspectionReportPage() {
   <video
     src={
       typeof section.video === "string"
-        ? section.video
+        ? getProxiedSrc(section.video)
         : URL.createObjectURL(section.video)
     }
-    poster={section.thumbnail || "/placeholder-image.jpg"}
+    poster={typeof section.thumbnail === 'string' ? getProxiedSrc(section.thumbnail) : (section.thumbnail || "/placeholder-image.jpg")}
     style={{ maxWidth: "100%", maxHeight: "200px", cursor: "pointer" }}
     onClick={(e) => {
       const videoEl = e.currentTarget;
@@ -4020,7 +4035,7 @@ export default function InspectionReportPage() {
   <img
     src={
       typeof section.image === "string"
-        ? section.image
+        ? getProxiedSrc(section.image)
         : URL.createObjectURL(section.image)
     }
     alt="Inspection media"
@@ -4029,7 +4044,7 @@ export default function InspectionReportPage() {
     onClick={() => {
       openLightbox(
         typeof section.image === "string"
-          ? section.image
+          ? getProxiedSrc(section.image)
           : URL.createObjectURL(section.image)
       );
     }}

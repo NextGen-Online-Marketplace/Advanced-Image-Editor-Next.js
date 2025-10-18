@@ -336,6 +336,25 @@ body {
   text-align: center;
 }
 
+/* Checklist options grid: desktop/tablet behaves like current auto-fill, mobile shows exactly two columns */
+.checklist-options-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.5rem;
+}
+
+.checklist-options-grid label {
+  /* Ensure items wrap nicely on small screens */
+  min-height: 38px;
+}
+
+/* Mobile breakpoint: two columns for options */
+@media (max-width: 640px) {
+  .checklist-options-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+
 /* Image Upload Area */
 .image-upload-area {
   background: #ffffff;

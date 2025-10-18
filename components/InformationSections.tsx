@@ -2,6 +2,8 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import FileUpload from './FileUpload';
+import LocationSearch from './LocationSearch';
+import { LOCATION_OPTIONS } from '../constants/locations';
 
 interface ISectionChecklist {
   _id: string;
@@ -65,6 +67,17 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
   const [saving, setSaving] = useState(false);
   const [editingBlockId, setEditingBlockId] = useState<string | null>(null);
 
+  // Reorder mode (template-level) for Status and Limitations lists
+  const [reorderMode, setReorderMode] = useState<{ status: boolean; limitations: boolean }>({ status: false, limitations: false });
+  const [reorderIds, setReorderIds] = useState<{ status: string[]; limitations: string[] }>({ status: [], limitations: [] });
+  const dragStateRef = useRef<{ kind: 'status' | 'limitations' | null; draggingId: string | null }>({ kind: null, draggingId: null });
+  // Drag visuals: track dragging item and current target + insert position for subtle UI
+  const [dragVisual, setDragVisual] = useState<{ kind: 'status' | 'limitations' | null; draggingId: string | null; overId: string | null; position: 'before' | 'after' | null }>({ kind: null, draggingId: null, overId: null, position: null });
+  
+  // Auto-scroll during drag
+  const scrollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const modalScrollContainerRef = useRef<HTMLDivElement | null>(null);
+
   // Track inspection-specific checklists (not saved to template)
   // Key: sectionId, Value: array of inspection-only checklists for that section
   const [inspectionChecklists, setInspectionChecklists] = useState<Map<string, ISectionChecklist[]>>(new Map());
@@ -97,24 +110,8 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
   // 360° photo checkbox state (key: checklist_id, value: boolean)
   const [isThreeSixtyMap, setIsThreeSixtyMap] = useState<Record<string, boolean>>({});
 
-  // Predefined location options (same as defect upload page)
-  const LOCATION_OPTIONS = [
-    'Addition', 'All Locations', 'Apartment', 'Attic', 'Back Porch', 'Back Room', 'Balcony',
-    'Bedroom 1', 'Bedroom 2', 'Bedroom 3', 'Bedroom 4', 'Bedroom 5', 'Both Locations', 'Breakfast',
-    'Carport', 'Carport Entry', 'Closet', 'Crawlspace', 'Dining', 'Downstairs', 'Downstairs Bathroom',
-    'Downstairs Bathroom Closet', 'Downstairs Hallway', 'Downstairs Hall Closet', 'Driveway', 'Entry',
-    'Family Room', 'Front Entry', 'Front of House', 'Front Porch', 'Front Room', 'Garage', 'Garage Entry',
-    'Garage Storage Closet', 'Guest Bathroom', 'Guest Bedroom', 'Guest Bedroom Closet', 'Half Bathroom',
-    'Hallway', 'Heater Operation Temp', 'HVAC Closet', 'Keeping Room', 'Kitchen', 'Kitchen Pantry',
-    'Left Side of House', 'Left Wall', 'Living Room', 'Living Room Closet', 'Laundry Room',
-    'Laundry Room Closet', 'Master Bathroom', 'Master Bedroom', 'Master Closet', 'Most Locations',
-    'Multiple Locations', 'Office', 'Office Closet', 'Outdoor Storage', 'Patio', 'Rear Entry',
-    'Rear of House', 'Rear Wall', 'Right Side of House', 'Right Wall', 'Shop', 'Side Entry', 'Staircase',
-    'Sun Room', 'Top of Stairs', 'Upstairs Bathroom', 'Upstairs Bedroom 1', 'Upstairs Bedroom 1 Closet',
-    'Upstairs Bedroom 2', 'Upstairs Bedroom 2 Closet', 'Upstairs Bedroom 3', 'Upstairs Bedroom 3 Closet',
-    'Upstairs Bedroom 4', 'Upstairs Bedroom 4 Closet', 'Upstairs Hallway', 'Upstairs Laundry Room',
-    'Utility Room', 'Water Heater Closet', 'Water Heater Output Temp'
-  ];
+  // Shared location options
+  
 
   // Admin checklist management
   const [checklistFormOpen, setChecklistFormOpen] = useState(false);
@@ -188,48 +185,22 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
       if (hiddenStored) {
         const parsedHidden = JSON.parse(hiddenStored) as Record<string, string[]>;
         const hiddenMap = new Map<string, string[]>();
-        Object.entries(parsedHidden).forEach(([sectionId, ids]) => {
-          hiddenMap.set(sectionId, ids as string[]);
-        });
+        Object.entries(parsedHidden).forEach(([secId, ids]) => hiddenMap.set(secId, ids));
         setHiddenChecklists(hiddenMap);
-        console.log('🙈 Loaded hidden checklist ids from localStorage:', hiddenMap);
       }
     } catch (error) {
-      console.error('Error loading inspection checklists:', error);
+      console.error('Error loading inspection data from localStorage:', error);
     }
   }, [inspectionId]);
 
-  // Save inspection-specific checklists to localStorage whenever they change
-  useEffect(() => {
-    if (!inspectionId || inspectionChecklists.size === 0) return;
-    
-    try {
-      const storageKey = `inspection_checklists_${inspectionId}`;
-      // Convert Map to plain object for JSON storage
-      const checklistsObj: Record<string, ISectionChecklist[]> = {};
-      inspectionChecklists.forEach((checklists, sectionId) => {
-        if (checklists.length > 0) {
-          checklistsObj[sectionId] = checklists;
-        }
-      });
-      localStorage.setItem(storageKey, JSON.stringify(checklistsObj));
-      console.log('💾 Saved inspection-specific checklists to localStorage');
-    } catch (error) {
-      console.error('Error saving inspection checklists:', error);
-    }
-  }, [inspectionId, inspectionChecklists]);
-
-  // Persist hidden template checklist ids map
+  // Persist hidden template checklist ids per inspection
   useEffect(() => {
     if (!inspectionId) return;
     try {
-      const key = `inspection_hidden_checklists_${inspectionId}`;
+      const hiddenKey = `inspection_hidden_checklists_${inspectionId}`;
       const obj: Record<string, string[]> = {};
-      hiddenChecklists.forEach((ids, sectionId) => {
-        if (ids.length > 0) obj[sectionId] = ids;
-      });
-      localStorage.setItem(key, JSON.stringify(obj));
-      console.log('💾 Saved hidden checklist ids to localStorage');
+      hiddenChecklists.forEach((ids, secId) => { obj[secId] = ids; });
+      localStorage.setItem(hiddenKey, JSON.stringify(obj));
     } catch (error) {
       console.error('Error saving hidden checklist ids:', error);
     }
@@ -272,6 +243,141 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
     const updated = new Map(hiddenChecklists);
     if (updatedIds.length > 0) updated.set(sectionId, updatedIds); else updated.delete(sectionId);
     setHiddenChecklists(updated);
+  };
+
+  // -------- Reorder helpers (template-level) --------
+  const beginReorder = (kind: 'status' | 'limitations', section: ISection) => {
+    const base = kind === 'status'
+      ? section.checklists.filter(cl => cl.type === 'status')
+      : section.checklists.filter(cl => cl.tab === 'limitations');
+    const ordered = [...base].sort((a, b) => a.order_index - b.order_index).map(cl => cl._id);
+    setReorderIds(prev => ({ ...prev, [kind]: ordered }));
+    setReorderMode(prev => ({ ...prev, [kind]: true }));
+  };
+
+  const cancelReorder = (kind: 'status' | 'limitations') => {
+    setReorderMode(prev => ({ ...prev, [kind]: false }));
+    setReorderIds(prev => ({ ...prev, [kind]: [] }));
+    dragStateRef.current = { kind: null, draggingId: null };
+    // Clear auto-scroll interval
+    if (scrollIntervalRef.current) {
+      clearInterval(scrollIntervalRef.current);
+      scrollIntervalRef.current = null;
+    }
+  };
+
+  // Auto-scroll logic during drag
+  const handleDragMove = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!modalScrollContainerRef.current) return;
+    
+    const container = modalScrollContainerRef.current;
+    const rect = container.getBoundingClientRect();
+    const mouseY = e.clientY;
+    
+    // Define scroll zones (100px from top/bottom of modal)
+    const scrollZone = 100;
+    const scrollSpeed = 10; // pixels per interval
+    
+    // Clear existing interval
+    if (scrollIntervalRef.current) {
+      clearInterval(scrollIntervalRef.current);
+      scrollIntervalRef.current = null;
+    }
+    
+    // Scroll up when near top
+    if (mouseY < rect.top + scrollZone && mouseY > rect.top) {
+      scrollIntervalRef.current = setInterval(() => {
+        if (container.scrollTop > 0) {
+          container.scrollTop -= scrollSpeed;
+        }
+      }, 16); // ~60fps
+    }
+    // Scroll down when near bottom
+    else if (mouseY > rect.bottom - scrollZone && mouseY < rect.bottom) {
+      scrollIntervalRef.current = setInterval(() => {
+        if (container.scrollTop < container.scrollHeight - container.clientHeight) {
+          container.scrollTop += scrollSpeed;
+        }
+      }, 16); // ~60fps
+    }
+  };
+
+  const onDragStartItem = (kind: 'status' | 'limitations', id: string) => (
+    (e: React.DragEvent<HTMLDivElement>) => {
+      dragStateRef.current = { kind, draggingId: id };
+      e.dataTransfer.effectAllowed = 'move';
+      // Visual: mark dragging
+      setDragVisual({ kind, draggingId: id, overId: null, position: null });
+      // Slightly better drag image (fallback to element itself)
+      try { e.dataTransfer.setDragImage(e.currentTarget, 10, 10); } catch {}
+    }
+  );
+
+  const onDragOverItem = (kind: 'status' | 'limitations', targetId: string) => (
+    (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      // For swap behavior, only track which item we're over (no before/after)
+      setDragVisual(prev => ({ ...prev, kind, overId: targetId, position: null }));
+      // Trigger auto-scroll check
+      handleDragMove(e);
+    }
+  );
+
+  const onDropItem = (kind: 'status' | 'limitations', targetId: string) => (
+    (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      const draggingId = dragStateRef.current.draggingId;
+      if (!draggingId || dragStateRef.current.kind !== kind) return;
+      if (draggingId === targetId) return;
+      setReorderIds(prev => {
+        const list = [...prev[kind]];
+        const from = list.indexOf(draggingId);
+        const to = list.indexOf(targetId);
+        if (from === -1 || to === -1 || from === to) return prev;
+        // Swap positions of dragging and target
+        [list[from], list[to]] = [list[to], list[from]];
+        return { ...prev, [kind]: list };
+      });
+      // Clear visual state
+      dragStateRef.current = { kind: null, draggingId: null };
+      setDragVisual({ kind: null, draggingId: null, overId: null, position: null });
+      // Clear auto-scroll interval
+      if (scrollIntervalRef.current) {
+        clearInterval(scrollIntervalRef.current);
+        scrollIntervalRef.current = null;
+      }
+    }
+  );
+
+  const onDragEndItem = () => (
+    (_e: React.DragEvent<HTMLDivElement>) => {
+      dragStateRef.current = { kind: null, draggingId: null };
+      setDragVisual({ kind: null, draggingId: null, overId: null, position: null });
+      // Clear auto-scroll interval
+      if (scrollIntervalRef.current) {
+        clearInterval(scrollIntervalRef.current);
+        scrollIntervalRef.current = null;
+      }
+    }
+  );
+
+  const saveReorder = async (kind: 'status' | 'limitations', section: ISection) => {
+    try {
+      const orderedIds = reorderIds[kind];
+      if (!orderedIds.length) return cancelReorder(kind);
+      const res = await fetch('/api/information-sections/sections/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sectionId: (section as any)._id, kind, orderedIds }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || 'Failed to save order');
+      await fetchSections();
+      cancelReorder(kind);
+    } catch (err: any) {
+      alert(err.message || 'Failed to save order');
+    }
   };
 
   // Helper function to get all checklist items for a block (including inspection-only)
@@ -600,6 +706,21 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
     };
     
     setActiveSection(mergedSection);
+
+    // Initialize drag order for Status and Limitations lists on modal open
+    try {
+      const statusOrdered = [...mergedSection.checklists]
+        .filter(cl => cl.type === 'status')
+        .sort((a, b) => a.order_index - b.order_index)
+        .map(cl => cl._id);
+      const limitationsOrdered = [...mergedSection.checklists]
+        .filter(cl => cl.tab === 'limitations')
+        .sort((a, b) => a.order_index - b.order_index)
+        .map(cl => cl._id);
+      setReorderIds({ status: statusOrdered, limitations: limitationsOrdered });
+    } catch (e) {
+      // Fallback silently if anything goes wrong
+    }
 
     if (existingBlock) {
       // Editing existing block - fetch the latest data from the database to ensure we have the most recent version
@@ -1025,6 +1146,31 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
     }));
 
     try {
+      // Persist current ordering for Status and Limitations before saving content
+      if (activeSection) {
+        const sectionId = (activeSection as any)._id;
+        const payloads: Array<{ kind: 'status' | 'limitations'; orderedIds: string[] }> = [];
+        if (reorderIds.status && reorderIds.status.length) {
+          payloads.push({ kind: 'status', orderedIds: reorderIds.status });
+        }
+        if (reorderIds.limitations && reorderIds.limitations.length) {
+          payloads.push({ kind: 'limitations', orderedIds: reorderIds.limitations });
+        }
+        for (const p of payloads) {
+          try {
+            const resOrder = await fetch('/api/information-sections/sections/reorder', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sectionId, kind: p.kind, orderedIds: p.orderedIds }),
+            });
+            const jsonOrder = await resOrder.json();
+            if (!jsonOrder.success) console.warn('Order save failed:', jsonOrder.error);
+          } catch (e) {
+            console.warn('Order save error:', e);
+          }
+        }
+      }
+
       if (editingBlockId) {
         // Update existing block (only save template IDs to database)
         const res = await fetch(`/api/information-sections/${inspectionId}?blockId=${editingBlockId}`, {
@@ -1206,6 +1352,10 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
       if (autoSaveTimerRef.current) {
         clearTimeout(autoSaveTimerRef.current);
       }
+      // Cleanup scroll interval
+      if (scrollIntervalRef.current) {
+        clearInterval(scrollIntervalRef.current);
+      }
     };
   }, []);
 
@@ -1233,9 +1383,9 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
     console.log('📸 File selected for checklist:', checklistId, 'type:', file.type);
 
     // Check file size and warn for large files (360° photos)
-    const fileSizeMB = file.size / (1024 * 1024);
-    if (fileSizeMB > 100) {
-      alert(`File size (${fileSizeMB.toFixed(1)}MB) exceeds the 100MB limit. Please compress the image or choose a smaller file.`);
+        const fileSizeMB = file.size / (1024 * 1024);
+        if (fileSizeMB > 200) {
+  alert(`File size (${fileSizeMB.toFixed(1)}MB) exceeds the 200MB limit. Please compress the image or choose a smaller file.`);
       return;
     }
 
@@ -1389,12 +1539,12 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
       
       // Show user-friendly error message
       const errorMessage = error.message || 'Unknown error occurred';
-      if (errorMessage.includes('100MB')) {
-        alert('File is too large. 360° photos should be compressed to under 100MB.');
+      if (errorMessage.includes('100MB') || errorMessage.includes('200MB')) {
+        alert('File is too large. 360° photos should be compressed to under 200MB.');
       } else if (errorMessage.includes('File size exceeds')) {
-        alert('File size exceeds the limit. Please compress the image or choose a smaller file.');
+        alert('File size exceeds the 200MB limit. Please compress the image or choose a smaller file.');
       } else {
-        alert(`Failed to upload image/video: ${errorMessage}\n\nFor large 360° photos, please ensure they are under 100MB.`);
+        alert(`Failed to upload image/video: ${errorMessage}\n\nFor large 360° photos, please ensure they are under 200MB.`);
       }
     }
   };
@@ -1971,7 +2121,9 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
               </h4>
               <button onClick={() => { setModalOpen(false); setActiveSection(null); setEditingBlockId(null); setDeleteMenuForId(null); }} style={{ color: '#6b7280', cursor: 'pointer', border: 'none', background: 'none', fontSize: '1.25rem' }}>✕</button>
             </div>
-            <div style={{
+            <div
+              ref={modalScrollContainerRef}
+              style={{
               flex: 1,
               overflowY: 'auto',
               padding: '1.5rem 1rem', // Increased top/bottom padding
@@ -2017,15 +2169,37 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                 })()}
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {activeSection.checklists
-                    .filter(cl => cl.type === 'status')
+                  {(reorderIds.status && reorderIds.status.length
+                      ? reorderIds.status.map(id => activeSection.checklists.find(c => c._id === id)).filter(Boolean) as ISectionChecklist[]
+                      : activeSection.checklists.filter(cl => cl.type === 'status'))
                     .filter(cl => !isChecklistHidden(activeSection._id, cl._id))
                     .map(cl => {
                       const isSelected = formState.selected_checklist_ids.has(cl._id);
                       const checklistImages = getChecklistImages(cl._id);
 
                       return (
-                        <div key={cl._id} style={{ padding: '0.5rem', borderRadius: '0.25rem', backgroundColor: isSelected ? '#eff6ff' : 'transparent', border: '1px solid #e5e7eb' }}>
+                        <div
+                          key={cl._id}
+                          draggable={true}
+                          onDragStart={onDragStartItem('status', cl._id)}
+                          onDragOver={onDragOverItem('status', cl._id)}
+                          onDrop={onDropItem('status', cl._id)}
+                          onDragEnd={onDragEndItem()}
+                          style={{
+                            padding: '0.5rem',
+                            borderRadius: '0.25rem',
+                            backgroundColor: dragVisual.draggingId === cl._id ? '#eef2ff' : (isSelected ? '#eff6ff' : 'transparent'),
+                            border: `1px solid ${dragVisual.draggingId === cl._id ? '#3b82f6' : '#e5e7eb'}`,
+                            boxShadow: dragVisual.draggingId === cl._id ? '0 2px 8px rgba(59,130,246,0.20)' : 'none',
+                            cursor: dragVisual.draggingId === cl._id ? 'grabbing' : 'grab',
+                            transition: 'box-shadow 120ms ease, background-color 120ms ease, border-color 120ms ease',
+                            position: 'relative'
+                          }}
+                        >
+                          {/* Target highlight for swap */}
+                          {dragVisual.overId === cl._id && dragVisual.draggingId !== cl._id && (
+                            <div style={{ position: 'absolute', inset: 0, borderRadius: '0.25rem', border: '2px dashed #93c5fd', opacity: 0.8, pointerEvents: 'none' }} />
+                          )}
                           {/* Header - clickable to toggle selection */}
                           <label style={{ display: 'flex', fontSize: '0.875rem', cursor: 'pointer', alignItems: 'flex-start', gap: '0.5rem' }}>
                             <input
@@ -2035,7 +2209,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                               style={{ marginTop: '0.2rem', cursor: 'pointer' }}
                             />
                             <div style={{ flex: 1 }}>
-                              <div style={{ fontWeight: 600, color: '#1f2937' }}>{cl.text}</div>
+                              <div style={{ fontWeight: 600, color: '#1f2937', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><span style={{ cursor: 'grab', color: '#6b7280' }}>⋮⋮</span> {cl.text}</div>
                               {cl.comment && (
                                 <div style={{ marginLeft: '0rem', marginTop: '0.25rem', color: '#6b7280', fontSize: '0.8rem' }}>
                                   {cl.comment.length > 150 ? cl.comment.slice(0, 150) + '…' : cl.comment}
@@ -2137,11 +2311,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                         <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#4b5563', marginBottom: '0.5rem' }}>
                                           Select Options:
                                         </div>
-                                        <div style={{ 
-                                          display: 'grid', 
-                                          gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', 
-                                          gap: '0.5rem' 
-                                        }}>
+                                        <div className="checklist-options-grid">
                                           {getAllAnswers(cl._id, cl.answer_choices || []).map((choice, idx) => {
                                             const selectedAnswers = getSelectedAnswers(cl._id);
                                             const isAnswerSelected = selectedAnswers.has(choice);
@@ -2336,7 +2506,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                 }}>
                                   <strong>📸 360° Photo Tips:</strong>
                                   <ul style={{ margin: '4px 0 0 20px', paddingLeft: 0 }}>
-                                    <li>File size limit: <strong>100 MB</strong></li>
+                                    <li>File size limit: <strong>200 MB</strong></li>
                                     <li><strong>⚠️ Recommended dimensions: 8192×4096 (33 MP max)</strong></li>
                                     <li>Optimal: <strong>4096×2048</strong> at <strong>85% quality</strong> (~5-10 MB)</li>
                                     <li>Images larger than 50 MP may fail to load in browser</li>
@@ -2355,21 +2525,43 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                               {/* Display existing images */}
                               {checklistImages.length > 0 && (
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginTop: '0.5rem' }}>
-                                  {checklistImages.map((img, idx) => (
+                                  {checklistImages.map((img, idx) => {
+                                    // Generate preview URL - handle both string URLs and File objects
+                                    const getPreviewUrl = (imgData: any) => {
+                                      if (typeof imgData.url === 'string') {
+                                        return imgData.url;
+                                      } else if (imgData.url && typeof imgData.url === 'object' && imgData.url instanceof File) {
+                                        return URL.createObjectURL(imgData.url);
+                                      }
+                                      return '';
+                                    };
+                                    
+                                    const previewUrl = getPreviewUrl(img);
+                                    const isVideo = /\.(mp4|mov|webm|3gp|3gpp|m4v)(\?.*)?$/i.test(previewUrl);
+                                    
+                                    return (
                                     <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '180px' }}>
                                       <div style={{ position: 'relative', width: '180px', height: '180px', borderRadius: '0.375rem', overflow: 'hidden', border: '2px solid #3b82f6' }}>
-                                        {/\.(mp4|mov|webm|3gp|3gpp|m4v)(\?.*)?$/i.test(img.url) ? (
+                                        {isVideo ? (
                                           <video
-                                            src={img.url}
+                                            src={previewUrl}
                                             controls
                                             style={{ width: '100%', height: '100%', objectFit: 'cover', backgroundColor: '#000' }}
                                           />
-                                        ) : (
+                                        ) : previewUrl ? (
                                           <img
-                                            src={img.url}
+                                            src={previewUrl}
                                             alt={`Image ${idx + 1}`}
                                             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                            onError={(e) => {
+                                              console.error('Image preview failed:', previewUrl);
+                                              (e.target as HTMLImageElement).style.display = 'none';
+                                            }}
                                           />
+                                        ) : (
+                                          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f3f4f6', color: '#9ca3af' }}>
+                                            No preview
+                                          </div>
                                         )}
                                         <button
                                           onClick={() => handleImageDelete(cl._id, idx)}
@@ -2393,53 +2585,24 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                         </button>
                                       </div>
 
-                                      {/* Location Dropdown */}
+                                      {/* Location Smart Search */}
                                       <div style={{ position: 'relative', width: '180px' }}>
-                                        <select
+                                        <LocationSearch
+                                          options={LOCATION_OPTIONS}
                                           value={locationInputs[`${cl._id}-${idx}`] ?? img.location ?? ''}
-                                          onChange={(e) => {
-                                            const newLocation = e.target.value;
+                                          onChangeAction={(newLocation) => {
                                             const inputKey = `${cl._id}-${idx}`;
-                                            
-                                            // Update local input state immediately for instant feedback
-                                            setLocationInputs(prev => ({
-                                              ...prev,
-                                              [inputKey]: newLocation
-                                            }));
-                                            
-                                            // Update formState
+                                            setLocationInputs(prev => ({ ...prev, [inputKey]: newLocation }));
                                             const checklistImages = formState.images.filter(i => i.checklist_id === cl._id);
                                             const imageToUpdate = checklistImages[idx];
-                                            const updatedImages = formState.images.map(i =>
-                                              i === imageToUpdate ? { ...i, location: newLocation } : i
-                                            );
-                                            const updatedFormState = {
-                                              ...formState,
-                                              images: updatedImages,
-                                            };
+                                            const updatedImages = formState.images.map(i => i === imageToUpdate ? { ...i, location: newLocation } : i);
+                                            const updatedFormState = { ...formState, images: updatedImages };
                                             setFormState(updatedFormState);
-                                            
-                                            // Trigger auto-save
                                             setTimeout(() => performAutoSaveWithState(updatedFormState), 100);
                                           }}
-                                          style={{
-                                            padding: '0.5rem',
-                                            fontSize: '0.75rem',
-                                            borderRadius: '0.25rem',
-                                            border: '1px solid #d1d5db',
-                                            width: '180px',
-                                            outline: 'none',
-                                            backgroundColor: 'white',
-                                            cursor: 'pointer'
-                                          }}
-                                          onFocus={(e) => e.currentTarget.style.borderColor = '#3b82f6'}
-                                          onBlur={(e) => e.currentTarget.style.borderColor = '#d1d5db'}
-                                        >
-                                          <option value="">Select Location</option>
-                                          {LOCATION_OPTIONS.map((loc) => (
-                                            <option key={loc} value={loc}>{loc}</option>
-                                          ))}
-                                        </select>
+                                          placeholder="Select Location"
+                                          width={180}
+                                        />
                                       </div>
 
                                       <button
@@ -2452,7 +2615,8 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                           }));
                                           
                                           // Navigate to image editor with the image URL and inspectionId
-                                          const editorUrl = `/image-editor?imageUrl=${encodeURIComponent(img.url)}&returnTo=${encodeURIComponent(window.location.pathname)}&checklistId=${cl._id}&inspectionId=${inspectionId}`;
+                                          const imageUrl = typeof img.url === 'string' ? img.url : previewUrl;
+                                          const editorUrl = `/image-editor?imageUrl=${encodeURIComponent(imageUrl)}&returnTo=${encodeURIComponent(window.location.pathname)}&checklistId=${cl._id}&inspectionId=${inspectionId}`;
                                           router.push(editorUrl);
                                         }}
                                         style={{
@@ -2473,7 +2637,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                         🖊️ Annotate
                                       </button>
                                     </div>
-                                  ))}
+                                  )})}
                                 </div>
                               )}
                             </div>
@@ -2548,15 +2712,37 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                 })()}
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {activeSection.checklists
-                    .filter(cl => cl.tab === 'limitations')
+                  {(reorderIds.limitations && reorderIds.limitations.length
+                      ? reorderIds.limitations.map(id => activeSection.checklists.find(c => c._id === id)).filter(Boolean) as ISectionChecklist[]
+                      : activeSection.checklists.filter(cl => cl.tab === 'limitations'))
                     .filter(cl => !isChecklistHidden(activeSection._id, cl._id))
                     .map(cl => {
                       const isSelected = formState.selected_checklist_ids.has(cl._id);
                       const checklistImages = getChecklistImages(cl._id);
 
                       return (
-                        <div key={cl._id} style={{ padding: '0.5rem', borderRadius: '0.25rem', backgroundColor: isSelected ? '#f0fdf4' : 'transparent', border: '1px solid #e5e7eb' }}>
+                        <div
+                          key={cl._id}
+                          draggable={true}
+                          onDragStart={onDragStartItem('limitations', cl._id)}
+                          onDragOver={onDragOverItem('limitations', cl._id)}
+                          onDrop={onDropItem('limitations', cl._id)}
+                          onDragEnd={onDragEndItem()}
+                          style={{
+                            padding: '0.5rem',
+                            borderRadius: '0.25rem',
+                            backgroundColor: dragVisual.draggingId === cl._id ? '#ecfdf5' : (isSelected ? '#f0fdf4' : 'transparent'),
+                            border: `1px solid ${dragVisual.draggingId === cl._id ? '#10b981' : '#e5e7eb'}`,
+                            boxShadow: dragVisual.draggingId === cl._id ? '0 2px 8px rgba(16,185,129,0.18)' : 'none',
+                            cursor: dragVisual.draggingId === cl._id ? 'grabbing' : 'grab',
+                            transition: 'box-shadow 120ms ease, background-color 120ms ease, border-color 120ms ease',
+                            position: 'relative'
+                          }}
+                        >
+                          {/* Target highlight for swap */}
+                          {dragVisual.overId === cl._id && dragVisual.draggingId !== cl._id && (
+                            <div style={{ position: 'absolute', inset: 0, borderRadius: '0.25rem', border: '2px dashed #6ee7b7', opacity: 0.8, pointerEvents: 'none' }} />
+                          )}
                           {/* Header - clickable to toggle selection */}
                           <label style={{ display: 'flex', fontSize: '0.875rem', cursor: 'pointer', alignItems: 'flex-start', gap: '0.5rem' }}>
                             <input
@@ -2566,7 +2752,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                               style={{ marginTop: '0.2rem', cursor: 'pointer' }}
                             />
                             <div style={{ flex: 1 }}>
-                              <div style={{ fontWeight: 600, color: '#1f2937' }}>{cl.text}</div>
+                              <div style={{ fontWeight: 600, color: '#1f2937', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><span style={{ cursor: 'grab', color: '#6b7280' }}>⋮⋮</span> {cl.text}</div>
                               {cl.comment && (
                                 <div style={{ marginLeft: '0rem', marginTop: '0.25rem', color: '#6b7280', fontSize: '0.8rem' }}>
                                   {cl.comment.length > 150 ? cl.comment.slice(0, 150) + '…' : cl.comment}
@@ -2666,11 +2852,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                     <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#4b5563', marginBottom: '0.5rem' }}>
                                       Select Options:
                                     </div>
-                                    <div style={{ 
-                                      display: 'grid', 
-                                      gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', 
-                                      gap: '0.5rem' 
-                                    }}>
+                                    <div className="checklist-options-grid">
                                       {getAllAnswers(cl._id, cl.answer_choices || []).map((choice, idx) => {
                                         const selectedAnswers = getSelectedAnswers(cl._id);
                                         const isAnswerSelected = selectedAnswers.has(choice);
@@ -2863,7 +3045,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                 }}>
                                   <strong>📸 360° Photo Tips:</strong>
                                   <ul style={{ margin: '4px 0 0 20px', paddingLeft: 0 }}>
-                                    <li>File size limit: <strong>100 MB</strong></li>
+                                    <li>File size limit: <strong>200 MB</strong></li>
                                     <li><strong>⚠️ Recommended dimensions: 8192×4096 (33 MP max)</strong></li>
                                     <li>Optimal: <strong>4096×2048</strong> at <strong>85% quality</strong> (~5-10 MB)</li>
                                     <li>Images larger than 50 MP may fail to load in browser</li>
@@ -2882,14 +3064,37 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                               {/* Display existing images */}
                               {checklistImages.length > 0 && (
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginTop: '0.5rem' }}>
-                                  {checklistImages.map((img, idx) => (
+                                  {checklistImages.map((img, idx) => {
+                                    // Generate preview URL - handle both string URLs and File objects
+                                    const getPreviewUrl = (imgData: any) => {
+                                      if (typeof imgData.url === 'string') {
+                                        return imgData.url;
+                                      } else if (imgData.url && typeof imgData.url === 'object' && imgData.url instanceof File) {
+                                        return URL.createObjectURL(imgData.url);
+                                      }
+                                      return '';
+                                    };
+                                    
+                                    const previewUrl = getPreviewUrl(img);
+                                    
+                                    return (
                                     <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '180px' }}>
                                       <div style={{ position: 'relative', width: '180px', height: '180px', borderRadius: '0.375rem', overflow: 'hidden', border: '2px solid #10b981' }}>
-                                        <img
-                                          src={img.url}
-                                          alt={`Image ${idx + 1}`}
-                                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                        />
+                                        {previewUrl ? (
+                                          <img
+                                            src={previewUrl}
+                                            alt={`Image ${idx + 1}`}
+                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                            onError={(e) => {
+                                              console.error('Image preview failed:', previewUrl);
+                                              (e.target as HTMLImageElement).style.display = 'none';
+                                            }}
+                                          />
+                                        ) : (
+                                          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f3f4f6', color: '#9ca3af' }}>
+                                            No preview
+                                          </div>
+                                        )}
                                         <button
                                           onClick={() => handleImageDelete(cl._id, idx)}
                                           style={{
@@ -2912,53 +3117,24 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                         </button>
                                       </div>
 
-                                      {/* Location Dropdown */}
+                                      {/* Location Smart Search */}
                                       <div style={{ position: 'relative', width: '180px' }}>
-                                        <select
+                                        <LocationSearch
+                                          options={LOCATION_OPTIONS}
                                           value={locationInputs[`${cl._id}-${idx}`] ?? img.location ?? ''}
-                                          onChange={(e) => {
-                                            const newLocation = e.target.value;
+                                          onChangeAction={(newLocation) => {
                                             const inputKey = `${cl._id}-${idx}`;
-                                            
-                                            // Update local input state immediately for instant feedback
-                                            setLocationInputs(prev => ({
-                                              ...prev,
-                                              [inputKey]: newLocation
-                                            }));
-                                            
-                                            // Update formState
+                                            setLocationInputs(prev => ({ ...prev, [inputKey]: newLocation }));
                                             const checklistImages = formState.images.filter(i => i.checklist_id === cl._id);
                                             const imageToUpdate = checklistImages[idx];
-                                            const updatedImages = formState.images.map(i =>
-                                              i === imageToUpdate ? { ...i, location: newLocation } : i
-                                            );
-                                            const updatedFormState = {
-                                              ...formState,
-                                              images: updatedImages,
-                                            };
+                                            const updatedImages = formState.images.map(i => i === imageToUpdate ? { ...i, location: newLocation } : i);
+                                            const updatedFormState = { ...formState, images: updatedImages };
                                             setFormState(updatedFormState);
-                                            
-                                            // Trigger auto-save
                                             setTimeout(() => performAutoSaveWithState(updatedFormState), 100);
                                           }}
-                                          style={{
-                                            padding: '0.5rem',
-                                            fontSize: '0.75rem',
-                                            borderRadius: '0.25rem',
-                                            border: '1px solid #d1d5db',
-                                            width: '180px',
-                                            outline: 'none',
-                                            backgroundColor: 'white',
-                                            cursor: 'pointer'
-                                          }}
-                                          onFocus={(e) => e.currentTarget.style.borderColor = '#10b981'}
-                                          onBlur={(e) => e.currentTarget.style.borderColor = '#d1d5db'}
-                                        >
-                                          <option value="">Select Location</option>
-                                          {LOCATION_OPTIONS.map((loc) => (
-                                            <option key={loc} value={loc}>{loc}</option>
-                                          ))}
-                                        </select>
+                                          placeholder="Select Location"
+                                          width={180}
+                                        />
                                       </div>
 
                                       <button
@@ -2971,7 +3147,8 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                           }));
                                           
                                           // Navigate to image editor with the image URL and inspectionId
-                                          const editorUrl = `/image-editor?imageUrl=${encodeURIComponent(img.url)}&returnTo=${encodeURIComponent(window.location.pathname)}&checklistId=${cl._id}&inspectionId=${inspectionId}`;
+                                          const imageUrl = typeof img.url === 'string' ? img.url : previewUrl;
+                                          const editorUrl = `/image-editor?imageUrl=${encodeURIComponent(imageUrl)}&returnTo=${encodeURIComponent(window.location.pathname)}&checklistId=${cl._id}&inspectionId=${inspectionId}`;
                                           router.push(editorUrl);
                                         }}
                                         style={{
@@ -2992,7 +3169,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                         🖊️ Annotate
                                       </button>
                                     </div>
-                                  ))}
+                                  )})}
                                 </div>
                               )}
                             </div>

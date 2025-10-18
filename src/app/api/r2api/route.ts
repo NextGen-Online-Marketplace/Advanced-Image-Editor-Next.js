@@ -115,14 +115,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
-    // Validate file size: different limits for images vs videos
-    // Note: 360° photos are typically larger (30-50MB), so we allow up to 100MB for images
+  // Validate file size: different limits for images vs videos
+  // Note: 360° photos are typically larger (30-50MB). Limit increased to 200MB for both images and videos.
     const fileExt = file.name.toLowerCase().split('.').pop() || '';
     const isVideo = file.type.startsWith('video/') || ['mp4','mov','webm','3gp','3gpp','m4v'].includes(fileExt);
-    const maxSizeBytes = isVideo ? 100 * 1024 * 1024 : 100 * 1024 * 1024; // 100MB for both videos and images (supports 360° photos)
+  const maxSizeBytes = isVideo ? 200 * 1024 * 1024 : 200 * 1024 * 1024; // 200MB for both videos and images
     if (file.size > maxSizeBytes) {
       return NextResponse.json(
-        { error: `File size exceeds the 100MB limit` },
+        { error: `File size exceeds the 200MB limit` },
         { status: 400 }
       );
     }

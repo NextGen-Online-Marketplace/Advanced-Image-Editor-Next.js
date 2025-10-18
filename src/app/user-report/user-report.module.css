@@ -1621,10 +1621,10 @@
    INFORMATION SECTION RESPONSIVE STYLES
    ======================================== */
 
-/* Information section grid - 4 columns on desktop */
+/* Information section grid - 3 columns on desktop */
 .informationGrid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 1rem 1.5rem;
 }
 

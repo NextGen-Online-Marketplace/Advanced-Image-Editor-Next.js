@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import HeaderImageUploader from './HeaderImageUploader';
+import LocationSearch from './LocationSearch';
+import { LOCATION_OPTIONS } from '../constants/locations';
 import dynamic from 'next/dynamic';
 
 const InformationSections = dynamic(() => import('./InformationSections'), { ssr: false });
@@ -615,11 +617,12 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
                             <div className="detail-row">
                               <strong>Location:</strong>{' '}
                               {isEditing ? (
-                                <input
-                                  className="defect-input"
-                                  type="text"
+                                <LocationSearch
+                                  options={LOCATION_OPTIONS}
                                   value={editedValues.location ?? displayDefect.location ?? ''}
-                                  onChange={(e) => handleFieldChange('location', e.target.value)}
+                                  onChangeAction={(val) => handleFieldChange('location', val)}
+                                  placeholder="Select location…"
+                                  width={220}
                                 />
                               ) : (
                                 displayDefect.location || 'Not specified'

@@ -212,7 +212,14 @@ function splitDefectText(raw?: string): DefectTextParts {
 
 // Generate HTML for information section block
 function generateInformationSectionHTML(block: InformationBlock): string {
-  const allItems = block.selected_checklist_ids || [];
+  const allItemsRaw = block.selected_checklist_ids || [];
+  const allItems = Array.isArray(allItemsRaw)
+    ? [...allItemsRaw].sort((a, b) => {
+        const ao = typeof a?.order_index === 'number' ? a.order_index : Number.POSITIVE_INFINITY;
+        const bo = typeof b?.order_index === 'number' ? b.order_index : Number.POSITIVE_INFINITY;
+        return ao - bo;
+      })
+    : allItemsRaw;
   const hasContent = allItems.length > 0 || block.custom_text;
   
   if (!hasContent) return '';
@@ -851,7 +858,7 @@ export function generateInspectionReportHTML(defects: DefectItem[], meta: Report
     
     .info-grid {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(3, 1fr);
       gap: 1rem;
       /* Allow grid to break across pages if needed */
       page-break-inside: auto;
