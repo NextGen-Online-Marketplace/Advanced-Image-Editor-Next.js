@@ -110,6 +110,13 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
   // 360° photo checkbox state (key: checklist_id, value: boolean)
   const [isThreeSixtyMap, setIsThreeSixtyMap] = useState<Record<string, boolean>>({});
 
+  // Proxy helper for reliable image loading
+  const getProxiedSrc = useCallback((url?: string | null) => {
+    if (!url) return '';
+    if (url.startsWith('data:') || url.startsWith('/api/proxy-image?') || url.startsWith('blob:')) return url;
+    return `/api/proxy-image?url=${encodeURIComponent(url)}`;
+  }, []);
+
   // Shared location options
   
 
@@ -2528,15 +2535,27 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                   {checklistImages.map((img, idx) => {
                                     // Generate preview URL - handle both string URLs and File objects
                                     const getPreviewUrl = (imgData: any) => {
+                                      console.log('🖼️ Image data:', imgData);
+                                      console.log('🔍 URL type:', typeof imgData.url);
+                                      console.log('📦 URL value:', imgData.url);
+                                      
                                       if (typeof imgData.url === 'string') {
-                                        return imgData.url;
+                                        // String URL from database - use proxy
+                                        const proxied = getProxiedSrc(imgData.url);
+                                        console.log('✅ String URL proxied:', proxied);
+                                        return proxied;
                                       } else if (imgData.url && typeof imgData.url === 'object' && imgData.url instanceof File) {
-                                        return URL.createObjectURL(imgData.url);
+                                        // File object - create blob URL
+                                        const blobUrl = URL.createObjectURL(imgData.url);
+                                        console.log('✅ File object blob URL:', blobUrl);
+                                        return blobUrl;
                                       }
+                                      console.warn('⚠️ No valid URL found');
                                       return '';
                                     };
                                     
                                     const previewUrl = getPreviewUrl(img);
+                                    console.log('🎨 Final preview URL:', previewUrl);
                                     const isVideo = /\.(mp4|mov|webm|3gp|3gpp|m4v)(\?.*)?$/i.test(previewUrl);
                                     
                                     return (
@@ -3067,15 +3086,27 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                   {checklistImages.map((img, idx) => {
                                     // Generate preview URL - handle both string URLs and File objects
                                     const getPreviewUrl = (imgData: any) => {
+                                      console.log('🖼️ Limitations Image data:', imgData);
+                                      console.log('🔍 Limitations URL type:', typeof imgData.url);
+                                      console.log('📦 Limitations URL value:', imgData.url);
+                                      
                                       if (typeof imgData.url === 'string') {
-                                        return imgData.url;
+                                        // String URL from database - use proxy
+                                        const proxied = getProxiedSrc(imgData.url);
+                                        console.log('✅ Limitations String URL proxied:', proxied);
+                                        return proxied;
                                       } else if (imgData.url && typeof imgData.url === 'object' && imgData.url instanceof File) {
-                                        return URL.createObjectURL(imgData.url);
+                                        // File object - create blob URL
+                                        const blobUrl = URL.createObjectURL(imgData.url);
+                                        console.log('✅ Limitations File object blob URL:', blobUrl);
+                                        return blobUrl;
                                       }
+                                      console.warn('⚠️ Limitations No valid URL found');
                                       return '';
                                     };
                                     
                                     const previewUrl = getPreviewUrl(img);
+                                    console.log('🎨 Limitations Final preview URL:', previewUrl);
                                     
                                     return (
                                     <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '180px' }}>
