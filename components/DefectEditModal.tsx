@@ -85,6 +85,24 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
     }
   };
 
+  // Ensure all media (images/videos) load reliably through our proxy
+  const getProxiedSrc = useCallback((url?: string | null) => {
+    if (!url) return '';
+    if (url.startsWith('data:') || url.startsWith('/api/proxy-image?')) return url;
+    return `/api/proxy-image?url=${encodeURIComponent(url)}`;
+  }, []);
+
+  // Fallback handler: if direct URL fails, retry via proxy, else use placeholder
+  const handleImgError = useCallback((e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+    const img = e.currentTarget;
+    const current = img.getAttribute('src') || '';
+    if (current && !current.startsWith('/api/proxy-image?') && !current.startsWith('data:')) {
+      img.src = `/api/proxy-image?url=${encodeURIComponent(current)}`;
+    } else {
+      img.src = '/placeholder-image.jpg';
+    }
+  }, []);
+
   // Fetch defects and inspection details when modal opens
   useEffect(() => {
     if (isOpen && inspectionId) {
@@ -580,7 +598,7 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
                           <div className="defect-image">
                             {displayDefect.isThreeSixty && displayDefect.image ? (
                               <ThreeSixtyViewer
-                                imageUrl={displayDefect.image}
+                                imageUrl={getProxiedSrc(displayDefect.image)}
                                 alt={`360° view - ${displayDefect.defect_short_description || 'defect'}`}
                                 height="400px"
                               />
@@ -588,14 +606,15 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
                               <>
                                 {playingVideoId !== displayDefect._id ? (
                                   <img
-                                    src={displayDefect.thumbnail || "/placeholder-image.jpg"}
+                                    src={getProxiedSrc(displayDefect.thumbnail) || "/placeholder-image.jpg"}
                                     alt="Video thumbnail"
                                     style={{ maxWidth: "100%", maxHeight: "200px", cursor: "pointer" }}
+                                    onError={handleImgError}
                                     onClick={() => setPlayingVideoId(displayDefect._id)}
                                   />
                                 ) : (
                                   <video
-                                    src={displayDefect.video}
+                                    src={getProxiedSrc(displayDefect.video)}
                                     controls
                                     autoPlay
                                     style={{ maxWidth: "100%", maxHeight: "200px" }}
@@ -605,11 +624,12 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
                             ) : (
                               <img
                                 src={
-                                  displayDefect.image ||
-                                  displayDefect.thumbnail ||
+                                  getProxiedSrc(displayDefect.image) ||
+                                  getProxiedSrc(displayDefect.thumbnail) ||
                                   "/placeholder-image.jpg"
                                 }
                                 alt="Defect"
+                                onError={handleImgError}
                               />
                             )}
                           </div>
