@@ -1745,6 +1745,16 @@ export default function InspectionReportPage() {
 
   useEffect(() => {
     if (defects?.length) {
+      // Check if an Orientation / Shutoffs information-only section exists
+      const hasOrientationInfo = Array.isArray(informationBlocks) && informationBlocks.some((block: any) => {
+        const blockSection = typeof block.section_id === 'object' ? block.section_id?.name : null;
+        if (!blockSection) return false;
+        const clean = String(blockSection).replace(/^\d+\s*-\s*/, '').trim().toLowerCase();
+        return clean === 'orientation / shutoffs';
+      });
+
+      // Base numbering starts after Section 2 => 3; if Orientation exists, reserve Section 3 and start defects at 4
+      const effectiveStartNumber = 3 + (hasOrientationInfo ? 1 : 0);
       // First, sort defects ALPHABETICALLY by section name, then by subsection
       const sortedDefects = [...defects].sort((a, b) => {
         // Primary sort: alphabetically by section name
@@ -1768,9 +1778,9 @@ export default function InspectionReportPage() {
       const subsectionNumbers = new Map<string, Map<string, number>>();
       const defectCounters = new Map<string, number>();
       
-      let currentSectionNum = currentNumber - 1; // Will increment on first section (e.g., starts at 3-1=2, first section becomes 3)
-      // Store the starting number before processing (for PDF generation)
-      setStartingNumber(currentNumber);
+  let currentSectionNum = effectiveStartNumber - 1; // Increment on first section; reserves 3 if Orientation exists
+  // Store the starting number before processing (for PDF/HTML generation)
+  setStartingNumber(effectiveStartNumber);
 
       const mapped = sortedDefects.map((defect) => {
         const sectionKey = defect.section;
@@ -1859,7 +1869,7 @@ export default function InspectionReportPage() {
       setReportSections(mapped);
       setCurrentNumber(currentSectionNum);
     }
-  }, [defects]);
+  }, [defects, informationBlocks]);
 
   // Robust color parsing helpers
   const parseColorToRgb = (input?: string): { r: number; g: number; b: number } | null => {
@@ -1997,6 +2007,21 @@ export default function InspectionReportPage() {
       }
     });
     
+    // Special rule: If an information-only section named "Orientation / Shutoffs" exists,
+    // reserve Section 3 for it, but do NOT renumber existing sections.
+    // We only assign 3 if it's not already used by another section number and if the
+    // map doesn't already have a number for this exact section title.
+    const orientationInfoSection = sections.find(
+      (s) => s.isInformationOnly && (s.sectionName || '').trim().toLowerCase() === 'orientation / shutoffs'
+    );
+    if (orientationInfoSection) {
+      const orientationTitle = orientationInfoSection.sectionName;
+      const usedNums = new Set(Array.from(sectionNumberMap.values()));
+      if (orientationTitle && !sectionNumberMap.has(orientationTitle) && !usedNums.has(3)) {
+        sectionNumberMap.set(orientationTitle, 3);
+      }
+    }
+
     // Pass 2: Assign numbers to information-only sections
     let nextSectionNum = currentNumber; // Start from base number (e.g., 3)
     
@@ -2952,13 +2977,20 @@ export default function InspectionReportPage() {
                         const currentSectionName = section.sectionName || section.sectionHeading || '';
                         const currentSectionHeading = section.sectionHeading || '';
                         
-                        // Check if this is Section 2
-                        const isSection2 = currentSectionName.toLowerCase().includes('inspection scope') || 
-                                          currentSectionName.includes('2 -') ||
-                                          currentSectionHeading.toLowerCase().includes('inspection scope') ||
-                                          currentSectionHeading.includes('2 -') ||
-                                          currentSectionHeading === 'Section 2 - Inspection Scope & Limitations' ||
-                                          currentSectionName === 'Inspection Scope & Limitations';
+                        // Check if this is exactly Section 2 (avoid matching Section 12, 20, etc.)
+                        const parseLeadingSectionNumber = (str: string) => {
+                          const m = (str || '').match(/^(?:Section\s*)?(\d+)\s*-/i);
+                          return m ? parseInt(m[1], 10) : null;
+                        };
+                        const numFromName = parseLeadingSectionNumber(currentSectionName);
+                        const numFromHeading = parseLeadingSectionNumber(currentSectionHeading);
+                        const isSection2 =
+                          numFromName === 2 ||
+                          numFromHeading === 2 ||
+                          currentSectionName.toLowerCase().includes('inspection scope & limitations') ||
+                          currentSectionHeading.toLowerCase().includes('inspection scope & limitations') ||
+                          currentSectionHeading === 'Section 2 - Inspection Scope & Limitations' ||
+                          currentSectionName === 'Inspection Scope & Limitations';
                         
                         if (!isSection2) return null;
                         

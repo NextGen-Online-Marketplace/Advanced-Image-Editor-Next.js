@@ -397,8 +397,19 @@ export function generateInspectionReportHTML(defects: DefectItem[], meta: Report
     informationBlocks = [],
   } = meta;
 
+  // Detect if an Orientation / Shutoffs information block exists
+  const orientationBlock = Array.isArray(informationBlocks) ? informationBlocks.find(block => {
+    const blockSection = typeof block.section_id === 'object' ? block.section_id?.name : null;
+    if (!blockSection) return false;
+    const clean = String(blockSection).replace(/^\d+\s*-\s*/, '').trim().toLowerCase();
+    return clean === 'orientation / shutoffs';
+  }) : null;
+
+  // If Orientation exists, defects should start at Section 4 (reserving Section 3)
+  const startNumberAdjusted = orientationBlock ? Math.max(startNumber, 4) : startNumber;
+
   // Calculate display numbers for all defects
-  const numberedDefects = calculateDefectNumbers(defects, startNumber);
+  const numberedDefects = calculateDefectNumbers(defects, startNumberAdjusted);
   
   // Sort by section then subsection for stable ordering
   const sorted = [...numberedDefects].sort((a, b) => {
@@ -409,7 +420,7 @@ export function generateInspectionReportHTML(defects: DefectItem[], meta: Report
     return 0;
   });
 
-  let currentMain = startNumber; // will increment on first new section to match web logic
+  let currentMain = startNumberAdjusted; // will increment on first new section to match web logic
   let lastSection: string | null = null;
   let subCounter = 0;
 
@@ -424,7 +435,10 @@ export function generateInspectionReportHTML(defects: DefectItem[], meta: Report
       if (blockSection) {
         const cleanBlock = blockSection.replace(/^\d+\s*-\s*/, '');
         // Exclude Section 1 (Inspection Details) as it appears after Section 2
-        if (!sectionsWithDefects.has(cleanBlock) && cleanBlock !== 'Inspection Details') {
+        const cleanLower = cleanBlock.trim().toLowerCase();
+        if (!sectionsWithDefects.has(cleanBlock)
+            && cleanLower !== 'inspection details'
+            && cleanLower !== 'orientation / shutoffs') {
           informationOnlySections.push(blockSection);
         }
       }
@@ -574,6 +588,22 @@ export function generateInspectionReportHTML(defects: DefectItem[], meta: Report
       ${generateInformationSectionHTML(matchingBlock)}
     `;
   }).join("\n");
+
+  // Build Orientation / Shutoffs section as Section 3 (placed after Section 2 content, before defects)
+  const orientationSectionHtml = (() => {
+    if (!orientationBlock || reportType !== 'full') return '';
+    // Clean title
+    const rawName = typeof orientationBlock.section_id === 'object' ? orientationBlock.section_id?.name || '' : '';
+    const cleanName = rawName.replace(/^\d+\s*-\s*/, '') || 'Orientation / Shutoffs';
+    return `
+      <div class="section-heading" style="--selected-color: #111827; border-bottom: none;">
+        <h2 class="section-heading-text" style="color: #111827;">
+          Section 3 - ${escapeHtml(cleanName)}
+        </h2>
+      </div>
+      ${generateInformationSectionHTML(orientationBlock)}
+    `;
+  })();
 
   // Build cost summary rows with numbering matching detail sections
   const costSummaryRows = sorted.map((d) => {
@@ -1162,7 +1192,9 @@ export function generateInspectionReportHTML(defects: DefectItem[], meta: Report
     <p>We recommend using your final walkthrough to verify that no issues were missed and that the property remains in the same condition as at the time of inspection.</p>
   </section>` : ''}
 
-  ${reportType === 'full' ? `<!-- Non-priced defects summary placed after Section 2 -->
+  ${orientationSectionHtml}
+
+  ${reportType === 'full' ? `<!-- Non-priced defects summary placed after Section 2 (and Orientation, if present) -->
   <section class="cover cover--summary keep-together">
     <h2>Defects Summary</h2>
     <table class="table">
