@@ -89,6 +89,8 @@ export async function PATCH(
       hours_required,
       recommendation,
       isThreeSixty,
+      additional_images,
+      base_cost,
     } = body;
 
     if (!inspection_id) {
@@ -108,6 +110,8 @@ export async function PATCH(
       hours_required,
       recommendation,
       isThreeSixty,
+      additional_images,
+      base_cost,
     };
 
     // remove undefined keys to avoid overwriting fields accidentally

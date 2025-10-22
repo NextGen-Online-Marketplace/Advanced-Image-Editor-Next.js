@@ -1151,12 +1151,14 @@ export function generateInspectionReportHTML(defects: DefectItem[], meta: Report
     <h2>Section 2 - Inspection Scope &amp; Limitations</h2>
     <hr style="margin: 8px 0 16px 0; border: none; height: 1px; background-color: #000000;">
     ${(() => {
-      // Find Section 1 (Inspection Details) information block if it exists
+      // Find Section 2 (Inspection Details) information block if it exists
       const section1Block = informationBlocks.find(block => {
         const blockSection = typeof block.section_id === 'object' ? block.section_id?.name : null;
         if (!blockSection) return false;
         const cleanBlock = blockSection.replace(/^\d+\s*-\s*/, '');
-        return cleanBlock === 'Inspection Details' || blockSection === '1 - Inspection Details';
+        return cleanBlock.toLowerCase() === 'inspection details' || 
+               blockSection.toLowerCase().includes('inspection details') ||
+               blockSection === '2 - Inspection Details';
       });
       return section1Block ? generateInformationSectionHTML(section1Block) : '';
     })()}

@@ -151,7 +151,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
     setLoadingSections(true);
     setError(null);
     try {
-  const res = await fetch('/api/information-sections/sections', { cache: 'no-store' });
+      const res = await fetch('/api/information-sections/sections', { cache: 'no-store' });
       const json = await res.json();
       if (!json.success) throw new Error(json.error || 'Failed to load sections');
       setSections(json.data);
@@ -166,7 +166,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
     if (!inspectionId) return;
     setLoadingBlocks(true);
     try {
-  const res = await fetch(`/api/information-sections/${inspectionId}`, { cache: 'no-store' });
+      const res = await fetch(`/api/information-sections/${inspectionId}`, { cache: 'no-store' });
       const json = await res.json();
       if (!json.success) throw new Error(json.error || 'Failed to load information blocks');
       setBlocks(json.data);
@@ -568,8 +568,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
 
   const onOptionDragOver = (checklistId: string, targetChoice: string, isTargetCustom: boolean) => (
     (e: React.DragEvent<HTMLLabelElement>) => {
-      const { checklistId: draggingChecklistId, draggingChoice } = optionDragStateRef.current;
-      if (!draggingChoice || draggingChecklistId !== checklistId) return;
+  const { checklistId: draggingChecklistId, draggingChoice } = optionDragStateRef.current;
       // Only allow drop on template choices
       if (isTargetCustom) return;
       // Prevent parent checklist drag handlers
@@ -3149,33 +3148,53 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                           {isSelected && (
                             <div style={{ marginTop: '0.75rem', marginLeft: '1.75rem', paddingTop: '0.75rem', borderTop: '1px solid #e5e7eb' }}>
                               {/* 360° Photo Checkbox */}
-                              <div style={{
-                                background: 'linear-gradient(135deg, #7c3aed 0%, #a855f7 100%)',
-                                padding: '10px 16px',
-                                borderRadius: '8px',
-                                marginBottom: '12px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '10px',
-                                boxShadow: '0 2px 8px rgba(124, 58, 237, 0.2)'
-                              }}>
+                              <div 
+                                onPointerDown={(e) => {
+                                  e.preventDefault();
+                                  console.log('🎯 360° checkbox clicked/touched:', cl._id);
+                                  setIsThreeSixtyMap(prev => {
+                                    const newValue = !prev[cl._id];
+                                    console.log('✅ Setting 360° to:', newValue);
+                                    return {
+                                      ...prev,
+                                      [cl._id]: newValue
+                                    };
+                                  });
+                                }}
+                                style={{
+                                  background: 'linear-gradient(135deg, #7c3aed 0%, #a855f7 100%)',
+                                  padding: '10px 16px',
+                                  borderRadius: '8px',
+                                  marginBottom: '12px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '10px',
+                                  boxShadow: '0 2px 8px rgba(124, 58, 237, 0.2)',
+                                  cursor: 'pointer',
+                                  WebkitTapHighlightColor: 'rgba(124, 58, 237, 0.1)',
+                                  touchAction: 'manipulation',
+                                  userSelect: 'none'
+                                }}
+                              >
                                 <input
                                   type="checkbox"
                                   id={`isThreeSixty-info-${cl._id}`}
                                   checked={isThreeSixtyMap[cl._id] || false}
-                                  onChange={(e) => setIsThreeSixtyMap(prev => ({
-                                    ...prev,
-                                    [cl._id]: e.target.checked
-                                  }))}
+                                  onChange={() => {}}
+                                  readOnly
+                                  tabIndex={-1}
                                   style={{
                                     width: '18px',
                                     height: '18px',
                                     cursor: 'pointer',
-                                    accentColor: '#ffffff'
+                                    // Use a visible accent color on mobile so the checkmark is clearly visible
+                                    accentColor: '#10b981',
+                                    flexShrink: 0,
+                                    pointerEvents: 'none',
+                                    margin: 0
                                   }}
                                 />
-                                <label 
-                                  htmlFor={`isThreeSixty-info-${cl._id}`} 
+                                <div 
                                   style={{
                                     color: 'white',
                                     fontSize: '14px',
@@ -3184,35 +3203,35 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                     userSelect: 'none',
                                     display: 'flex',
                                     alignItems: 'center',
-                                    gap: '8px'
+                                    gap: '8px',
+                                    flex: 1,
+                                    pointerEvents: 'none'
                                   }}
                                 >
                                   <i className="fas fa-sync" style={{ fontSize: '16px' }}></i>
                                   This is a 360° photo
-                                </label>
+                                </div>
                               </div>
 
-                              {/* Help text for 360° photos */}
-                              {isThreeSixtyMap[cl._id] && (
-                                <div style={{
-                                  backgroundColor: '#fef3c7',
-                                  border: '1px solid #fbbf24',
-                                  borderRadius: '6px',
-                                  padding: '8px 12px',
-                                  marginBottom: '12px',
-                                  fontSize: '12px',
-                                  color: '#92400e'
-                                }}>
-                                  <strong>📸 360° Photo Tips:</strong>
-                                  <ul style={{ margin: '4px 0 0 20px', paddingLeft: 0 }}>
-                                    <li>File size limit: <strong>200 MB</strong></li>
-                                    <li><strong>⚠️ Recommended dimensions: 8192×4096 (33 MP max)</strong></li>
-                                    <li>Optimal: <strong>4096×2048</strong> at <strong>85% quality</strong> (~5-10 MB)</li>
-                                    <li>Images larger than 50 MP may fail to load in browser</li>
-                                    <li>Compress large files using: TinyPNG, Squoosh, or IrfanView</li>
-                                  </ul>
-                                </div>
-                              )}
+                              {/* Help text for 360° photos - Always visible on mobile */}
+                              <div style={{
+                                backgroundColor: '#fef3c7',
+                                border: '1px solid #fbbf24',
+                                borderRadius: '6px',
+                                padding: '8px 12px',
+                                marginBottom: '12px',
+                                fontSize: '12px',
+                                color: '#92400e'
+                              }}>
+                                <strong>📸 360° Photo Tips:</strong>
+                                <ul style={{ margin: '4px 0 0 20px', paddingLeft: 0 }}>
+                                  <li>File size limit: <strong>200 MB</strong></li>
+                                  <li><strong>⚠️ Recommended dimensions: 8192×4096 (33 MP max)</strong></li>
+                                  <li>Optimal: <strong>4096×2048</strong> at <strong>85% quality</strong> (~5-10 MB)</li>
+                                  <li>Images larger than 50 MP may fail to load in browser</li>
+                                  <li>Compress large files using: TinyPNG, Squoosh, or IrfanView</li>
+                                </ul>
+                              </div>
                               
                               <div style={{ marginBottom: '0.5rem' }}>
                                 <FileUpload
@@ -3751,33 +3770,53 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                           {isSelected && (
                             <div style={{ marginTop: '0.75rem', marginLeft: '1.75rem', paddingTop: '0.75rem', borderTop: '1px solid #e5e7eb' }}>
                               {/* 360° Photo Checkbox */}
-                              <div style={{
-                                background: 'linear-gradient(135deg, #7c3aed 0%, #a855f7 100%)',
-                                padding: '10px 16px',
-                                borderRadius: '8px',
-                                marginBottom: '12px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '10px',
-                                boxShadow: '0 2px 8px rgba(124, 58, 237, 0.2)'
-                              }}>
+                              <div 
+                                onPointerDown={(e) => {
+                                  e.preventDefault();
+                                  console.log('🎯 360° checkbox clicked/touched (Limitations):', cl._id);
+                                  setIsThreeSixtyMap(prev => {
+                                    const newValue = !prev[cl._id];
+                                    console.log('✅ Setting 360° to:', newValue);
+                                    return {
+                                      ...prev,
+                                      [cl._id]: newValue
+                                    };
+                                  });
+                                }}
+                                style={{
+                                  background: 'linear-gradient(135deg, #7c3aed 0%, #a855f7 100%)',
+                                  padding: '10px 16px',
+                                  borderRadius: '8px',
+                                  marginBottom: '12px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '10px',
+                                  boxShadow: '0 2px 8px rgba(124, 58, 237, 0.2)',
+                                  cursor: 'pointer',
+                                  WebkitTapHighlightColor: 'rgba(124, 58, 237, 0.1)',
+                                  touchAction: 'manipulation',
+                                  userSelect: 'none'
+                                }}
+                              >
                                 <input
                                   type="checkbox"
                                   id={`isThreeSixty-limit-${cl._id}`}
                                   checked={isThreeSixtyMap[cl._id] || false}
-                                  onChange={(e) => setIsThreeSixtyMap(prev => ({
-                                    ...prev,
-                                    [cl._id]: e.target.checked
-                                  }))}
+                                  onChange={() => {}}
+                                  readOnly
+                                  tabIndex={-1}
                                   style={{
                                     width: '18px',
                                     height: '18px',
                                     cursor: 'pointer',
-                                    accentColor: '#ffffff'
+                                    // Use a visible accent color on mobile so the checkmark is clearly visible
+                                    accentColor: '#10b981',
+                                    flexShrink: 0,
+                                    pointerEvents: 'none',
+                                    margin: 0
                                   }}
                                 />
-                                <label 
-                                  htmlFor={`isThreeSixty-limit-${cl._id}`} 
+                                <div 
                                   style={{
                                     color: 'white',
                                     fontSize: '14px',
@@ -3786,35 +3825,35 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                     userSelect: 'none',
                                     display: 'flex',
                                     alignItems: 'center',
-                                    gap: '8px'
+                                    gap: '8px',
+                                    flex: 1,
+                                    pointerEvents: 'none'
                                   }}
                                 >
                                   <i className="fas fa-sync" style={{ fontSize: '16px' }}></i>
                                   This is a 360° photo
-                                </label>
+                                </div>
                               </div>
 
-                              {/* Help text for 360° photos */}
-                              {isThreeSixtyMap[cl._id] && (
-                                <div style={{
-                                  backgroundColor: '#fef3c7',
-                                  border: '1px solid #fbbf24',
-                                  borderRadius: '6px',
-                                  padding: '8px 12px',
-                                  marginBottom: '12px',
-                                  fontSize: '12px',
-                                  color: '#92400e'
-                                }}>
-                                  <strong>📸 360° Photo Tips:</strong>
-                                  <ul style={{ margin: '4px 0 0 20px', paddingLeft: 0 }}>
-                                    <li>File size limit: <strong>200 MB</strong></li>
-                                    <li><strong>⚠️ Recommended dimensions: 8192×4096 (33 MP max)</strong></li>
-                                    <li>Optimal: <strong>4096×2048</strong> at <strong>85% quality</strong> (~5-10 MB)</li>
-                                    <li>Images larger than 50 MP may fail to load in browser</li>
-                                    <li>Compress large files using: TinyPNG, Squoosh, or IrfanView</li>
-                                  </ul>
-                                </div>
-                              )}
+                              {/* Help text for 360° photos - Always visible on mobile */}
+                              <div style={{
+                                backgroundColor: '#fef3c7',
+                                border: '1px solid #fbbf24',
+                                borderRadius: '6px',
+                                padding: '8px 12px',
+                                marginBottom: '12px',
+                                fontSize: '12px',
+                                color: '#92400e'
+                              }}>
+                                <strong>📸 360° Photo Tips:</strong>
+                                <ul style={{ margin: '4px 0 0 20px', paddingLeft: 0 }}>
+                                  <li>File size limit: <strong>200 MB</strong></li>
+                                  <li><strong>⚠️ Recommended dimensions: 8192×4096 (33 MP max)</strong></li>
+                                  <li>Optimal: <strong>4096×2048</strong> at <strong>85% quality</strong> (~5-10 MB)</li>
+                                  <li>Images larger than 50 MP may fail to load in browser</li>
+                                  <li>Compress large files using: TinyPNG, Squoosh, or IrfanView</li>
+                                </ul>
+                              </div>
                               
                               <div style={{ marginBottom: '0.5rem' }}>
                                 <FileUpload

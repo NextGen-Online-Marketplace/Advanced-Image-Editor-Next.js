@@ -6,7 +6,39 @@ import LocationSearch from './LocationSearch';
 import { LOCATION_OPTIONS } from '../constants/locations';
 import dynamic from 'next/dynamic';
 
-const InformationSections = dynamic(() => import('./InformationSections'), { ssr: false });
+const InformationSections = dynamic(() => import('./InformationSections'), { 
+  ssr: false,
+  loading: () => (
+    <div style={{ 
+      width: '100%', 
+      padding: '40px 20px',
+      display: 'flex', 
+      flexDirection: 'column',
+      alignItems: 'center', 
+      justifyContent: 'center',
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      borderRadius: '12px',
+      gap: '16px'
+    }}>
+      <div style={{
+        width: '50px',
+        height: '50px',
+        border: '4px solid rgba(255, 255, 255, 0.3)',
+        borderTopColor: 'white',
+        borderRadius: '50%',
+        animation: 'spin 1s linear infinite'
+      }} />
+      <p style={{ color: 'white', fontSize: '16px', fontWeight: 600 }}>
+        Loading Information Sections...
+      </p>
+      <style>{`
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
+    </div>
+  )
+});
 const ThreeSixtyViewer = dynamic(() => import('./ThreeSixtyViewer'), { 
   ssr: false,
   loading: () => (
@@ -44,6 +76,8 @@ interface Defect {
   thumbnail: string;
   video: string;
   isThreeSixty?: boolean; // 360° photo flag
+  additional_images?: Array<{ url: string; location: string }>; // Multiple location photos
+  base_cost?: number; // Base cost from AI analysis
 }
 
 interface DefectEditModalProps {
@@ -67,6 +101,10 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
   const [autoSaving, setAutoSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Additional images state
+  const [uploadingLocationPhoto, setUploadingLocationPhoto] = useState(false);
+  const [newLocationPhoto, setNewLocationPhoto] = useState<{ url: string; location: string } | null>(null);
 
 
 
@@ -224,6 +262,115 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
     }).format(amount);
   };
 
+  // Calculate total cost based on base_cost × image count
+  const calculateTotalCost = (defect: Defect): number => {
+    // Base cost includes materials + labor from first AI analysis
+    const materialCost = defect.base_cost || defect.material_total_cost || 0;
+    const laborCost = (defect.labor_rate || 0) * (defect.hours_required || 0);
+    const baseCost = materialCost + laborCost;
+    
+    // Multiply by number of location photos (main + additional)
+    const imageCount = 1 + (defect.additional_images?.length || 0);
+    return baseCost * imageCount;
+  };
+
+  // Handler: Add new location photo
+  const handleAddLocationPhoto = () => {
+    if (!editingId) return;
+    const defect = defects.find(d => d._id === editingId);
+    if (!defect) return;
+    
+    const currentCount = 1 + (defect.additional_images?.length || 0);
+    if (currentCount >= 10) {
+      alert('Maximum 10 location photos allowed');
+      return;
+    }
+
+    // Redirect to image editor with defect context
+    const params = new URLSearchParams({
+      inspectionId: inspectionId,
+      mode: 'additional-location',
+      defectId: editingId,
+    });
+    window.open(`/image-editor?${params.toString()}`, '_blank');
+  };
+
+  // Handler: Remove location photo
+  const handleRemoveLocationPhoto = async (index: number) => {
+    if (!editingId) return;
+    const defect = defects.find(d => d._id === editingId);
+    if (!defect || !defect.additional_images) return;
+
+    const updatedImages = defect.additional_images.filter((_, i) => i !== index);
+    
+    // Update via API
+    try {
+      const response = await fetch(`/api/defects/${editingId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          inspection_id: defect.inspection_id,
+          additional_images: updatedImages,
+          material_total_cost: (defect.base_cost || defect.material_total_cost) * (1 + updatedImages.length),
+        }),
+      });
+
+      if (response.ok) {
+        // Update local state
+        setDefects(prev =>
+          prev.map(d =>
+            d._id === editingId
+              ? { ...d, additional_images: updatedImages, material_total_cost: (d.base_cost || d.material_total_cost) * (1 + updatedImages.length) }
+              : d
+          )
+        );
+        setEditedValues(prev => ({
+          ...prev,
+          additional_images: updatedImages,
+        }));
+      }
+    } catch (error) {
+      console.error('Error removing location photo:', error);
+      alert('Failed to remove photo');
+    }
+  };
+
+  // Handler: Update location for additional image
+  const handleUpdateLocationForImage = async (index: number, newLocation: string) => {
+    if (!editingId) return;
+    const defect = defects.find(d => d._id === editingId);
+    if (!defect || !defect.additional_images) return;
+
+    const updatedImages = defect.additional_images.map((img, i) =>
+      i === index ? { ...img, location: newLocation } : img
+    );
+
+    try {
+      const response = await fetch(`/api/defects/${editingId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          inspection_id: defect.inspection_id,
+          additional_images: updatedImages,
+        }),
+      });
+
+      if (response.ok) {
+        setDefects(prev =>
+          prev.map(d =>
+            d._id === editingId ? { ...d, additional_images: updatedImages } : d
+          )
+        );
+        setEditedValues(prev => ({
+          ...prev,
+          additional_images: updatedImages,
+        }));
+      }
+    } catch (error) {
+      console.error('Error updating location:', error);
+    }
+  };
+
   const setHeaderImage = async (imageUrl: string) => {
     try {
       console.log('🚀 setHeaderImage called with URL:', imageUrl);
@@ -273,13 +420,7 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
     } catch(e){ console.error('Error updating header address', e); }
   };
 
-  const calculateTotalCost = (defect: Defect) => {
-    const materialCost = defect.material_total_cost || 0;
-    const laborRate = defect.labor_rate || 0;
-    const hours = defect.hours_required || 0;
-    const laborCost = laborRate * hours;
-    return materialCost + laborCost;
-  };
+  // calculateTotalCost is now defined earlier in the file (line ~234) to include image count multiplication
 
   const startEditing = (defect: Defect) => {
     setEditingId(defect._id);
@@ -347,6 +488,8 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
           labor_rate: updated.labor_rate,
           hours_required: updated.hours_required,
           recommendation: updated.recommendation,
+          additional_images: updated.additional_images, // Save additional images
+          base_cost: updated.base_cost, // Save base cost
         }),
       });
   
@@ -776,6 +919,82 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
                                 displayDefect.recommendation || 'No recommendation available'
                               )}
                             </div>
+
+                            {/* Additional Location Photos Section */}
+                            {isEditing && (
+                              <div style={{ marginTop: '1.5rem', padding: '1rem', backgroundColor: '#f8f9fa', borderRadius: '8px', border: '1px solid #dee2e6' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                                  <strong style={{ fontSize: '0.95rem', color: '#495057' }}>
+                                    📍 Additional Location Photos ({(displayDefect.additional_images?.length || 0) + 1}/10)
+                                  </strong>
+                                  <button
+                                    onClick={handleAddLocationPhoto}
+                                    disabled={(displayDefect.additional_images?.length || 0) >= 9}
+                                    style={{
+                                      padding: '0.5rem 1rem',
+                                      backgroundColor: (displayDefect.additional_images?.length || 0) >= 9 ? '#6c757d' : '#8230c9',
+                                      color: 'white',
+                                      border: 'none',
+                                      borderRadius: '4px',
+                                      cursor: (displayDefect.additional_images?.length || 0) >= 9 ? 'not-allowed' : 'pointer',
+                                      fontSize: '0.85rem',
+                                      fontWeight: 500,
+                                    }}
+                                  >
+                                    + Add Location Photo
+                                  </button>
+                                </div>
+                                
+                                {displayDefect.additional_images && displayDefect.additional_images.length > 0 && (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                    {displayDefect.additional_images.map((img, idx) => (
+                                      <div key={idx} style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', padding: '0.75rem', backgroundColor: 'white', borderRadius: '6px', border: '1px solid #e9ecef' }}>
+                                        <img 
+                                          src={img.url} 
+                                          alt={`Location ${idx + 2}`}
+                                          style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '4px' }}
+                                        />
+                                        <div style={{ flex: 1 }}>
+                                          <label style={{ display: 'block', fontSize: '0.8rem', color: '#6c757d', marginBottom: '0.25rem' }}>
+                                            Location:
+                                          </label>
+                                          <select
+                                            value={img.location}
+                                            onChange={(e) => handleUpdateLocationForImage(idx, e.target.value)}
+                                            style={{ width: '100%', padding: '0.4rem', fontSize: '0.85rem', border: '1px solid #ced4da', borderRadius: '4px' }}
+                                          >
+                                            {LOCATION_OPTIONS.map(loc => (
+                                              <option key={loc} value={loc}>{loc}</option>
+                                            ))}
+                                          </select>
+                                        </div>
+                                        <button
+                                          onClick={() => handleRemoveLocationPhoto(idx)}
+                                          style={{
+                                            padding: '0.4rem 0.8rem',
+                                            backgroundColor: '#dc3545',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '4px',
+                                            cursor: 'pointer',
+                                            fontSize: '0.8rem',
+                                          }}
+                                        >
+                                          Remove
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                                
+                                {(!displayDefect.additional_images || displayDefect.additional_images.length === 0) && (
+                                  <p style={{ color: '#6c757d', fontSize: '0.85rem', fontStyle: 'italic', margin: 0 }}>
+                                    No additional location photos yet. Click "Add Location Photo" to add photos from different locations with the same defect.
+                                  </p>
+                                )}
+                              </div>
+                            )}
+
                             <div className="detail-row total-cost">
                               <strong>Total Cost:</strong>{' '}
                               {formatCurrency(

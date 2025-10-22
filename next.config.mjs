@@ -4,6 +4,7 @@ const nextConfig = {
   experimental: {
     serverComponentsExternalPackages: ["puppeteer-core", "@sparticuz/chromium", "@sparticuz/chromium-min"],
   },
+  // Optimize chunk loading to prevent ChunkLoadError
   webpack: (config, { isServer }) => {
     if (isServer) {
       // Avoid bundling puppeteer-core and chromium to prevent ESM private field parse errors in SWC
@@ -11,6 +12,39 @@ const nextConfig = {
       config.externals.push("puppeteer-core", "@sparticuz/chromium", "@sparticuz/chromium-min");
       // Prevent bundling exifr on server to avoid UMD dynamic require warnings
       config.externals.push("exifr");
+    }
+
+    // Optimize chunk splitting for better loading performance
+    if (!isServer) {
+      // Increase chunk load timeout to reduce ChunkLoadError on slow networks/devices
+      config.output = {
+        ...config.output,
+        chunkLoadTimeout: 300000, // 5 minutes
+      };
+      config.optimization = {
+        ...config.optimization,
+        splitChunks: {
+          ...config.optimization.splitChunks,
+          chunks: 'all',
+          cacheGroups: {
+            ...config.optimization.splitChunks?.cacheGroups,
+            // Create separate chunk for InformationSections component
+            informationSections: {
+              test: /[\\/]components[\\/]InformationSections\.tsx/,
+              name: 'information-sections',
+              priority: 10,
+              reuseExistingChunk: true,
+            },
+            // Vendor chunk for large dependencies
+            vendor: {
+              test: /[\\/]node_modules[\\/]/,
+              name: 'vendor',
+              priority: 5,
+              reuseExistingChunk: true,
+            },
+          },
+        },
+      };
     }
 
     // Suppress the critical dependency warning from libheif-js (HEIC image conversion library)

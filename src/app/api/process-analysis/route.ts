@@ -155,6 +155,9 @@ async function handler(request: Request) {
 
     const parsed = JSON.parse(jsonMatch[0]);
 
+    // Calculate total cost from AI analysis
+    const totalCost = (parsed.materials_total_cost || 0) + ((parsed.labor_rate || 0) * (parsed.hours_required || 0));
+
     const defectData = {
       inspection_id: inspectionId,
       image: finalImageUrl!,
@@ -164,7 +167,7 @@ async function handler(request: Request) {
       defect_description: parsed.defect || description || "",
       defect_short_description: parsed.short_description || "",
       materials: parsed.materials_names || "",
-      material_total_cost: parsed.materials_total_cost || 0,
+      material_total_cost: totalCost, // Use calculated total cost
       labor_type: parsed.labor_type || "",
       labor_rate: parsed.labor_rate || 0,
       hours_required: parsed.hours_required || 0,
@@ -173,7 +176,9 @@ async function handler(request: Request) {
       type: type,
       thumbnail: finalThumbnailUrl,
       video: finalVideoUrl,
-      isThreeSixty: isThreeSixty || false
+      isThreeSixty: isThreeSixty || false,
+      base_cost: totalCost, // Save base cost for future multiplication
+      additional_images: [], // Initialize empty array for additional location photos
     };
 
     await createDefect(defectData);

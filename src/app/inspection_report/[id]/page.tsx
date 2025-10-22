@@ -5,6 +5,7 @@ import styles from "../../user-report/user-report.module.css";
 import { useRef } from "react";
 import Button from "@/components/Button";
 import PermanentReportLinks from "@/components/PermanentReportLinks";
+import DefectPhotoGrid from "@/components/DefectPhotoGrid";
 import dynamic from 'next/dynamic';
 
 // Dynamic import of ThreeSixtyViewer to avoid SSR issues
@@ -118,6 +119,7 @@ export default function InspectionReportPage() {
   const { id } = params; // this is inspection_id
   const [defects, setDefects] = useState<any[]>([]);
   const [informationBlocks, setInformationBlocks] = useState<any[]>([]);
+  const [sections, setSections] = useState<any[]>([]); // All sections with order_index
   const [loading, setLoading] = useState(true);
   const [currentSection, setCurrentSection] = useState(null)
   const [currentNumber, setCurrentNumber] = useState(3)
@@ -386,6 +388,24 @@ export default function InspectionReportPage() {
   const selectHeaderImage = (imageUrl: string) => {
     setHeaderImage(imageUrl);
   };
+  
+  // Fetch all sections to get order_index mapping
+  useEffect(() => {
+    const fetchSections = async () => {
+      try {
+        const response = await fetch('/api/information-sections/sections');
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success && result.data) {
+            setSections(result.data);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching sections:', error);
+      }
+    };
+    fetchSections();
+  }, []);
   
   // Fetch inspection data including header image
   useEffect(() => {
@@ -830,12 +850,14 @@ export default function InspectionReportPage() {
         : '';
 
       // Intro sections (Section 1 & 2) content (tagged with data-intro for mode filtering in exported HTML)
-      // Find Section 1 (Inspection Details) information block if it exists
+      // Find Section 2 (Inspection Details) information block if it exists
       const section1Block = informationBlocks.find((block: any) => {
         const blockSection = typeof block.section_id === 'object' ? block.section_id?.name : null;
         if (!blockSection) return false;
         const cleanBlock = blockSection.replace(/^\d+\s*-\s*/, '');
-        return cleanBlock === 'Inspection Details' || blockSection === '1 - Inspection Details';
+        return cleanBlock.toLowerCase() === 'inspection details' || 
+               blockSection.toLowerCase().includes('inspection details') ||
+               blockSection === '2 - Inspection Details';
       });
       const section1Html = section1Block ? generateInformationSectionHTMLForExport(section1Block) : '';
       
@@ -1744,24 +1766,63 @@ export default function InspectionReportPage() {
   const [reportSections, setReportSections] = useState<any[]>([]);
 
   useEffect(() => {
-    if (defects?.length) {
-      // Check if an Orientation / Shutoffs information-only section exists
-      const hasOrientationInfo = Array.isArray(informationBlocks) && informationBlocks.some((block: any) => {
-        const blockSection = typeof block.section_id === 'object' ? block.section_id?.name : null;
-        if (!blockSection) return false;
-        const clean = String(blockSection).replace(/^\d+\s*-\s*/, '').trim().toLowerCase();
-        return clean === 'orientation / shutoffs';
+    if (defects?.length && sections?.length) {
+      // Create a mapping from section name to order_index
+      const sectionNameToOrderIndex = new Map<string, number>();
+      
+      // Store both exact matches and cleaned names
+      sections.forEach((section: any) => {
+        // Clean section name (remove leading "N - " if exists)
+        const cleanName = section.name.replace(/^\d+\s*-\s*/, '').trim();
+        sectionNameToOrderIndex.set(cleanName.toLowerCase(), section.order_index);
+        // Also store original name for exact match
+        sectionNameToOrderIndex.set(section.name.toLowerCase(), section.order_index);
       });
+      
+      // Helper function to get section number and actual section name from defect
+      const getSectionInfo = (defect: any): { orderIndex: number; actualSectionName: string } => {
+        const sectionName = defect.section || '';
+        const cleanName = sectionName.replace(/^\d+\s*-\s*/, '').trim().toLowerCase();
+        
+        // Try exact match first
+        let orderIndex = sectionNameToOrderIndex.get(cleanName) || sectionNameToOrderIndex.get(sectionName.toLowerCase());
+        let actualSectionName = sectionName; // Default to defect's section name
+        
+        // If no exact match, try partial matching (e.g., "Interior" should match "Doors, Windows & Interior")
+        if (!orderIndex) {
+          for (const section of sections) {
+            const dbSectionName = section.name.replace(/^\d+\s*-\s*/, '').trim();
+            const dbSectionNameLower = dbSectionName.toLowerCase();
+            // Check if defect section name is contained in database section name
+            // or if they share significant keywords
+            if (dbSectionNameLower.includes(cleanName) || cleanName.includes(dbSectionNameLower)) {
+              orderIndex = section.order_index;
+              actualSectionName = dbSectionName; // Use the actual section name from database
+              break;
+            }
+          }
+        } else {
+          // Find the actual section name from database for exact matches too
+          for (const section of sections) {
+            const dbSectionName = section.name.replace(/^\d+\s*-\s*/, '').trim();
+            if (dbSectionName.toLowerCase() === cleanName || section.name.toLowerCase() === sectionName.toLowerCase()) {
+              actualSectionName = dbSectionName;
+              break;
+            }
+          }
+        }
+        
+        return { orderIndex: orderIndex || 999, actualSectionName };
+      };
 
-      // Base numbering starts after Section 2 => 3; if Orientation exists, reserve Section 3 and start defects at 4
-      const effectiveStartNumber = 3 + (hasOrientationInfo ? 1 : 0);
-      // First, sort defects ALPHABETICALLY by section name, then by subsection
+      // Sort defects by section order_index, then by subsection alphabetically
       const sortedDefects = [...defects].sort((a, b) => {
-        // Primary sort: alphabetically by section name
-        const sectionA = (a.section || '').toLowerCase();
-        const sectionB = (b.section || '').toLowerCase();
-        if (sectionA < sectionB) return -1;
-        if (sectionA > sectionB) return 1;
+        // Primary sort: by section order_index
+        const sectionOrderA = getSectionInfo(a).orderIndex;
+        const sectionOrderB = getSectionInfo(b).orderIndex;
+        if (sectionOrderA !== sectionOrderB) {
+          return sectionOrderA - sectionOrderB;
+        }
         
         // Secondary sort: alphabetically by subsection name
         const subsectionA = (a.subsection || '').toLowerCase();
@@ -1772,30 +1833,23 @@ export default function InspectionReportPage() {
         return 0;
       });
 
-      // Calculate defect numbering using the same logic as PDF template
-      // Track section numbering with three levels: Section.Subsection.Defect
-      const sectionNumbers = new Map<string, number>();
+      // Calculate defect numbering: use section's order_index as section number
       const subsectionNumbers = new Map<string, Map<string, number>>();
       const defectCounters = new Map<string, number>();
-      
-  let currentSectionNum = effectiveStartNumber - 1; // Increment on first section; reserves 3 if Orientation exists
-  // Store the starting number before processing (for PDF/HTML generation)
-  setStartingNumber(effectiveStartNumber);
 
       const mapped = sortedDefects.map((defect) => {
-        const sectionKey = defect.section;
+        const sectionInfo = getSectionInfo(defect);
+        const sectionNum = sectionInfo.orderIndex;
+        const actualSectionName = sectionInfo.actualSectionName;
         const subsectionKey = defect.subsection;
-        const fullKey = `${sectionKey}|||${subsectionKey}`;
+        const fullKey = `${actualSectionName}|||${subsectionKey}`;
         
-        // Assign section number if new section
-        if (!sectionNumbers.has(sectionKey)) {
-          currentSectionNum++;
-          sectionNumbers.set(sectionKey, currentSectionNum);
-          subsectionNumbers.set(sectionKey, new Map());
+        // Initialize subsection map for this section if not exists
+        if (!subsectionNumbers.has(actualSectionName)) {
+          subsectionNumbers.set(actualSectionName, new Map());
         }
         
-        const sectionNum = sectionNumbers.get(sectionKey)!;
-        const subsectionMap = subsectionNumbers.get(sectionKey)!;
+        const subsectionMap = subsectionNumbers.get(actualSectionName)!;
         
         // Assign subsection number if new subsection within this section
         if (!subsectionMap.has(subsectionKey)) {
@@ -1836,14 +1890,16 @@ export default function InspectionReportPage() {
           id: defect._id,
           anchorId,
           numbering,
-          sectionName: defect.section,
+          sectionName: actualSectionName, // Use actual section name from database
           subsectionName: defect.subsection,
-          sectionHeading: `Section ${sectionNum} - ${defect.section}`,
+          sectionHeading: `Section ${sectionNum} - ${actualSectionName}`, // Use actual section name
           subsectionHeading: `${sectionNum}.${subsectionNum} - ${defect.subsection}`,
-          heading2: `${defect.section} - ${defect.subsection}`,
+          heading2: `${actualSectionName} - ${defect.subsection}`, // Use actual section name
           heading: `${numbering} ${defect.subsection}`,
           image: defect.image,
           isThreeSixty: Boolean(defect.isThreeSixty),
+          additional_images: defect.additional_images || [],
+          base_cost: defect.base_cost,
           defect: summaryTitle,
           defectTitle: summaryTitle,
           defectParagraphs: bodyParagraphs,
@@ -1867,9 +1923,8 @@ export default function InspectionReportPage() {
       });
 
       setReportSections(mapped);
-      setCurrentNumber(currentSectionNum);
     }
-  }, [defects, informationBlocks]);
+  }, [defects, sections]);
 
   // Robust color parsing helpers
   const parseColorToRgb = (input?: string): { r: number; g: number; b: number } | null => {
@@ -1936,6 +1991,7 @@ export default function InspectionReportPage() {
     if (informationBlocks && informationBlocks.length > 0) {
       informationBlocks.forEach((block: any) => {
         const blockSection = typeof block.section_id === 'object' ? block.section_id?.name : null;
+        const blockOrderIndex = typeof block.section_id === 'object' ? block.section_id?.order_index : null;
         if (!blockSection) return;
         
         // Clean section name (remove leading numbers like "9 - ")
@@ -1966,6 +2022,7 @@ export default function InspectionReportPage() {
             heading2: cleanBlockSection,
             heading: cleanBlockSection,
             image: null,
+            sectionOrderIndex: blockOrderIndex, // Store order_index for proper sorting
             defect: '',
             defectTitle: '',
             defectParagraphs: [],
@@ -2022,16 +2079,17 @@ export default function InspectionReportPage() {
       }
     }
 
-    // Pass 2: Assign numbers to information-only sections
-    let nextSectionNum = currentNumber; // Start from base number (e.g., 3)
-    
+    // Pass 2: Assign numbers to information-only sections based on their order_index from database
     sections.forEach((section) => {
       const sectionName = section.sectionName;
       
       if (section.isInformationOnly) {
-        // Check if a defect section already has this section name
-        if (!sectionNumberMap.has(sectionName)) {
-          // Find the next available section number
+        // Use order_index from database if available
+        if (!sectionNumberMap.has(sectionName) && (section as any).sectionOrderIndex) {
+          sectionNumberMap.set(sectionName, (section as any).sectionOrderIndex);
+        } else if (!sectionNumberMap.has(sectionName)) {
+          // Fallback: Find the next available section number
+          let nextSectionNum = currentNumber;
           nextSectionNum++;
           while (Array.from(sectionNumberMap.values()).includes(nextSectionNum)) {
             nextSectionNum++;
@@ -2522,11 +2580,18 @@ export default function InspectionReportPage() {
                     <h2 className={styles.sectionHeadingTextStart}>Section 2 - Inspection Scope & Limitations</h2>
                   </div>
                   
-                  {/* INFORMATION BLOCKS - Render "1 - Inspection Details" from database */}
+                  {/* INFORMATION BLOCKS - Render "2 - Inspection Details" from database */}
                   {informationBlocks && informationBlocks.length > 0 && (
                     <>
                       {informationBlocks
-                        .filter((block: any) => block.section_id?.name === '1 - Inspection Details')
+                        .filter((block: any) => {
+                          const blockSection = typeof block.section_id === 'object' ? block.section_id?.name : null;
+                          if (!blockSection) return false;
+                          const cleanBlock = blockSection.replace(/^\d+\s*-\s*/, '');
+                          return cleanBlock.toLowerCase() === 'inspection details' || 
+                                 blockSection.toLowerCase().includes('inspection details') ||
+                                 blockSection === '2 - Inspection Details';
+                        })
                         .map((block: any, blockIdx: number) => {
                           const allItems = block.selected_checklist_ids || [];
                           
@@ -2955,10 +3020,14 @@ export default function InspectionReportPage() {
                   // Check if this is the first defect in a new section
                   const isNewSection = idx === 0 || visibleSections[idx - 1].sectionName !== section.sectionName;
 
+                  // Skip rendering Section 1 (Inspection Overview) as it's already rendered statically above
+                  const isSection1 = section.sectionName?.toLowerCase().includes('inspection overview') || 
+                                     section.sectionHeading?.toLowerCase().includes('inspection overview');
+
                   return (
                 <div key={section.id}>
                   {/* Information-Only Section (no defects) */}
-                  {section.isInformationOnly && filterMode === 'full' && (
+                  {section.isInformationOnly && filterMode === 'full' && !isSection1 && (
                     <>
                       <div 
                         className={styles.sectionHeading}
@@ -2972,7 +3041,7 @@ export default function InspectionReportPage() {
                         </h2>
                       </div>
                       
-                      {/* Special handling: Render Section 1 (Inspection Details) AFTER Section 2 heading */}
+                      {/* Special handling: Render Section 2 (Inspection Details) AFTER Section 2 heading */}
                       {(() => {
                         const currentSectionName = section.sectionName || section.sectionHeading || '';
                         const currentSectionHeading = section.sectionHeading || '';
@@ -2994,14 +3063,14 @@ export default function InspectionReportPage() {
                         
                         if (!isSection2) return null;
                         
-                        // Find Section 1 (Inspection Details) block
+                        // Find Section 2 (Inspection Details) block
                         const section1Block = informationBlocks.find(b => {
                           const blockSection = typeof b.section_id === 'object' ? b.section_id?.name : null;
                           if (!blockSection) return false;
                           const cleanBlock = blockSection.replace(/^\d+\s*-\s*/, '');
                           return cleanBlock.toLowerCase() === 'inspection details' || 
                                  blockSection.toLowerCase().includes('inspection details') ||
-                                 blockSection === '1 - Inspection Details';
+                                 blockSection === '2 - Inspection Details';
                         });
                         
                         if (!section1Block) return null;
@@ -4155,24 +4224,41 @@ export default function InspectionReportPage() {
     }}
   />
 ) : section.image ? (
-  <img
-    src={
-      typeof section.image === "string"
-        ? getProxiedSrc(section.image)
-        : URL.createObjectURL(section.image)
-    }
-    alt="Inspection media"
-    className={styles.propertyImage}
-    role="button"
-    onClick={() => {
-      openLightbox(
+  // Use DefectPhotoGrid if there are additional images, otherwise show single image
+  (section as any).additional_images && (section as any).additional_images.length > 0 ? (
+    <DefectPhotoGrid
+      mainPhoto={
         typeof section.image === "string"
           ? getProxiedSrc(section.image)
           : URL.createObjectURL(section.image)
-      );
-    }}
-    style={{ cursor: "zoom-in" }}
-  />
+      }
+      mainLocation={section.location}
+      additionalPhotos={(section as any).additional_images.map((img: any) => ({
+        url: getProxiedSrc(img.url),
+        location: img.location
+      }))}
+      onPhotoClick={openLightbox}
+    />
+  ) : (
+    <img
+      src={
+        typeof section.image === "string"
+          ? getProxiedSrc(section.image)
+          : URL.createObjectURL(section.image)
+      }
+      alt="Inspection media"
+      className={styles.propertyImage}
+      role="button"
+      onClick={() => {
+        openLightbox(
+          typeof section.image === "string"
+            ? getProxiedSrc(section.image)
+            : URL.createObjectURL(section.image)
+        );
+      }}
+      style={{ cursor: "zoom-in" }}
+    />
+  )
 ) : (
   <div className={styles.imagePlaceholder}>
     <p>No media available</p>

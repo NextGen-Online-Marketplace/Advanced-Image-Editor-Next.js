@@ -12,6 +12,11 @@ export default function ImageEditorPage() {
   const preloadImageUrl = searchParams.get('imageUrl'); // Get existing image URL
   const returnTo = searchParams.get('returnTo'); // Where to return after editing
   const checklistId = searchParams.get('checklistId'); // For information block images
+  const mode = searchParams.get('mode'); // 'additional-location' for adding photos to existing defect
+  const defectId = searchParams.get('defectId'); // Parent defect ID for additional photos
+  
+  // Check if this is additional location photo mode
+  const isAdditionalLocationMode = mode === 'additional-location' && defectId;
   
   const [description, setDescription] = useState('');
   const [activeMode, setActiveMode] = useState<'none' | 'crop' | 'arrow' | 'circle' | 'square'>('none');
@@ -210,6 +215,30 @@ export default function ImageEditorPage() {
     locationItem.toLowerCase().includes(locationSearch2.toLowerCase())
   );
 
+  // Fetch parent defect info when in additional location mode
+  useEffect(() => {
+    if (isAdditionalLocationMode && defectId && selectedInspectionId) {
+      const fetchParentDefect = async () => {
+        try {
+          const response = await fetch(`/api/defects/${selectedInspectionId}`);
+          if (response.ok) {
+            const defects = await response.json();
+            const parentDefect = defects.find((d: any) => d._id === defectId);
+            if (parentDefect) {
+              // Auto-fill section and subsection from parent defect
+              setSelectedLocation(parentDefect.section || '');
+              setSelectedSubLocation(parentDefect.subsection || '');
+              console.log('✅ Parent defect loaded:', parentDefect.section, '-', parentDefect.subsection);
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching parent defect:', error);
+        }
+      };
+      fetchParentDefect();
+    }
+  }, [isAdditionalLocationMode, defectId, selectedInspectionId]);
+
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -345,6 +374,108 @@ export default function ImageEditorPage() {
   };
 
   const handleSubmit = async () => {
+    // Special handling for additional location photos
+    if (isAdditionalLocationMode && defectId) {
+      console.log('📤 Adding location photo to existing defect:', defectId);
+      
+      if (!editedFile) {
+        alert('Please upload and edit an image before submitting.');
+        return;
+      }
+
+      if (!selectedLocation2) {
+        alert('Please select a location for this photo.');
+        return;
+      }
+
+      setIsSubmitting(true);
+      setSubmitStatus('Uploading photo...');
+
+      try {
+        // Upload the annotated image to R2
+        const formData = new FormData();
+        formData.append('file', editedFile);
+
+        const uploadRes = await fetch('/api/r2api', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!uploadRes.ok) {
+          throw new Error(`Failed to upload image: ${uploadRes.status}`);
+        }
+
+        const uploadData = await uploadRes.json();
+        console.log('✅ Image uploaded:', uploadData.url);
+
+        // Get current defect data to update additional_images
+        const defectRes = await fetch(`/api/defects/${selectedInspectionId}`);
+        if (!defectRes.ok) {
+          throw new Error('Failed to fetch defect data');
+        }
+
+        const defects = await defectRes.json();
+        const currentDefect = defects.find((d: any) => d._id === defectId);
+        
+        if (!currentDefect) {
+          throw new Error('Defect not found');
+        }
+
+        // Add new photo to additional_images array
+        const additionalImages = currentDefect.additional_images || [];
+        
+        // Check if we've reached the limit of 10 photos
+        if (additionalImages.length >= 10) {
+          alert('Maximum 10 location photos per defect. Please remove an existing photo first.');
+          setIsSubmitting(false);
+          setSubmitStatus('');
+          return;
+        }
+
+        additionalImages.push({
+          url: uploadData.url,
+          location: selectedLocation2
+        });
+
+        // Update defect with new additional_images
+        // IMPORTANT: The API expects defectId in URL path, not inspectionId
+        const updateRes = await fetch(`/api/defects/${defectId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            inspection_id: currentDefect.inspection_id,
+            additional_images: additionalImages
+          })
+        });
+
+        if (!updateRes.ok) {
+          throw new Error('Failed to update defect');
+        }
+
+        setSubmitStatus('Done! Closing...');
+        
+        // Close the window and return to inspection page
+        setTimeout(() => {
+          window.close();
+          // If window.close doesn't work (not opened as popup), navigate back
+          setTimeout(() => {
+            if (!window.closed) {
+              router.push(`/inspection_report/${selectedInspectionId}`);
+            }
+          }, 100);
+        }, 500);
+
+      } catch (error) {
+        console.error('❌ Error adding location photo:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+        alert(`Failed to add location photo: ${errorMessage}`);
+        setIsSubmitting(false);
+        setSubmitStatus('');
+      }
+      
+      return; // Exit early for additional location flow
+    }
+
     // Special handling for information block annotation
     if (returnTo && checklistId) {
       console.log('📤 Returning annotated image to information block');
@@ -976,12 +1107,12 @@ export default function ImageEditorPage() {
          </div>
        )}
 
-      {/* Submit Section - Only show for defect workflow */}
-      {!returnTo && !checklistId && (
+      {/* Submit Section - Only show for defect workflow or additional location mode */}
+      {(!returnTo && !checklistId) || isAdditionalLocationMode ? (
         <div className="submit-section">
           <div className="submit-controls">
 
-          {/* Location Button with Dropdown */}
+          {/* Location Button with Dropdown - Always show */}
           <div className="location-button-container">
             <button 
               className="location-btn location2-btn"
@@ -1047,6 +1178,9 @@ export default function ImageEditorPage() {
             )}
           </div>
 
+          {/* Section and Subsection - Hide in additional location mode */}
+          {!isAdditionalLocationMode && (
+            <>
           {/* Section Button with Dropdown */}
           <div className="location-button-container">
             <button 
@@ -1183,14 +1317,23 @@ export default function ImageEditorPage() {
               </div>
             )}
           </div>
+          </>
+          )}
 
-          {/* Submit Button */}
-          <button className="submit-btn" onClick={handleSubmit}>
-            Submit
+          {/* Submit Button - Change text based on mode */}
+          <button className="submit-btn" onClick={handleSubmit} disabled={isSubmitting}>
+            {isSubmitting ? (
+              <>
+                <i className="fas fa-spinner fa-spin" style={{ marginRight: '8px' }}></i>
+                {isAdditionalLocationMode ? 'Adding Photo...' : 'Processing...'}
+              </>
+            ) : (
+              isAdditionalLocationMode ? 'Add Photo' : 'Submit'
+            )}
           </button>
         </div>
-      </div>
-      )}
+        </div>
+      ) : null}
     </div>
   );
 }
