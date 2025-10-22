@@ -104,15 +104,16 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
   const [isDraggingArrow, setIsDraggingArrow] = useState(false);
   const [isRotatingArrow, setIsRotatingArrow] = useState(false);
   const [isResizingArrow, setIsResizingArrow] = useState(false);
+  const [arrowResizeEnd, setArrowResizeEnd] = useState<'start' | 'end' | null>(null);
   const [dragArrowOffset, setDragArrowOffset] = useState({ x: 0, y: 0 });
   const [interactionMode, setInteractionMode] = useState<'move' | 'rotate' | 'resize' | null>(null);
   
   // Circle and square states
   const [circleColor, setCircleColor] = useState('#d63636');
   const [squareColor, setSquareColor] = useState('#d63636');
-  // Unified thickness for circle/square strokes (user-adjustable)
-  const [shapeThickness, setShapeThickness] = useState(6);
-  const [defaultThickness, setDefaultThickness] = useState(6);
+  // Unified thickness for circle/square strokes (fixed default of 3)
+  const [shapeThickness, setShapeThickness] = useState(3);
+  const [defaultThickness, setDefaultThickness] = useState(3);
   const [isResizingShape, setIsResizingShape] = useState(false);
   const [resizeHandle, setResizeHandle] = useState<string | null>(null);
   const [initialShapeData, setInitialShapeData] = useState<any>(null);
@@ -1196,10 +1197,42 @@ const captureImage = () => {
         setSelectedArrowId(clickedShape.id);
         
         if (clickedShape.type === 'arrow') {
-          setIsDraggingArrow(true);
+          // Check if user clicked the rotation handle first (explicit rotate only)
           const center = getArrowCenter(clickedShape);
-          setDragArrowOffset({ x: mouseX - center.x, y: mouseY - center.y });
-          setInteractionMode('move');
+          const rotation = clickedShape.rotation || 0;
+          const rotHandleX = center.x + 50 * Math.sin(rotation);
+          const rotHandleY = center.y - 50 * Math.cos(rotation);
+          const rotTol = 16;
+          const nearRotate = Math.hypot(mouseX - rotHandleX, mouseY - rotHandleY) <= rotTol;
+
+          if (nearRotate) {
+            setIsRotatingArrow(true);
+            setInteractionMode('rotate');
+            return;
+          }
+
+          // Check if user clicked near an endpoint to start resizing
+          const from = clickedShape.points[0];
+          const to = clickedShape.points[clickedShape.points.length - 1];
+          const tol = 15;
+          const nearStart = Math.abs(mouseX - from.x) < tol && Math.abs(mouseY - from.y) < tol;
+          const nearEnd = Math.abs(mouseX - to.x) < tol && Math.abs(mouseY - to.y) < tol;
+
+          if (nearStart) {
+            setIsResizingArrow(true);
+            setInteractionMode('resize');
+            setArrowResizeEnd('start');
+          } else if (nearEnd) {
+            setIsResizingArrow(true);
+            setInteractionMode('resize');
+            setArrowResizeEnd('end');
+          } else {
+            // Default to moving the arrow (click anywhere on body/head)
+            setIsDraggingArrow(true);
+            const c = getArrowCenter(clickedShape);
+            setDragArrowOffset({ x: mouseX - c.x, y: mouseY - c.y });
+            setInteractionMode('move');
+          }
         } else {
           // For circles and squares, just move them
           const center = clickedShape.center || clickedShape.points[0];
@@ -1231,9 +1264,40 @@ const captureImage = () => {
       
       if (clickedArrow) {
         setSelectedArrowId(clickedArrow.id);
-        setIsDraggingArrow(true);
+        // Check rotation handle first (explicit rotate only)
         const center = getArrowCenter(clickedArrow);
-        setDragArrowOffset({ x: mouseX - center.x, y: mouseY - center.y });
+        const rotation = clickedArrow.rotation || 0;
+        const rotHandleX = center.x + 50 * Math.sin(rotation);
+        const rotHandleY = center.y - 50 * Math.cos(rotation);
+        const rotTol = 16;
+        const nearRotate = Math.hypot(mouseX - rotHandleX, mouseY - rotHandleY) <= rotTol;
+        if (nearRotate) {
+          setIsRotatingArrow(true);
+          setInteractionMode('rotate');
+          return;
+        }
+        // Check for endpoint resize next
+        const from = clickedArrow.points[0];
+        const to = clickedArrow.points[clickedArrow.points.length - 1];
+        const tol = 15;
+        const nearStart = Math.abs(mouseX - from.x) < tol && Math.abs(mouseY - from.y) < tol;
+        const nearEnd = Math.abs(mouseX - to.x) < tol && Math.abs(mouseY - to.y) < tol;
+        if (nearStart) {
+          setIsResizingArrow(true);
+          setInteractionMode('resize');
+          setArrowResizeEnd('start');
+          return;
+        }
+        if (nearEnd) {
+          setIsResizingArrow(true);
+          setInteractionMode('resize');
+          setArrowResizeEnd('end');
+          return;
+        }
+        // Otherwise move by dragging anywhere on the arrow
+        setIsDraggingArrow(true);
+        const c = getArrowCenter(clickedArrow);
+        setDragArrowOffset({ x: mouseX - c.x, y: mouseY - c.y });
         setInteractionMode('move');
         return;
       } else {
@@ -1365,6 +1429,22 @@ const captureImage = () => {
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
     
+    // Handle arrow resizing globally regardless of mode
+    if (isResizingArrow && selectedArrowId !== null && arrowResizeEnd) {
+      setLines(prev => prev.map(line => {
+        if (line.id !== selectedArrowId) return line;
+        if (line.points.length < 2) return line;
+        const newPoints = [...line.points];
+        if (arrowResizeEnd === 'start') {
+          newPoints[0] = { x: mouseX, y: mouseY };
+        } else {
+          newPoints[newPoints.length - 1] = { x: mouseX, y: mouseY };
+        }
+        return { ...line, points: newPoints };
+      }));
+      return;
+    }
+
     
     // Check if we've dragged enough to consider it a drag
     if (dragStartPoint && !hasDragged) {
@@ -1403,30 +1483,17 @@ const captureImage = () => {
         const selectedArrow = lines.find(line => line.id === selectedArrowId);
         if (selectedArrow) {
           const center = getArrowCenter(selectedArrow);
-          const distanceFromCenter = Math.sqrt(
-            Math.pow(mouseX - center.x, 2) + Math.pow(mouseY - center.y, 2)
-          );
-          
-          // Check if user is trying to rotate (cursor is far from center)
-          if (distanceFromCenter > 40 && interactionMode === 'move') {
-            setInteractionMode('rotate');
-            setIsRotatingArrow(true);
-            setIsDraggingArrow(false);
-          }
-          
           if (interactionMode === 'move') {
             const newCenter = { x: mouseX - dragArrowOffset.x, y: mouseY - dragArrowOffset.y };
             const oldCenter = getArrowCenter(selectedArrow);
             const deltaX = newCenter.x - oldCenter.x;
             const deltaY = newCenter.y - oldCenter.y;
-            
             // Use ultra-smooth movement with requestAnimationFrame
             pendingMovementRef.current = {
               id: selectedArrowId,
               deltaX,
               deltaY
             };
-            
             if (!isMovingRef.current) {
               isMovingRef.current = true;
             }
@@ -1524,30 +1591,17 @@ const captureImage = () => {
         const selectedArrow = lines.find(line => line.id === selectedArrowId);
         if (selectedArrow) {
           const center = getArrowCenter(selectedArrow);
-          const distanceFromCenter = Math.sqrt(
-            Math.pow(mouseX - center.x, 2) + Math.pow(mouseY - center.y, 2)
-          );
-          
-          // Check if user is trying to rotate (cursor is far from center)
-          if (distanceFromCenter > 40 && interactionMode === 'move') {
-            setInteractionMode('rotate');
-            setIsRotatingArrow(true);
-            setIsDraggingArrow(false);
-          }
-          
           if (interactionMode === 'move') {
             const newCenter = { x: mouseX - dragArrowOffset.x, y: mouseY - dragArrowOffset.y };
             const oldCenter = getArrowCenter(selectedArrow);
             const deltaX = newCenter.x - oldCenter.x;
             const deltaY = newCenter.y - oldCenter.y;
-            
             // Use ultra-smooth movement with requestAnimationFrame
             pendingMovementRef.current = {
               id: selectedArrowId,
               deltaX,
               deltaY
             };
-            
             if (!isMovingRef.current) {
               isMovingRef.current = true;
             }
@@ -1764,7 +1818,7 @@ const captureImage = () => {
       });
       setHoveredArrowId(hoveredShape ? hoveredShape.id : null);
     }
-  }, [activeMode, cropFrame, resizingCropHandle, isDraggingCrop, dragCropOffset, isDrawing, selectedArrowId, lines, isDraggingArrow, interactionMode, dragArrowOffset, currentLine, currentArrowSize, hoveredArrowId, isResizingShape, initialShapeData, resizeHandle, isMovingShape, moveOffset, hasDragged, dragStartPoint, circleColor, squareColor]);
+  }, [activeMode, cropFrame, resizingCropHandle, isDraggingCrop, dragCropOffset, isDrawing, selectedArrowId, lines, isDraggingArrow, interactionMode, dragArrowOffset, currentLine, currentArrowSize, hoveredArrowId, isResizingShape, initialShapeData, resizeHandle, isMovingShape, moveOffset, hasDragged, dragStartPoint, circleColor, squareColor, isResizingArrow, arrowResizeEnd]);
 
   const handleMouseUp = () => {
     if (activeMode === 'crop' && isDrawing && cropFrame) {
@@ -1882,9 +1936,20 @@ const captureImage = () => {
     setIsDrawing(false);
     setIsDraggingCrop(false);
     setResizingCropHandle(null);
+    // If arrow was resized, save the action and export
+    if (isResizingArrow && selectedArrowId !== null) {
+      const resized = lines.find(l => l.id === selectedArrowId);
+      if (resized) {
+        saveAction(resized);
+        const file = exportEditedFile();
+        onEditedFile?.(file);
+      }
+    }
+
     setIsDraggingArrow(false);
     setIsRotatingArrow(false);
     setIsResizingArrow(false);
+    setArrowResizeEnd(null);
     setInteractionMode(null);
     
     // Stop ultra-smooth movement
@@ -2383,6 +2448,33 @@ const drawSquare = (
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillText('↻', handleX, handleY);
+
+          // Draw arrow resize handles at endpoints (like circle/square)
+          const from = line.points[0];
+          const to = line.points[line.points.length - 1];
+          const handleSize = 5;
+
+          const drawEndpointHandle = (hx: number, hy: number) => {
+            // Outer ring
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+            ctx.beginPath();
+            ctx.arc(hx, hy, handleSize + 2, 0, 2 * Math.PI);
+            ctx.fill();
+            // Inner dot
+            ctx.fillStyle = 'rgba(0, 123, 255, 0.95)';
+            ctx.beginPath();
+            ctx.arc(hx, hy, handleSize, 0, 2 * Math.PI);
+            ctx.fill();
+            // Border
+            ctx.strokeStyle = 'rgba(0, 123, 255, 1)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.arc(hx, hy, handleSize, 0, 2 * Math.PI);
+            ctx.stroke();
+          };
+
+          drawEndpointHandle(from.x, from.y);
+          drawEndpointHandle(to.x, to.y);
         }
       } else if (line.type === 'circle' && line.center && line.width !== undefined && line.height !== undefined) {
         // Draw hover effect if this circle is hovered
@@ -2766,28 +2858,6 @@ const drawSquare = (
   ) : (
     // 👇 Fallback: image canvas
     <div className={styles.imageDisplayArea}>
-      {/* Small thickness control */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <label style={{ fontSize: 12, color: '#555' }}>Shape thickness</label>
-        <input
-          type="range"
-          min={2}
-          max={24}
-          step={1}
-          value={shapeThickness}
-          onChange={(e) => {
-            const next = Math.max(2, Math.min(24, Number(e.target.value)));
-            setShapeThickness(next);
-            if (selectedArrowId !== null) {
-              setLines(prev => prev.map(l => l.id === selectedArrowId ? { ...l, size: next } : l));
-            } else {
-              setDefaultThickness(next);
-            }
-          }}
-          style={{ width: 140 }}
-        />
-        <span style={{ fontSize: 12, color: '#333', width: 24, textAlign: 'right' }}>{shapeThickness}</span>
-      </div>
       <canvas
         ref={canvasRef}
         width={300}

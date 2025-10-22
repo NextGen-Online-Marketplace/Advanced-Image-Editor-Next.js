@@ -3934,7 +3934,7 @@ export default function InspectionReportPage() {
                                                     target="_blank" 
                                                     rel="noopener noreferrer"
                                                     style={{ 
-                                                      color: '#2563eb',
+                                                      color: '#8230c9',
                                                       fontSize: '0.8125rem',
                                                       wordBreak: 'break-all',
                                                       textDecoration: 'none'

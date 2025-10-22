@@ -12,6 +12,7 @@ interface ISectionChecklist {
   type: 'status' | 'information';
   tab: 'information' | 'limitations'; // Which tab to display this item in
   answer_choices?: string[]; // NEW: Predefined answer choices for this checklist item
+  default_checked?: boolean; // NEW
   order_index: number;
 }
 
@@ -75,6 +76,10 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
   // Drag visuals: track dragging item and current target + insert position for subtle UI
   const [dragVisual, setDragVisual] = useState<{ kind: 'status' | 'limitations' | null; draggingId: string | null; overId: string | null; position: 'before' | 'after' | null }>({ kind: null, draggingId: null, overId: null, position: null });
   
+  // Option-level drag state for reordering answer choices (template choices only)
+  const optionDragStateRef = useRef<{ checklistId: string | null; draggingChoice: string | null }>({ checklistId: null, draggingChoice: null });
+  const [optionDragVisual, setOptionDragVisual] = useState<{ checklistId: string | null; draggingChoice: string | null; overChoice: string | null; position: 'before' | 'after' | null; axis: 'horizontal' | 'vertical' | null }>({ checklistId: null, draggingChoice: null, overChoice: null, position: null, axis: null });
+  
   // Auto-scroll during drag
   const scrollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const modalScrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -90,6 +95,9 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
   // UI state: which checklist id currently has the delete options menu open
   const [deleteMenuForId, setDeleteMenuForId] = useState<string | null>(null);
 
+  // UI state: which answer choice index has the delete options menu open in edit modal
+  const [deleteAnswerMenuForIndex, setDeleteAnswerMenuForIndex] = useState<number | null>(null);
+
   // UI state: show hidden manager panels inside modal for each area
   const [showHiddenManagerStatus, setShowHiddenManagerStatus] = useState(false);
   const [showHiddenManagerLimits, setShowHiddenManagerLimits] = useState(false);
@@ -98,6 +106,8 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
   const [autoSaving, setAutoSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const textSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const commentSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Local input values for location fields (to prevent last character issue)
   const [locationInputs, setLocationInputs] = useState<Record<string, string>>({});
@@ -130,7 +140,8 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
     type: 'status' | 'information';
     tab: 'information' | 'limitations';
     answer_choices: string[];
-  }>({ text: '', comment: '', type: 'status', tab: 'information', answer_choices: [] });
+    default_checked: boolean;
+  }>({ text: '', comment: '', type: 'status', tab: 'information', answer_choices: [], default_checked: false });
   const [savingChecklist, setSavingChecklist] = useState(false);
   const [newAnswerChoice, setNewAnswerChoice] = useState('');
   const [editingAnswerIndex, setEditingAnswerIndex] = useState<number | null>(null);
@@ -504,6 +515,122 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
       return { templateUpdated };
     },
     [setActiveSection, setInspectionChecklists, setReorderIds]
+  );
+
+  // Persist reordered template options for a checklist item
+  const persistOptionOrder = useCallback(
+    async (checklistId: string, orderedChoices: string[]) => {
+      try {
+        // Optimistically update activeSection
+        setActiveSection(prev => {
+          if (!prev) return prev;
+          const updated = prev.checklists.map(cl => {
+            if (cl._id === checklistId) {
+              return { ...cl, answer_choices: orderedChoices };
+            }
+            return cl;
+          });
+          return { ...prev, checklists: updated };
+        });
+
+        // Save to template via API (only answer_choices field)
+        const res = await fetch(`/api/checklists/${checklistId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ answer_choices: orderedChoices }),
+        });
+        const json = await res.json();
+        if (!json.success) {
+          throw new Error(json.error || 'Failed to save option order');
+        }
+        // No need to refetch sections immediately; UI already updated
+      } catch (err) {
+        console.error('Failed to persist option order:', err);
+        alert('Failed to save option order. Please try again.');
+      }
+    },
+    [setActiveSection]
+  );
+
+  // --- Option drag handlers (template answer choices only) ---
+  const onOptionDragStart = (checklistId: string, choice: string, isCustom: boolean) => (
+    (e: React.DragEvent<HTMLLabelElement>) => {
+      // Only allow dragging template choices
+      if (isCustom) return;
+      // Prevent parent checklist drag handlers
+      e.stopPropagation();
+      optionDragStateRef.current = { checklistId, draggingChoice: choice };
+      setOptionDragVisual({ checklistId, draggingChoice: choice, overChoice: null, position: null, axis: null });
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setDragImage(e.currentTarget, 10, 10); } catch {}
+    }
+  );
+
+  const onOptionDragOver = (checklistId: string, targetChoice: string, isTargetCustom: boolean) => (
+    (e: React.DragEvent<HTMLLabelElement>) => {
+      const { checklistId: draggingChecklistId, draggingChoice } = optionDragStateRef.current;
+      if (!draggingChoice || draggingChecklistId !== checklistId) return;
+      // Only allow drop on template choices
+      if (isTargetCustom) return;
+      // Prevent parent checklist drag handlers
+      e.stopPropagation();
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const rect = e.currentTarget.getBoundingClientRect();
+      const mouseY = e.clientY;
+      const mouseX = e.clientX;
+      const centerY = rect.top + rect.height / 2;
+      const centerX = rect.left + rect.width / 2;
+      const distY = Math.abs(mouseY - centerY);
+      const distX = Math.abs(mouseX - centerX);
+      const axis: 'horizontal' | 'vertical' = distX >= distY ? 'horizontal' : 'vertical';
+      const position: 'before' | 'after' = axis === 'horizontal'
+        ? (mouseX < centerX ? 'before' : 'after')
+        : (mouseY < centerY ? 'before' : 'after');
+      setOptionDragVisual({ checklistId, draggingChoice, overChoice: targetChoice, position, axis });
+    }
+  );
+
+  const onOptionDrop = (checklistId: string, targetChoice: string, isTargetCustom: boolean, templateChoices: string[]) => (
+    async (e: React.DragEvent<HTMLLabelElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const { checklistId: draggingChecklistId, draggingChoice } = optionDragStateRef.current;
+      const insertPos = optionDragVisual.position || 'after';
+      if (!draggingChoice || draggingChecklistId !== checklistId) return;
+      // Only move within template choices
+      if (isTargetCustom) return;
+      if (!templateChoices || !templateChoices.length) return;
+      if (!templateChoices.includes(draggingChoice) || !templateChoices.includes(targetChoice)) return;
+      if (draggingChoice === targetChoice) return;
+
+      const list = [...templateChoices];
+      const fromIndex = list.indexOf(draggingChoice);
+      let toIndex = list.indexOf(targetChoice);
+      if (fromIndex === -1 || toIndex === -1) return;
+
+      // Remove from original
+      list.splice(fromIndex, 1);
+      // Recompute target index after removal if needed
+      toIndex = list.indexOf(targetChoice);
+      if (insertPos === 'after') toIndex += 1;
+      // Insert at new index
+      list.splice(toIndex, 0, draggingChoice);
+
+      // Persist and update UI
+      await persistOptionOrder(checklistId, list);
+
+      // Clear visuals
+      optionDragStateRef.current = { checklistId: null, draggingChoice: null };
+      setOptionDragVisual({ checklistId: null, draggingChoice: null, overChoice: null, position: null, axis: null });
+    }
+  );
+
+  const onOptionDragEnd = () => (
+    (_e: React.DragEvent<HTMLLabelElement>) => {
+      optionDragStateRef.current = { checklistId: null, draggingChoice: null };
+      setOptionDragVisual({ checklistId: null, draggingChoice: null, overChoice: null, position: null, axis: null });
+    }
   );
 
   const saveReorder = async (kind: 'status' | 'limitations', section: ISection) => {
@@ -967,9 +1094,16 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
     } else {
       // Creating new block
       setEditingBlockId(null);
+      // Pre-select any checklist items marked as default_checked in the template/merged section
+      const defaultSelectedIds = new Set(
+        mergedSection.checklists
+          .filter(cl => !!cl.default_checked)
+          .map(cl => cl._id)
+      );
+
       setFormState({
         section_id: section._id,
-        selected_checklist_ids: new Set(),
+        selected_checklist_ids: defaultSelectedIds,
         selected_answers: new Map(), // Empty for new blocks
         custom_answers: new Map(), // Empty for new blocks
         custom_text: '',
@@ -1850,6 +1984,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
         type: existingChecklist.type,
         tab: existingChecklist.tab || 'information',
         answer_choices: allChoices,
+        default_checked: !!existingChecklist.default_checked,
       });
     } else {
       setEditingChecklistId(null);
@@ -1858,7 +1993,8 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
         comment: '', 
         type, 
         tab: tab || 'information',
-        answer_choices: [] 
+        answer_choices: [],
+        default_checked: false,
       });
     }
     setNewAnswerChoice('');
@@ -1867,8 +2003,150 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
     setChecklistFormOpen(true);
   };
 
-  // Admin: Add new answer choice
-  const handleAddAnswerChoice = () => {
+  // Admin: Toggle default_checked with immediate persistence for template items
+  const handleDefaultCheckedToggle = async (checked: boolean) => {
+    // Update local form state immediately for snappy UI
+    setChecklistFormData(prev => ({ ...prev, default_checked: checked }));
+
+    // If we're editing an existing checklist, persist change
+    if (editingChecklistId) {
+      const isTemporary = editingChecklistId.startsWith('temp_');
+      if (isTemporary) {
+        // Update inspection-only (local) checklist instances
+        if (activeSection) {
+          const sectionId = activeSection._id;
+          const currentInspectionChecklists = inspectionChecklists.get(sectionId) || [];
+          const updatedInspectionChecklists = currentInspectionChecklists.map(cl =>
+            cl._id === editingChecklistId ? { ...cl, default_checked: checked } : cl
+          );
+          const newInspectionChecklistsMap = new Map(inspectionChecklists);
+          newInspectionChecklistsMap.set(sectionId, updatedInspectionChecklists);
+          setInspectionChecklists(newInspectionChecklistsMap);
+
+          // Update activeSection immediately
+          const updatedChecklists = activeSection.checklists.map(cl =>
+            cl._id === editingChecklistId ? { ...cl, default_checked: checked } : cl
+          );
+          setActiveSection({ ...activeSection, checklists: updatedChecklists });
+        }
+        return; // Nothing to save to server for temp items
+      }
+
+      // Persist to server for template items
+      try {
+        const res = await fetch(`/api/checklists/${editingChecklistId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ default_checked: checked }),
+        });
+        const json = await res.json();
+        if (!json.success) throw new Error(json.error || 'Failed to update');
+
+        // Update local activeSection copy so the change is visible when reopening
+        if (activeSection) {
+          const updatedChecklists = activeSection.checklists.map(cl =>
+            cl._id === editingChecklistId ? { ...cl, default_checked: checked } : cl
+          );
+          setActiveSection({ ...activeSection, checklists: updatedChecklists });
+        }
+      } catch (err) {
+        console.error('Auto-save default_checked failed:', err);
+        alert('Failed to auto-save "Default to checked?". Please try again.');
+      }
+    }
+  };
+
+  // Admin: Auto-save checklist text changes
+  const handleChecklistTextChange = async (newText: string) => {
+    // Update local form state immediately
+    setChecklistFormData(prev => ({ ...prev, text: newText }));
+
+    // If we're editing an existing checklist, auto-save after a delay
+    if (editingChecklistId && newText.trim()) {
+      // Debounce the save to avoid too many API calls
+      if (textSaveTimeoutRef.current) {
+        clearTimeout(textSaveTimeoutRef.current);
+      }
+      textSaveTimeoutRef.current = setTimeout(async () => {
+        await autoSaveChecklistField('text', newText.trim());
+      }, 1000); // Save 1 second after user stops typing
+    }
+  };
+
+  // Admin: Auto-save checklist comment changes
+  const handleChecklistCommentChange = async (newComment: string) => {
+    // Update local form state immediately
+    setChecklistFormData(prev => ({ ...prev, comment: newComment }));
+
+    // If we're editing an existing checklist, auto-save after a delay
+    if (editingChecklistId) {
+      // Debounce the save to avoid too many API calls
+      if (commentSaveTimeoutRef.current) {
+        clearTimeout(commentSaveTimeoutRef.current);
+      }
+      commentSaveTimeoutRef.current = setTimeout(async () => {
+        await autoSaveChecklistField('comment', newComment.trim());
+      }, 1000); // Save 1 second after user stops typing
+    }
+  };
+
+  // Admin: Generic auto-save function for checklist fields
+  const autoSaveChecklistField = async (field: string, value: any) => {
+    if (!editingChecklistId) return;
+
+    const isTemporary = editingChecklistId.startsWith('temp_');
+    
+    if (isTemporary) {
+      // Update inspection-only (local) checklist instances
+      if (activeSection) {
+        const sectionId = activeSection._id;
+        const currentInspectionChecklists = inspectionChecklists.get(sectionId) || [];
+        const updatedInspectionChecklists = currentInspectionChecklists.map(cl =>
+          cl._id === editingChecklistId ? { ...cl, [field]: value } : cl
+        );
+        const newInspectionChecklistsMap = new Map(inspectionChecklists);
+        newInspectionChecklistsMap.set(sectionId, updatedInspectionChecklists);
+        setInspectionChecklists(newInspectionChecklistsMap);
+
+        // Update activeSection immediately
+        const updatedChecklists = activeSection.checklists.map(cl =>
+          cl._id === editingChecklistId ? { ...cl, [field]: value } : cl
+        );
+        setActiveSection({ ...activeSection, checklists: updatedChecklists });
+      }
+      console.log(`✅ Auto-saved ${field} for inspection-only checklist`);
+      return;
+    }
+
+    // Persist to server for template items
+    try {
+      const body: any = {};
+      body[field] = value;
+      
+      const res = await fetch(`/api/checklists/${editingChecklistId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || 'Failed to update');
+
+      // Update local activeSection copy so the change is visible when reopening
+      if (activeSection) {
+        const updatedChecklists = activeSection.checklists.map(cl =>
+          cl._id === editingChecklistId ? { ...cl, [field]: value } : cl
+        );
+        setActiveSection({ ...activeSection, checklists: updatedChecklists });
+      }
+      console.log(`✅ Auto-saved ${field} to server`);
+    } catch (err) {
+      console.error(`Auto-save ${field} failed:`, err);
+      // Don't show alert for auto-save failures to avoid interrupting user flow
+    }
+  };
+
+  // Admin: Add new answer choice with auto-save
+  const handleAddAnswerChoice = async () => {
     const trimmed = newAnswerChoice.trim();
     if (!trimmed) return;
     
@@ -1877,11 +2155,17 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
       return;
     }
 
+    const updatedChoices = [...checklistFormData.answer_choices, trimmed];
     setChecklistFormData({
       ...checklistFormData,
-      answer_choices: [...checklistFormData.answer_choices, trimmed]
+      answer_choices: updatedChoices
     });
     setNewAnswerChoice('');
+
+    // Auto-save the new answer choices if editing existing checklist
+    if (editingChecklistId) {
+      await autoSaveChecklistField('answer_choices', updatedChoices);
+    }
   };
 
   // Admin: Start editing an answer choice
@@ -1890,8 +2174,8 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
     setEditingAnswerValue(checklistFormData.answer_choices[index]);
   };
 
-  // Admin: Save edited answer choice
-  const saveEditedAnswer = () => {
+  // Admin: Save edited answer choice with auto-save
+  const saveEditedAnswer = async () => {
     if (editingAnswerIndex === null) return;
     
     const trimmed = editingAnswerValue.trim();
@@ -1906,15 +2190,48 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
     });
     setEditingAnswerIndex(null);
     setEditingAnswerValue('');
+
+    // Auto-save the updated answer choices if editing existing checklist
+    if (editingChecklistId) {
+      await autoSaveChecklistField('answer_choices', updatedChoices);
+    }
   };
 
-  // Admin: Delete answer choice
+  // Admin: Delete answer choice - show delete options menu
   const deleteAnswerChoice = (index: number) => {
+    setDeleteAnswerMenuForIndex(index);
+  };
+
+  // Admin: Hide answer choice for this inspection only
+  const hideAnswerChoiceForInspection = async (index: number) => {
+    // For now, just remove it locally since this is in the edit modal
+    // In a full implementation, you might want to track hidden choices separately
     const updatedChoices = checklistFormData.answer_choices.filter((_, i) => i !== index);
     setChecklistFormData({
       ...checklistFormData,
       answer_choices: updatedChoices
     });
+    setDeleteAnswerMenuForIndex(null);
+
+    // Auto-save the updated answer choices if editing existing checklist
+    if (editingChecklistId) {
+      await autoSaveChecklistField('answer_choices', updatedChoices);
+    }
+  };
+
+  // Admin: Delete answer choice from template permanently
+  const deleteAnswerChoiceFromTemplate = async (index: number) => {
+    const updatedChoices = checklistFormData.answer_choices.filter((_, i) => i !== index);
+    setChecklistFormData({
+      ...checklistFormData,
+      answer_choices: updatedChoices
+    });
+    setDeleteAnswerMenuForIndex(null);
+
+    // Auto-save the updated answer choices if editing existing checklist
+    if (editingChecklistId) {
+      await autoSaveChecklistField('answer_choices', updatedChoices);
+    }
   };
 
   // Admin: Save checklist (create or update)
@@ -1943,7 +2260,8 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                 comment: checklistFormData.comment,
                 type: checklistFormData.type,
                 tab: checklistFormData.tab,
-                answer_choices: checklistFormData.answer_choices
+                answer_choices: checklistFormData.answer_choices,
+                default_checked: checklistFormData.default_checked,
               };
             }
             return cl;
@@ -1962,7 +2280,8 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                 comment: checklistFormData.comment,
                 type: checklistFormData.type,
                 tab: checklistFormData.tab,
-                answer_choices: checklistFormData.answer_choices
+                answer_choices: checklistFormData.answer_choices,
+                default_checked: checklistFormData.default_checked,
               };
             }
             return cl;
@@ -2005,6 +2324,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
               type: checklistFormData.type,
               tab: checklistFormData.tab,
               answer_choices: templateChoices,
+              default_checked: checklistFormData.default_checked,
             }),
           });
           const json = await res.json();
@@ -2073,6 +2393,20 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
             ...activeSection,
             checklists: [...activeSection.checklists, newChecklist]
           });
+          // Ensure it appears in the currently displayed order list without reopening modal
+          setReorderIds(prev => {
+            const isStatus = newChecklist.type === 'status';
+            const isLimitation = newChecklist.tab === 'limitations';
+            if (isStatus) {
+              const current = prev.status && prev.status.length ? [...prev.status] : activeSection.checklists.filter(c => c.type === 'status').sort((a,b)=>a.order_index-b.order_index).map(c=>c._id);
+              return { ...prev, status: [...current, newChecklist._id] };
+            }
+            if (isLimitation) {
+              const current = prev.limitations && prev.limitations.length ? [...prev.limitations] : activeSection.checklists.filter(c => c.tab === 'limitations').sort((a,b)=>a.order_index-b.order_index).map(c=>c._id);
+              return { ...prev, limitations: [...current, newChecklist._id] };
+            }
+            return prev;
+          });
           
           console.log('✅ Created template checklist:', newChecklist._id);
         } else {
@@ -2086,6 +2420,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
             type: checklistFormData.type,
             tab: checklistFormData.tab,
             answer_choices: checklistFormData.answer_choices,
+            default_checked: checklistFormData.default_checked,
             order_index: activeSection.checklists.length
           };
           
@@ -2141,10 +2476,20 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
 
       setChecklistFormOpen(false);
       setEditingChecklistId(null);
-      setChecklistFormData({ text: '', comment: '', type: 'status', tab: 'information', answer_choices: [] });
+      setChecklistFormData({ text: '', comment: '', type: 'status', tab: 'information', answer_choices: [], default_checked: false });
       setNewAnswerChoice('');
       setEditingAnswerIndex(null);
       setEditingAnswerValue('');
+      setDeleteAnswerMenuForIndex(null);
+      // Clear any pending auto-save timers
+      if (textSaveTimeoutRef.current) {
+        clearTimeout(textSaveTimeoutRef.current);
+        textSaveTimeoutRef.current = null;
+      }
+      if (commentSaveTimeoutRef.current) {
+        clearTimeout(commentSaveTimeoutRef.current);
+        commentSaveTimeoutRef.current = null;
+      }
     } catch (e: any) {
       alert(e.message);
     } finally {
@@ -2282,9 +2627,9 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
               </h3>
               <button
                 onClick={() => openAddModal(section)}
-                style={{ padding: '0.375rem 0.75rem', fontSize: '0.875rem', borderRadius: '0.25rem', backgroundColor: '#2563eb', color: 'white', border: 'none', cursor: 'pointer' }}
-                onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#1d4ed8'}
-                onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
+                style={{ padding: '0.375rem 0.75rem', fontSize: '0.875rem', borderRadius: '0.25rem', backgroundColor: '#8230c9', color: 'white', border: 'none', cursor: 'pointer' }}
+                onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#6f29ac'}
+                onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#8230c9'}
               >
                 Add Information Block
               </button>
@@ -2304,7 +2649,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                           padding: '0.25rem 0.5rem',
                           fontSize: '0.75rem',
                           borderRadius: '0.25rem',
-                          backgroundColor: '#3b82f6',
+                          backgroundColor: '#a466da',
                           color: 'white',
                           border: 'none',
                           cursor: 'pointer',
@@ -2312,8 +2657,8 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                           alignItems: 'center',
                           gap: '0.25rem'
                         }}
-                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
-                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#3b82f6'}
+                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#934ad3'}
+                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#a466da'}
                       >
                         ✏️ Edit
                       </button>
@@ -2347,8 +2692,8 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                               fontSize: '0.7rem',
                               padding: '0.1rem 0.4rem',
                               borderRadius: '0.25rem',
-                              backgroundColor: cl.type === 'status' ? '#dbeafe' : '#d1fae5',
-                              color: cl.type === 'status' ? '#1e40af' : '#065f46',
+                              backgroundColor: cl.type === 'status' ? '#e8dff5' : '#d1fae5',
+                              color: cl.type === 'status' ? '#5d228f' : '#065f46',
                               fontWeight: 600,
                               textTransform: 'uppercase' as const
                             }}>
@@ -2422,7 +2767,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
               <h4 style={{ fontWeight: 600, fontSize: '1.125rem' }}>
                 {editingBlockId ? 'Edit' : 'Add'} Information Block - {activeSection.name}
               </h4>
-              <button onClick={() => { setModalOpen(false); setActiveSection(null); setEditingBlockId(null); setDeleteMenuForId(null); }} style={{ color: '#6b7280', cursor: 'pointer', border: 'none', background: 'none', fontSize: '1.25rem' }}>✕</button>
+              <button onClick={() => { setModalOpen(false); setActiveSection(null); setEditingBlockId(null); setDeleteMenuForId(null); setDeleteAnswerMenuForIndex(null); }} style={{ color: '#6b7280', cursor: 'pointer', border: 'none', background: 'none', fontSize: '1.25rem' }}>✕</button>
             </div>
             <div
               ref={modalScrollContainerRef}
@@ -2445,7 +2790,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                   
                   return (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                      <h5 style={{ fontWeight: 600, fontSize: '1rem', color: '#1f2937', borderBottom: '2px solid #3b82f6', paddingBottom: '0.5rem', flex: 1, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <h5 style={{ fontWeight: 600, fontSize: '1rem', color: '#1f2937', borderBottom: '2px solid #a466da', paddingBottom: '0.5rem', flex: 1, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         {hasStatusSelected && <span style={{ fontSize: '1.125rem', color: '#22c55e' }}>✅</span>}
                         Status Fields
                       </h5>
@@ -2492,7 +2837,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                             padding: '0.5rem',
                             borderRadius: '0.25rem',
                             backgroundColor: dragVisual.draggingId === cl._id ? '#eef2ff' : (isSelected ? '#eff6ff' : 'transparent'),
-                            border: `1px solid ${dragVisual.draggingId === cl._id ? '#3b82f6' : '#e5e7eb'}`,
+                            border: `1px solid ${dragVisual.draggingId === cl._id ? '#a466da' : '#e5e7eb'}`,
                             boxShadow: dragVisual.draggingId === cl._id ? '0 2px 8px rgba(59,130,246,0.20)' : 'none',
                             cursor: dragVisual.draggingId === cl._id ? 'grabbing' : 'grab',
                             transition: 'box-shadow 120ms ease, background-color 120ms ease, border-color 120ms ease',
@@ -2507,7 +2852,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                               left: '0', 
                               right: '0', 
                               height: '3px', 
-                              backgroundColor: '#3b82f6',
+                              backgroundColor: '#a466da',
                               borderRadius: '2px',
                               boxShadow: '0 0 4px rgba(59,130,246,0.5)',
                               zIndex: 10,
@@ -2523,7 +2868,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                               left: '0', 
                               right: '0', 
                               height: '3px', 
-                              backgroundColor: '#3b82f6',
+                              backgroundColor: '#a466da',
                               borderRadius: '2px',
                               boxShadow: '0 0 4px rgba(59,130,246,0.5)',
                               zIndex: 10,
@@ -2648,6 +2993,8 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                             const isAnswerSelected = selectedAnswers.has(choice);
                                             const isCustom = isCustomAnswer(cl._id, choice, cl.answer_choices || []);
                                             
+                                            const isTemplateChoice = Array.isArray(cl.answer_choices) && cl.answer_choices.includes(choice);
+                                            const templateChoices = cl.answer_choices || [];
                                             return (
                                               <label 
                                                 key={idx}
@@ -2658,7 +3005,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                                   padding: '0.4rem 0.5rem',
                                                   borderRadius: '0.25rem',
                                                   backgroundColor: isAnswerSelected ? '#dbeafe' : '#f9fafb',
-                                                  border: `1px solid ${isAnswerSelected ? '#3b82f6' : '#e5e7eb'}`,
+                                                  border: `1px solid ${isAnswerSelected ? '#a466da' : '#e5e7eb'}`,
                                                   cursor: 'pointer',
                                                   fontSize: '0.75rem',
                                                   transition: 'all 0.15s ease',
@@ -2676,7 +3023,25 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                                     e.currentTarget.style.borderColor = '#e5e7eb';
                                                   }
                                                 }}
+                                                draggable={!isCustom}
+                                                onDragStart={onOptionDragStart(cl._id, choice, isCustom)}
+                                                onDragOver={onOptionDragOver(cl._id, choice, isCustom)}
+                                                onDrop={onOptionDrop(cl._id, choice, isCustom, templateChoices)}
+                                                onDragEnd={onOptionDragEnd()}
                                               >
+                                                {/* Insertion line indicators for options */}
+                                                {optionDragVisual.checklistId === cl._id && optionDragVisual.draggingChoice !== choice && optionDragVisual.overChoice === choice && !isCustom && optionDragVisual.axis === 'vertical' && optionDragVisual.position === 'before' && (
+                                                  <div style={{ position: 'absolute', top: '-2px', left: 0, right: 0, height: '3px', backgroundColor: '#8230c9', borderRadius: '2px', boxShadow: '0 0 4px rgba(130,48,201,0.5)', pointerEvents: 'none' }} />
+                                                )}
+                                                {optionDragVisual.checklistId === cl._id && optionDragVisual.draggingChoice !== choice && optionDragVisual.overChoice === choice && !isCustom && optionDragVisual.axis === 'vertical' && optionDragVisual.position === 'after' && (
+                                                  <div style={{ position: 'absolute', bottom: '-2px', left: 0, right: 0, height: '3px', backgroundColor: '#8230c9', borderRadius: '2px', boxShadow: '0 0 4px rgba(130,48,201,0.5)', pointerEvents: 'none' }} />
+                                                )}
+                                                {optionDragVisual.checklistId === cl._id && optionDragVisual.draggingChoice !== choice && optionDragVisual.overChoice === choice && !isCustom && optionDragVisual.axis === 'horizontal' && optionDragVisual.position === 'before' && (
+                                                  <div style={{ position: 'absolute', left: '-2px', top: 0, bottom: 0, width: '3px', backgroundColor: '#8230c9', borderRadius: '2px', boxShadow: '0 0 4px rgba(130,48,201,0.5)', pointerEvents: 'none' }} />
+                                                )}
+                                                {optionDragVisual.checklistId === cl._id && optionDragVisual.draggingChoice !== choice && optionDragVisual.overChoice === choice && !isCustom && optionDragVisual.axis === 'horizontal' && optionDragVisual.position === 'after' && (
+                                                  <div style={{ position: 'absolute', right: '-2px', top: 0, bottom: 0, width: '3px', backgroundColor: '#8230c9', borderRadius: '2px', boxShadow: '0 0 4px rgba(130,48,201,0.5)', pointerEvents: 'none' }} />
+                                                )}
                                                 <input
                                                   type="checkbox"
                                                   checked={isAnswerSelected}
@@ -2698,6 +3063,9 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                                   }}>
                                                     Custom
                                                   </span>
+                                                )}
+                                                {!isCustom && (
+                                                  <span title="Drag to reorder" style={{ fontSize: '0.9rem', color: '#9ca3af', cursor: 'grab' }}>⋮⋮</span>
                                                 )}
                                               </label>
                                             );
@@ -2741,7 +3109,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                             padding: '0.5rem 0.75rem',
                                             fontSize: '0.7rem',
                                             borderRadius: '0.25rem',
-                                            backgroundColor: '#3b82f6',
+                                            backgroundColor: '#a466da',
                                             color: 'white',
                                             border: 'none',
                                             cursor: 'pointer',
@@ -2884,7 +3252,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                     
                                     return (
                                     <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '180px' }}>
-                                      <div style={{ position: 'relative', width: '180px', height: '180px', borderRadius: '0.375rem', overflow: 'hidden', border: '2px solid #3b82f6' }}>
+                                      <div style={{ position: 'relative', width: '180px', height: '180px', borderRadius: '0.375rem', overflow: 'hidden', border: '2px solid #a466da' }}>
                                         {isVideo ? (
                                           <video
                                             src={previewUrl}
@@ -2966,15 +3334,15 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                           padding: '0.5rem 0.75rem',
                                           fontSize: '0.75rem',
                                           borderRadius: '0.25rem',
-                                          backgroundColor: '#3b82f6',
+                                          backgroundColor: '#a466da',
                                           color: 'white',
                                           border: 'none',
                                           cursor: 'pointer',
                                           width: '180px',
                                           fontWeight: 600
                                         }}
-                                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
-                                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#3b82f6'}
+                                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#934ad3'}
+                                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#a466da'}
                                         title="Annotate image with arrows, circles, and highlights"
                                       >
                                         🖊️ Annotate
@@ -3228,6 +3596,8 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                         const selectedAnswers = getSelectedAnswers(cl._id);
                                         const isAnswerSelected = selectedAnswers.has(choice);
                                         const isCustom = isCustomAnswer(cl._id, choice, cl.answer_choices || []);
+                                        const isTemplateChoice = Array.isArray(cl.answer_choices) && cl.answer_choices.includes(choice);
+                                        const templateChoices = cl.answer_choices || [];
                                         
                                         return (
                                           <label 
@@ -3257,7 +3627,25 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                                 e.currentTarget.style.borderColor = '#e5e7eb';
                                               }
                                             }}
+                                            draggable={!isCustom}
+                                            onDragStart={onOptionDragStart(cl._id, choice, isCustom)}
+                                            onDragOver={onOptionDragOver(cl._id, choice, isCustom)}
+                                            onDrop={onOptionDrop(cl._id, choice, isCustom, templateChoices)}
+                                            onDragEnd={onOptionDragEnd()}
                                           >
+                                            {/* Insertion line indicators for options */}
+                                            {optionDragVisual.checklistId === cl._id && optionDragVisual.draggingChoice !== choice && optionDragVisual.overChoice === choice && !isCustom && optionDragVisual.axis === 'vertical' && optionDragVisual.position === 'before' && (
+                                              <div style={{ position: 'absolute', top: '-2px', left: 0, right: 0, height: '3px', backgroundColor: '#10b981', borderRadius: '2px', boxShadow: '0 0 4px rgba(16,185,129,0.5)', pointerEvents: 'none' }} />
+                                            )}
+                                            {optionDragVisual.checklistId === cl._id && optionDragVisual.draggingChoice !== choice && optionDragVisual.overChoice === choice && !isCustom && optionDragVisual.axis === 'vertical' && optionDragVisual.position === 'after' && (
+                                              <div style={{ position: 'absolute', bottom: '-2px', left: 0, right: 0, height: '3px', backgroundColor: '#10b981', borderRadius: '2px', boxShadow: '0 0 4px rgba(16,185,129,0.5)', pointerEvents: 'none' }} />
+                                            )}
+                                            {optionDragVisual.checklistId === cl._id && optionDragVisual.draggingChoice !== choice && optionDragVisual.overChoice === choice && !isCustom && optionDragVisual.axis === 'horizontal' && optionDragVisual.position === 'before' && (
+                                              <div style={{ position: 'absolute', left: '-2px', top: 0, bottom: 0, width: '3px', backgroundColor: '#10b981', borderRadius: '2px', boxShadow: '0 0 4px rgba(16,185,129,0.5)', pointerEvents: 'none' }} />
+                                            )}
+                                            {optionDragVisual.checklistId === cl._id && optionDragVisual.draggingChoice !== choice && optionDragVisual.overChoice === choice && !isCustom && optionDragVisual.axis === 'horizontal' && optionDragVisual.position === 'after' && (
+                                              <div style={{ position: 'absolute', right: '-2px', top: 0, bottom: 0, width: '3px', backgroundColor: '#10b981', borderRadius: '2px', boxShadow: '0 0 4px rgba(16,185,129,0.5)', pointerEvents: 'none' }} />
+                                            )}
                                             <input
                                               type="checkbox"
                                               checked={isAnswerSelected}
@@ -3279,6 +3667,9 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                               }}>
                                                 Custom
                                               </span>
+                                            )}
+                                            {!isCustom && (
+                                              <span title="Drag to reorder" style={{ fontSize: '0.9rem', color: '#9ca3af', cursor: 'grab' }}>⋮⋮</span>
                                             )}
                                           </label>
                                         );
@@ -3538,15 +3929,15 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                           padding: '0.5rem 0.75rem',
                                           fontSize: '0.75rem',
                                           borderRadius: '0.25rem',
-                                          backgroundColor: '#3b82f6',
+                                          backgroundColor: '#a466da',
                                           color: 'white',
                                           border: 'none',
                                           cursor: 'pointer',
                                           width: '180px',
                                           fontWeight: 600
                                         }}
-                                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
-                                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#3b82f6'}
+                                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#934ad3'}
+                                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#a466da'}
                                         title="Annotate image with arrows, circles, and highlights"
                                       >
                                         🖊️ Annotate
@@ -3689,10 +4080,20 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                 onClick={() => {
                   setChecklistFormOpen(false);
                   setEditingChecklistId(null);
-                  setChecklistFormData({ text: '', comment: '', type: 'status', tab: 'information', answer_choices: [] });
+                  setChecklistFormData({ text: '', comment: '', type: 'status', tab: 'information', answer_choices: [], default_checked: false });
                   setNewAnswerChoice('');
                   setEditingAnswerIndex(null);
                   setEditingAnswerValue('');
+                  setDeleteAnswerMenuForIndex(null);
+                  // Clear any pending auto-save timers
+                  if (textSaveTimeoutRef.current) {
+                    clearTimeout(textSaveTimeoutRef.current);
+                    textSaveTimeoutRef.current = null;
+                  }
+                  if (commentSaveTimeoutRef.current) {
+                    clearTimeout(commentSaveTimeoutRef.current);
+                    commentSaveTimeoutRef.current = null;
+                  }
                 }}
                 style={{ color: '#6b7280', cursor: 'pointer', border: 'none', background: 'none', fontSize: '1.25rem' }}
               >✕</button>
@@ -3709,10 +4110,26 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                   fontSize: '0.875rem',
                   fontWeight: 600,
                   textTransform: 'uppercase',
-                  backgroundColor: checklistFormData.type === 'status' ? '#dbeafe' : '#d1fae5',
-                  color: checklistFormData.type === 'status' ? '#1e40af' : '#065f46'
+                  backgroundColor: checklistFormData.type === 'status' ? '#e8dff5' : '#d1fae5',
+                  color: checklistFormData.type === 'status' ? '#5d228f' : '#065f46'
                 }}>
                   {checklistFormData.type}
+                </div>
+              </div>
+
+              {/* Default to checked? */}
+              <div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', fontWeight: 600, color: '#374151' }}>
+                  <input
+                    type="checkbox"
+                    checked={!!checklistFormData.default_checked}
+                    onChange={(e) => handleDefaultCheckedToggle(e.target.checked)}
+                    style={{ width: '1rem', height: '1rem' }}
+                  />
+                  Default to checked?
+                </label>
+                <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '0.25rem' }}>
+                  When enabled and saved to the template, new inspections will start with this item pre-selected.
                 </div>
               </div>
 
@@ -3724,7 +4141,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                 <input
                   type="text"
                   value={checklistFormData.text}
-                  onChange={(e) => setChecklistFormData({ ...checklistFormData, text: e.target.value })}
+                  onChange={(e) => handleChecklistTextChange(e.target.value)}
                   placeholder="Enter checklist name..."
                   style={{
                     width: '100%',
@@ -3734,7 +4151,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                     fontSize: '0.875rem',
                     outline: 'none'
                   }}
-                  onFocus={(e) => e.currentTarget.style.borderColor = '#3b82f6'}
+                  onFocus={(e) => e.currentTarget.style.borderColor = '#a466da'}
                   onBlur={(e) => e.currentTarget.style.borderColor = '#d1d5db'}
                 />
               </div>
@@ -3746,7 +4163,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                 </label>
                 <textarea
                   value={checklistFormData.comment}
-                  onChange={(e) => setChecklistFormData({ ...checklistFormData, comment: e.target.value })}
+                  onChange={(e) => handleChecklistCommentChange(e.target.value)}
                   placeholder="Enter optional comment or description..."
                   style={{
                     width: '100%',
@@ -3758,7 +4175,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                     outline: 'none',
                     resize: 'vertical'
                   }}
-                  onFocus={(e) => e.currentTarget.style.borderColor = '#3b82f6'}
+                  onFocus={(e) => e.currentTarget.style.borderColor = '#a466da'}
                   onBlur={(e) => e.currentTarget.style.borderColor = '#d1d5db'}
                 />
               </div>
@@ -3778,8 +4195,6 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                     display: 'flex', 
                     flexDirection: 'column', 
                     gap: '0.5rem',
-                    maxHeight: '200px',
-                    overflowY: 'auto',
                     border: '1px solid #e5e7eb',
                     borderRadius: '0.375rem',
                     padding: '0.75rem'
@@ -3820,7 +4235,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                               autoFocus
                               style={{
                                 flex: 1,
-                                border: '1px solid #3b82f6',
+                                border: '1px solid #a466da',
                                 borderRadius: '0.25rem',
                                 padding: '0.25rem 0.5rem',
                                 fontSize: '0.875rem',
@@ -3893,21 +4308,61 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                             >
                               ✏️
                             </button>
-                            <button
-                              onClick={() => deleteAnswerChoice(index)}
-                              style={{
-                                padding: '0.25rem 0.5rem',
-                                fontSize: '0.75rem',
-                                borderRadius: '0.25rem',
-                                backgroundColor: '#ef4444',
-                                color: 'white',
-                                border: 'none',
-                                cursor: 'pointer'
-                              }}
-                              title="Delete"
-                            >
-                              🗑️
-                            </button>
+                            <div style={{ position: 'relative' }}>
+                              <button
+                                onClick={() => deleteAnswerChoice(index)}
+                                style={{
+                                  padding: '0.25rem 0.5rem',
+                                  fontSize: '0.75rem',
+                                  borderRadius: '0.25rem',
+                                  backgroundColor: '#ef4444',
+                                  color: 'white',
+                                  border: 'none',
+                                  cursor: 'pointer'
+                                }}
+                                title="Delete"
+                              >
+                                🗑️
+                              </button>
+                              {/* Delete options menu for answer choices */}
+                              {deleteAnswerMenuForIndex === index && (
+                                <div style={{
+                                  position: 'absolute',
+                                  top: '100%',
+                                  right: 0,
+                                  backgroundColor: 'white',
+                                  border: '1px solid #e5e7eb',
+                                  borderRadius: '0.375rem',
+                                  boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                                  padding: '0.5rem',
+                                  zIndex: 10,
+                                  width: '240px'
+                                }}>
+                                  <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#111827', marginBottom: '0.25rem' }}>Delete Options</div>
+                                  <div style={{ fontSize: '0.75rem', color: '#374151', marginBottom: '0.5rem' }}>Choose how to remove this item:</div>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                    <button
+                                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); hideAnswerChoiceForInspection(index); }}
+                                      style={{ padding: '0.35rem 0.5rem', fontSize: '0.75rem', borderRadius: '0.25rem', backgroundColor: '#f59e0b', color: 'white', border: 'none', cursor: 'pointer' }}
+                                    >
+                                      Hide in this inspection
+                                    </button>
+                                    <button
+                                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteAnswerChoiceFromTemplate(index); }}
+                                      style={{ padding: '0.35rem 0.5rem', fontSize: '0.75rem', borderRadius: '0.25rem', backgroundColor: '#ef4444', color: 'white', border: 'none', cursor: 'pointer' }}
+                                    >
+                                      Delete from template (all)
+                                    </button>
+                                    <button
+                                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteAnswerMenuForIndex(null); }}
+                                      style={{ padding: '0.35rem 0.5rem', fontSize: '0.75rem', borderRadius: '0.25rem', backgroundColor: '#6b7280', color: 'white', border: 'none', cursor: 'pointer' }}
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
                           </>
                         )}
                       </div>
@@ -3953,10 +4408,20 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                 onClick={() => {
                   setChecklistFormOpen(false);
                   setEditingChecklistId(null);
-                  setChecklistFormData({ text: '', comment: '', type: 'status', tab: 'information', answer_choices: [] });
+                  setChecklistFormData({ text: '', comment: '', type: 'status', tab: 'information', answer_choices: [], default_checked: false });
                   setNewAnswerChoice('');
                   setEditingAnswerIndex(null);
                   setEditingAnswerValue('');
+                  setDeleteAnswerMenuForIndex(null);
+                  // Clear any pending auto-save timers
+                  if (textSaveTimeoutRef.current) {
+                    clearTimeout(textSaveTimeoutRef.current);
+                    textSaveTimeoutRef.current = null;
+                  }
+                  if (commentSaveTimeoutRef.current) {
+                    clearTimeout(commentSaveTimeoutRef.current);
+                    commentSaveTimeoutRef.current = null;
+                  }
                 }}
                 style={{
                   padding: '0.5rem 1rem',
@@ -3983,7 +4448,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                       padding: '0.5rem 1rem',
                       fontSize: '0.875rem',
                       borderRadius: '0.375rem',
-                      backgroundColor: '#3b82f6',
+                      backgroundColor: '#a466da',
                       color: 'white',
                       border: 'none',
                       cursor: 'pointer',
@@ -3992,8 +4457,8 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                       whiteSpace: 'nowrap'
                     }}
                     disabled={savingChecklist}
-                    onMouseOver={(e) => !savingChecklist && (e.currentTarget.style.backgroundColor = '#2563eb')}
-                    onMouseOut={(e) => !savingChecklist && (e.currentTarget.style.backgroundColor = '#3b82f6')}
+                    onMouseOver={(e) => !savingChecklist && (e.currentTarget.style.backgroundColor = '#934ad3')}
+                    onMouseOut={(e) => !savingChecklist && (e.currentTarget.style.backgroundColor = '#a466da')}
                     title="Add this checklist item only for this inspection"
                   >
                     {savingChecklist ? 'Adding...' : 'Add to This Inspection'}
@@ -4029,7 +4494,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                     padding: '0.5rem 1rem',
                     fontSize: '0.875rem',
                     borderRadius: '0.375rem',
-                    backgroundColor: '#3b82f6',
+                    backgroundColor: '#8230c9',
                     color: 'white',
                     border: 'none',
                     cursor: 'pointer',
@@ -4037,8 +4502,8 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                     fontWeight: 500
                   }}
                   disabled={savingChecklist}
-                  onMouseOver={(e) => !savingChecklist && (e.currentTarget.style.backgroundColor = '#2563eb')}
-                  onMouseOut={(e) => !savingChecklist && (e.currentTarget.style.backgroundColor = '#3b82f6')}
+                  onMouseOver={(e) => !savingChecklist && (e.currentTarget.style.backgroundColor = '#6f29ac')}
+                  onMouseOut={(e) => !savingChecklist && (e.currentTarget.style.backgroundColor = '#8230c9')}
                 >
                   {savingChecklist ? 'Updating...' : 'Update'}
                 </button>

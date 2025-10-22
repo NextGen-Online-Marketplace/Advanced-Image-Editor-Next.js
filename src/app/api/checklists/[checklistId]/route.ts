@@ -21,8 +21,8 @@ export async function PUT(
       return NextResponse.json({ success: false, error: 'Invalid checklistId' }, { status: 400 });
     }
 
-    const body = await req.json();
-    const { text, comment, type, tab, answer_choices } = body || {};
+  const body = await req.json();
+  const { text, comment, type, tab, answer_choices, default_checked } = body || {};
 
     const updateData: any = {};
     const unsetData: any = {};
@@ -52,6 +52,9 @@ export async function PUT(
           unsetData.answer_choices = '';
         }
       }
+    }
+    if (default_checked !== undefined) {
+      updateData.default_checked = Boolean(default_checked);
     }
 
     // Build the update object with both $set and $unset operations

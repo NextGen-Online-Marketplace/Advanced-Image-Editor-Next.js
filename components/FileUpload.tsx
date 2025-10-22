@@ -87,7 +87,7 @@ const FileUpload: React.FC<FileUploadProps> = ({
             transition: 'background-color 0.2s',
             whiteSpace: 'nowrap'
           }}
-          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#2563eb')}
+          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#8230c9')}
           onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#3b82f6')}
         >
           📷 Upload Image

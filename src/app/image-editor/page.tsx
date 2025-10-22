@@ -657,7 +657,7 @@ export default function ImageEditorPage() {
                 width: "48px",
                 height: "48px",
                 border: "5px solid #e5e7eb",
-                borderTop: "5px solid #2563eb",
+                borderTop: "5px solid #8230c9",
                 borderRadius: "50%",
                 animation: "spin 0.8s linear infinite",
               }}
@@ -737,7 +737,7 @@ export default function ImageEditorPage() {
             onClick={handleSubmit}
             disabled={isSubmitting}
             style={{
-              backgroundColor: '#10b981',
+              backgroundColor: '#059669',
               color: 'white',
               padding: '8px 20px',
               fontWeight: '600',
