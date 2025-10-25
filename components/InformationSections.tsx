@@ -56,6 +56,14 @@ interface InformationSectionsProps {
 
 const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId }) => {
   const router = useRouter();
+  // Mobile detection for responsive tweaks in the inline-styled layout
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const check = () => setIsMobile(typeof window !== 'undefined' && window.innerWidth <= 768);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
   const [sections, setSections] = useState<ISection[]>([]);
   const [blocks, setBlocks] = useState<IInformationBlock[]>([]);
   const [loadingSections, setLoadingSections] = useState(false);
@@ -799,6 +807,116 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
     
     // Merge with existing checklists
     return [...existingIds, ...selectedInspectionChecklists];
+  };
+
+  // Quick toggle for a selected checklist inside an existing block (outside modal)
+  const toggleChecklistInBlock = async (block: IInformationBlock, cl: any) => {
+    try {
+      const sectionId = typeof block.section_id === 'string' ? block.section_id : block.section_id._id;
+      const clId: string = typeof cl === 'string' ? cl : cl._id;
+
+      // Find the section to determine if this is a template item or inspection-only
+      const section = sections.find(s => s._id === sectionId);
+      const isTemplateItem = !!section?.checklists.some(c => c._id === clId);
+
+      // Helper: backup/restore answers like modal does
+      const backupKey = `checklist_backup_${inspectionId}_${clId}`;
+
+      if (isTemplateItem) {
+        // Build updated arrays for block
+        const currentSelected = Array.isArray(block.selected_checklist_ids) ? block.selected_checklist_ids : [];
+        const isCurrentlySelected = currentSelected.some((sel: any) => (typeof sel === 'string' ? sel === clId : sel._id === clId));
+
+        let nextSelected: Array<any> = [];
+        if (isCurrentlySelected) {
+          // Unselect: remove from selected list
+          nextSelected = currentSelected.filter((sel: any) => (typeof sel === 'string' ? sel !== clId : sel._id !== clId));
+
+          // Backup selected answers for this checklist and remove from block
+          const existingAnswersArr = Array.isArray(block.selected_answers) ? block.selected_answers : [];
+          const answersForId = existingAnswersArr.find(a => a && a.checklist_id === clId);
+          if (answersForId && Array.isArray(answersForId.selected_answers) && answersForId.selected_answers.length > 0) {
+            localStorage.setItem(backupKey, JSON.stringify(answersForId.selected_answers));
+          }
+          const cleanedAnswers = existingAnswersArr.filter(a => a && a.checklist_id !== clId);
+
+          // Persist to server
+          const body = {
+            selected_checklist_ids: nextSelected.map((sel: any) => (typeof sel === 'string' ? sel : sel._id)).filter(Boolean),
+            selected_answers: cleanedAnswers,
+            custom_text: block.custom_text || '',
+            images: Array.isArray(block.images) ? block.images : [],
+          };
+
+          const res = await fetch(`/api/information-sections/${inspectionId}?blockId=${block._id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          const json = await res.json();
+          if (!json.success) throw new Error(json.error || 'Failed to update block');
+
+          // Update local state with server result
+          setBlocks(prev => prev.map(b => (b._id === block._id ? json.data : b)));
+        } else {
+          // Select: add to selected list
+          const checklistObj = section?.checklists.find(c => c._id === clId);
+          nextSelected = [...currentSelected, checklistObj || clId];
+
+          // Try to restore answers from backup
+          const existingAnswersArr = Array.isArray(block.selected_answers) ? block.selected_answers : [];
+          let nextAnswers = existingAnswersArr;
+          try {
+            const backup = localStorage.getItem(backupKey);
+            if (backup) {
+              const parsed = JSON.parse(backup);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                // Merge restored answers (avoid duplicate entry for checklist_id)
+                nextAnswers = existingAnswersArr.filter(a => a && a.checklist_id !== clId);
+                nextAnswers = [...nextAnswers, { checklist_id: clId, selected_answers: parsed }];
+              }
+            }
+          } catch (e) {
+            // ignore backup issues
+          }
+
+          // Persist to server
+          const body = {
+            selected_checklist_ids: nextSelected.map((sel: any) => (typeof sel === 'string' ? sel : sel._id)).filter(Boolean),
+            selected_answers: nextAnswers,
+            custom_text: block.custom_text || '',
+            images: Array.isArray(block.images) ? block.images : [],
+          };
+
+          const res = await fetch(`/api/information-sections/${inspectionId}?blockId=${block._id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          const json = await res.json();
+          if (!json.success) throw new Error(json.error || 'Failed to update block');
+
+          // Update local state with server result
+          setBlocks(prev => prev.map(b => (b._id === block._id ? json.data : b)));
+        }
+      } else {
+        // Inspection-only checklist: maintain selection in localStorage only
+        const storageKey = `inspection_selections_${inspectionId}_${sectionId}`;
+        const raw = localStorage.getItem(storageKey);
+        const arr: string[] = raw ? JSON.parse(raw) : [];
+        const idx = arr.indexOf(clId);
+        if (idx >= 0) {
+          arr.splice(idx, 1);
+        } else {
+          arr.push(clId);
+        }
+        localStorage.setItem(storageKey, JSON.stringify(arr));
+        // Force re-render so getBlockChecklists() re-evaluates
+        setBlocks(prev => [...prev]);
+      }
+    } catch (e: any) {
+      alert(e.message || 'Failed to update selection');
+    }
   };
 
   // Initialize locationInputs from formState when images load
@@ -1841,7 +1959,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
     }
   };
 
-  // Image handling for checklist items
+  // Image handling for checklist items (single file)
   const handleImageSelect = async (checklistId: string, file: File) => {
     if (!formState) return;
 
@@ -2007,22 +2125,31 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
       console.log('💾 Adding image to formState:', newImage);
       console.log('📸 isThreeSixty field value:', newImage.isThreeSixty);
 
-      const updatedFormState = {
-        ...formState,
-        images: [...formState.images, newImage],
-      };
-      
-      setFormState(updatedFormState);
+      // Use functional update to avoid stale state when batching multiple uploads
+      let committedState: AddBlockFormState | null = null;
+      setFormState(prev => {
+        if (!prev) return prev as any;
+        const nextState: AddBlockFormState = {
+          ...prev,
+          images: [...prev.images, newImage],
+        };
+        committedState = nextState;
+        return nextState;
+      });
 
       // DON'T reset the 360° checkbox - keep it checked for multiple uploads
       // User can manually uncheck if they want to upload regular images
       // setIsThreeSixtyMap(prev => ({ ...prev, [checklistId]: false }));
 
-      console.log('✅ FormState updated, total images:', formState.images.length + 1);
+  console.log('✅ FormState updated with new image');
       console.log('📌 Image uploaded successfully. Auto-saving now...');
 
       // Save immediately with the updated state
-      await performAutoSaveWithState(updatedFormState);
+      if (committedState) {
+        await performAutoSaveWithState(committedState);
+      } else if (formState) {
+        await performAutoSaveWithState({ ...formState });
+      }
 
     } catch (error: any) {
       console.error('❌ Error uploading file:', error);
@@ -2047,6 +2174,20 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
       } else {
         alert(`Failed to upload image/video: ${errorMessage}\n\nFor large files, please compress them to under 200MB.`);
       }
+    }
+  };
+
+  // New: batch handler for multiple selected files
+  const handleImagesSelect = async (checklistId: string, files: File[] | FileList) => {
+    const fileArray = Array.from(files || []);
+    if (!fileArray.length) return;
+    console.log(`📦 ${fileArray.length} file(s) selected for checklist ${checklistId}`);
+    // Process sequentially to preserve formState consistency and avoid race conditions
+    for (let i = 0; i < fileArray.length; i++) {
+      const f = fileArray[i];
+      console.log(`⬆️ Uploading ${i + 1}/${fileArray.length}: ${f.name}`);
+      // Intentionally await to ensure state updates are serialized
+      await handleImageSelect(checklistId, f);
     }
   };
 
@@ -2742,7 +2883,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-        {sections.filter(section => section.order_index !== 17).map(section => {
+        {sections.map(section => {
           const isComplete = isSectionComplete(section._id);
           
           return (
@@ -2770,80 +2911,145 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                 <div key={block._id} style={{ border: '1px solid #e5e7eb', borderRadius: '0.25rem', padding: '0.75rem', backgroundColor: '#f9fafb' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
                     <div style={{ fontWeight: 600, fontSize: '0.875rem', color: '#374151' }}>Selected Items:</div>
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
-                      <button
-                        onClick={() => openAddModal(section, block)}
-                        style={{
-                          padding: '0.25rem 0.5rem',
-                          fontSize: '0.75rem',
-                          borderRadius: '0.25rem',
-                          backgroundColor: '#a466da',
-                          color: 'white',
-                          border: 'none',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.25rem'
-                        }}
-                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#934ad3'}
-                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#a466da'}
-                      >
-                        ✏️ Edit
-                      </button>
-                      <button
-                        onClick={() => handleDelete(block._id)}
-                        style={{
-                          padding: '0.25rem 0.5rem',
-                          fontSize: '0.75rem',
-                          borderRadius: '0.25rem',
-                          backgroundColor: '#ef4444',
-                          color: 'white',
-                          border: 'none',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.25rem'
-                        }}
-                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#dc2626'}
-                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#ef4444'}
-                      >
-                        🗑️ Delete
-                      </button>
-                    </div>
+                    {!isMobile && (
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button
+                          onClick={() => openAddModal(section, block)}
+                          style={{
+                            padding: '0.25rem 0.5rem',
+                            fontSize: '0.75rem',
+                            borderRadius: '0.25rem',
+                            backgroundColor: '#a466da',
+                            color: 'white',
+                            border: 'none',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.25rem'
+                          }}
+                          onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#934ad3'}
+                          onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#a466da'}
+                        >
+                          ✏️ Edit
+                        </button>
+                        <button
+                          onClick={() => handleDelete(block._id)}
+                          style={{
+                            padding: '0.25rem 0.5rem',
+                            fontSize: '0.75rem',
+                            borderRadius: '0.25rem',
+                            backgroundColor: '#ef4444',
+                            color: 'white',
+                            border: 'none',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.25rem'
+                          }}
+                          onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#dc2626'}
+                          onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#ef4444'}
+                        >
+                          🗑️ Delete
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <div style={{ fontSize: '0.875rem', color: '#374151' }}>
                     <div style={{ marginLeft: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      {getBlockChecklists(block).map((cl: any) => (
-                        <div key={cl._id || cl} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <span style={{
-                              fontSize: '0.7rem',
-                              padding: '0.1rem 0.4rem',
-                              borderRadius: '0.25rem',
-                              backgroundColor: cl.type === 'status' ? '#e8dff5' : '#d1fae5',
-                              color: cl.type === 'status' ? '#5d228f' : '#065f46',
-                              fontWeight: 600,
-                              textTransform: 'uppercase' as const
-                            }}>
-                              {cl.type || 'info'}
-                            </span>
-                            <span style={{ fontWeight: 'bold' }}>{cl.text || cl}</span>
-                          </div>
-                          {cl.comment && cl.comment.trim() !== '' && (
-                            <div style={{ 
-                              marginLeft: '1rem', 
-                              color: '#6b7280',
-                              fontSize: '0.875rem',
-                              paddingTop: '0.125rem'
-                            }}>
-                              {cl.comment}
+                      {getBlockChecklists(block).map((cl: any) => {
+                        const clId = typeof cl === 'string' ? cl : cl._id;
+                        const clType = typeof cl === 'object' && cl?.type ? cl.type : undefined;
+                        const isStatus = clType === 'status';
+                        return (
+                          <div key={clId} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              {isStatus ? (
+                                <input
+                                  type="checkbox"
+                                  checked={true}
+                                  readOnly
+                                  aria-readonly="true"
+                                  style={{ cursor: 'default' }}
+                                />
+                              ) : (
+                                <span style={{
+                                  fontSize: '0.7rem',
+                                  padding: '0.1rem 0.4rem',
+                                  borderRadius: '0.25rem',
+                                  backgroundColor: '#d1fae5',
+                                  color: '#065f46',
+                                  fontWeight: 600,
+                                  textTransform: 'uppercase' as const
+                                }}>
+                                  {clType || 'info'}
+                                </span>
+                              )}
+                              <span style={{ fontWeight: 'bold' }}>{(typeof cl === 'object' && cl?.text) ? cl.text : clId}</span>
                             </div>
-                          )}
-                        </div>
-                      ))}
+                            {typeof cl === 'object' && cl?.comment && cl.comment.trim() !== '' && (
+                              <div style={{ 
+                                marginLeft: '1rem', 
+                                color: '#6b7280',
+                                fontSize: '0.875rem',
+                                paddingTop: '0.125rem'
+                              }}>
+                                {cl.comment}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                     {block.custom_text && (
                       <div style={{ marginTop: '0.5rem' }}><span style={{ fontWeight: 600 }}>Custom Text:</span> {block.custom_text}</div>
+                    )}
+                    {isMobile && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.75rem' }}>
+                        <button
+                          onClick={() => openAddModal(section, block)}
+                          style={{
+                            width: '100%',
+                            padding: '0.75rem 1rem',
+                            fontSize: '0.9rem',
+                            borderRadius: '0.5rem',
+                            backgroundColor: '#a466da',
+                            color: 'white',
+                            border: 'none',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '0.5rem',
+                            boxShadow: '0 2px 8px rgba(164,102,218,0.25)'
+                          }}
+                          onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#934ad3'}
+                          onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#a466da'}
+                        >
+                          ✏️ Edit
+                        </button>
+                        <button
+                          onClick={() => handleDelete(block._id)}
+                          style={{
+                            width: '100%',
+                            padding: '0.75rem 1rem',
+                            fontSize: '0.9rem',
+                            borderRadius: '0.5rem',
+                            backgroundColor: '#ef4444',
+                            color: 'white',
+                            border: 'none',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '0.5rem',
+                            boxShadow: '0 2px 8px rgba(239,68,68,0.25)'
+                          }}
+                          onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#dc2626'}
+                          onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#ef4444'}
+                        >
+                          🗑️ Delete
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -3370,7 +3576,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                               
                               <div style={{ marginBottom: '0.5rem' }}>
                                 <FileUpload
-                                  onFileSelect={(file) => handleImageSelect(cl._id, file)}
+                                  onFilesSelect={(files) => handleImagesSelect(cl._id, files)}
                                   id={`file-upload-${cl._id}`}
                                 />
                               </div>
@@ -3996,7 +4202,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                               
                               <div style={{ marginBottom: '0.5rem' }}>
                                 <FileUpload
-                                  onFileSelect={(file) => handleImageSelect(cl._id, file)}
+                                  onFilesSelect={(files) => handleImagesSelect(cl._id, files)}
                                   id={`file-upload-${cl._id}`}
                                 />
                               </div>

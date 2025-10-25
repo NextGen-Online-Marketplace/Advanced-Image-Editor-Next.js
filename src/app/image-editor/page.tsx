@@ -452,6 +452,19 @@ export default function ImageEditorPage() {
           throw new Error('Failed to update defect');
         }
 
+        // Notify parent window via localStorage so the Manage Defects modal can refresh instantly
+        try {
+          const notice = {
+            inspectionId: selectedInspectionId,
+            defectId,
+            photo: { url: uploadData.url, location: selectedLocation2 },
+            timestamp: Date.now()
+          };
+          localStorage.setItem('pendingAdditionalLocationPhoto', JSON.stringify(notice));
+        } catch (e) {
+          console.warn('Unable to write pendingAdditionalLocationPhoto to localStorage:', e);
+        }
+
         setSubmitStatus('Done! Closing...');
         
         // Close the window and return to inspection page

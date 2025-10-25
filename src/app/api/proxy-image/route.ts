@@ -39,21 +39,35 @@ function isLikelyR2Host(host: string) {
   );
 }
 
+function safeDecodePath(p: string): string {
+  // Decode percent-encoded characters (e.g., %20 -> space, %28 -> () )
+  // Keep forward slashes as path separators (decodeURIComponent preserves '/')
+  try {
+    return decodeURIComponent(p);
+  } catch {
+    // Fallback: decode only common encodings we see
+    return p
+      .replace(/%20/g, ' ')
+      .replace(/%28/g, '(')
+      .replace(/%29/g, ')');
+  }
+}
+
 function extractR2KeyFromAnyUrl(urlStr: string): string | null {
   try {
     // Try public base first
     if (publicUrlBase && urlStr.startsWith(publicUrlBase + '/')) {
-      return urlStr.substring((publicUrlBase + '/').length);
+      return safeDecodePath(urlStr.substring((publicUrlBase + '/').length));
     }
 
     const u = new URL(urlStr);
-    const path = u.pathname.replace(/^\//, '');
+    const path = safeDecodePath(u.pathname.replace(/^\//, ''));
     const host = u.hostname.toLowerCase();
 
     // Special-case public r2.dev domains issued by Cloudflare (pub-*.r2.dev)
     // These do not include the bucket in the hostname or path; we must use our configured bucket
     if (host.endsWith('.r2.dev') && path) {
-      return path; // treat the path as the key, bucket comes from env
+      return path; // already decoded; treat the path as the key, bucket comes from env
     }
 
     // Virtual-hosted style: <bucket>.<account>.r2.cloudflarestorage.com/<key> or <bucket>.<something>.r2.dev/<key>

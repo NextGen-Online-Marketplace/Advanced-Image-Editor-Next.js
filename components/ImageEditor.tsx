@@ -104,7 +104,7 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
   const [isDraggingArrow, setIsDraggingArrow] = useState(false);
   const [isRotatingArrow, setIsRotatingArrow] = useState(false);
   const [isResizingArrow, setIsResizingArrow] = useState(false);
-  const [arrowResizeEnd, setArrowResizeEnd] = useState<'start' | 'end' | null>(null);
+  const [arrowResizeEnd, setArrowResizeEnd] = useState<'start' | 'end' | 'top-left' | 'top-right' | 'bottom-right' | 'bottom-left' | null>(null);
   const [dragArrowOffset, setDragArrowOffset] = useState({ x: 0, y: 0 });
   const [interactionMode, setInteractionMode] = useState<'move' | 'rotate' | 'resize' | null>(null);
   
@@ -1174,6 +1174,36 @@ const captureImage = () => {
       setIsDrawing(true);
       return;
     } else if (activeMode === 'none') {
+      // First, check if user clicked any arrow's bounding-box corner handles (even if not over arrow body)
+      {
+        const tolerance = 20;
+        const padding = 10;
+        for (const ln of lines) {
+          if (ln.type !== 'arrow' || ln.points.length < 2) continue;
+          const from = ln.points[0];
+          const to = ln.points[ln.points.length - 1];
+          const minX = Math.min(from.x, to.x);
+          const maxX = Math.max(from.x, to.x);
+          const minY = Math.min(from.y, to.y);
+          const maxY = Math.max(from.y, to.y);
+          const corners = [
+            { x: minX - padding, y: minY - padding, name: 'top-left' as const },
+            { x: maxX + padding, y: minY - padding, name: 'top-right' as const },
+            { x: maxX + padding, y: maxY + padding, name: 'bottom-right' as const },
+            { x: minX - padding, y: maxY + padding, name: 'bottom-left' as const },
+          ];
+          const hit = corners.find(c => Math.hypot(mouseX - c.x, mouseY - c.y) <= tolerance);
+          if (hit) {
+            setSelectedArrowId(ln.id);
+            setIsResizingArrow(true);
+            setInteractionMode('resize');
+            setArrowResizeEnd(hit.name);
+            const center = getArrowCenter(ln);
+            setInitialShapeData({ from: { ...from }, to: { ...to }, center });
+            return;
+          }
+        }
+      }
       // In none mode, allow interaction with any existing shape
       const clickedShape = lines.find(line => {
         if (line.type === 'arrow') {
@@ -1197,42 +1227,47 @@ const captureImage = () => {
         setSelectedArrowId(clickedShape.id);
         
         if (clickedShape.type === 'arrow') {
-          // Check if user clicked the rotation handle first (explicit rotate only)
+          // Rotation handle removed; skip rotate detection
           const center = getArrowCenter(clickedShape);
-          const rotation = clickedShape.rotation || 0;
-          const rotHandleX = center.x + 50 * Math.sin(rotation);
-          const rotHandleY = center.y - 50 * Math.cos(rotation);
-          const rotTol = 16;
-          const nearRotate = Math.hypot(mouseX - rotHandleX, mouseY - rotHandleY) <= rotTol;
 
-          if (nearRotate) {
-            setIsRotatingArrow(true);
-            setInteractionMode('rotate');
-            return;
-          }
-
-          // Check if user clicked near an endpoint to start resizing
+          // Check if user clicked on bounding box corner handles (4 corners like circle/square)
           const from = clickedShape.points[0];
           const to = clickedShape.points[clickedShape.points.length - 1];
-          const tol = 15;
-          const nearStart = Math.abs(mouseX - from.x) < tol && Math.abs(mouseY - from.y) < tol;
-          const nearEnd = Math.abs(mouseX - to.x) < tol && Math.abs(mouseY - to.y) < tol;
-
-          if (nearStart) {
+          const minX = Math.min(from.x, to.x);
+          const maxX = Math.max(from.x, to.x);
+          const minY = Math.min(from.y, to.y);
+          const maxY = Math.max(from.y, to.y);
+          const padding = 10;
+          
+          const cornerHandles = [
+            { x: minX - padding, y: minY - padding, name: 'top-left' },
+            { x: maxX + padding, y: minY - padding, name: 'top-right' },
+            { x: maxX + padding, y: maxY + padding, name: 'bottom-right' },
+            { x: minX - padding, y: maxY + padding, name: 'bottom-left' }
+          ];
+          
+          const tolerance = 20;
+          const clickedHandle = cornerHandles.find(h => 
+            Math.hypot(mouseX - h.x, mouseY - h.y) <= tolerance
+          );
+          
+          if (clickedHandle) {
             setIsResizingArrow(true);
             setInteractionMode('resize');
-            setArrowResizeEnd('start');
-          } else if (nearEnd) {
-            setIsResizingArrow(true);
-            setInteractionMode('resize');
-            setArrowResizeEnd('end');
-          } else {
-            // Default to moving the arrow (click anywhere on body/head)
-            setIsDraggingArrow(true);
-            const c = getArrowCenter(clickedShape);
-            setDragArrowOffset({ x: mouseX - c.x, y: mouseY - c.y });
-            setInteractionMode('move');
+            setArrowResizeEnd(clickedHandle.name as 'start' | 'end');
+            setInitialShapeData({
+              from: { ...from },
+              to: { ...to },
+              center: { ...center }
+            });
+            return;
           }
+          
+          // Default to moving the arrow (click anywhere on body/head)
+          setIsDraggingArrow(true);
+          const c = getArrowCenter(clickedShape);
+          setDragArrowOffset({ x: mouseX - c.x, y: mouseY - c.y });
+          setInteractionMode('move');
         } else {
           // For circles and squares, just move them
           const center = clickedShape.center || clickedShape.points[0];
@@ -1257,6 +1292,36 @@ const captureImage = () => {
         return;
       }
     } else if (activeMode === 'arrow') {
+      // First, check if user clicked any arrow's bounding-box corner handles (even if not over arrow body)
+      {
+        const tolerance = 20;
+        const padding = 10;
+        for (const ln of lines) {
+          if (ln.type !== 'arrow' || ln.points.length < 2) continue;
+          const from = ln.points[0];
+          const to = ln.points[ln.points.length - 1];
+          const minX = Math.min(from.x, to.x);
+          const maxX = Math.max(from.x, to.x);
+          const minY = Math.min(from.y, to.y);
+          const maxY = Math.max(from.y, to.y);
+          const corners = [
+            { x: minX - padding, y: minY - padding, name: 'top-left' as const },
+            { x: maxX + padding, y: minY - padding, name: 'top-right' as const },
+            { x: maxX + padding, y: maxY + padding, name: 'bottom-right' as const },
+            { x: minX - padding, y: maxY + padding, name: 'bottom-left' as const },
+          ];
+          const hit = corners.find(c => Math.hypot(mouseX - c.x, mouseY - c.y) <= tolerance);
+          if (hit) {
+            setSelectedArrowId(ln.id);
+            setIsResizingArrow(true);
+            setInteractionMode('resize');
+            setArrowResizeEnd(hit.name);
+            const center = getArrowCenter(ln);
+            setInitialShapeData({ from: { ...from }, to: { ...to }, center });
+            return;
+          }
+        }
+      }
       // Check if clicking on an existing arrow with increased selection area
       const clickedArrow = lines.find(line => 
         line.type === 'arrow' && isPointInArrow(line, { x: mouseX, y: mouseY }, 25)
@@ -1264,36 +1329,42 @@ const captureImage = () => {
       
       if (clickedArrow) {
         setSelectedArrowId(clickedArrow.id);
-        // Check rotation handle first (explicit rotate only)
+        // Rotation handle removed; skip rotate detection
         const center = getArrowCenter(clickedArrow);
-        const rotation = clickedArrow.rotation || 0;
-        const rotHandleX = center.x + 50 * Math.sin(rotation);
-        const rotHandleY = center.y - 50 * Math.cos(rotation);
-        const rotTol = 16;
-        const nearRotate = Math.hypot(mouseX - rotHandleX, mouseY - rotHandleY) <= rotTol;
-        if (nearRotate) {
-          setIsRotatingArrow(true);
-          setInteractionMode('rotate');
-          return;
-        }
-        // Check for endpoint resize next
+        
+        // Check for corner handle resize (4 corners like circle/square)
         const from = clickedArrow.points[0];
         const to = clickedArrow.points[clickedArrow.points.length - 1];
-        const tol = 15;
-        const nearStart = Math.abs(mouseX - from.x) < tol && Math.abs(mouseY - from.y) < tol;
-        const nearEnd = Math.abs(mouseX - to.x) < tol && Math.abs(mouseY - to.y) < tol;
-        if (nearStart) {
+        const minX = Math.min(from.x, to.x);
+        const maxX = Math.max(from.x, to.x);
+        const minY = Math.min(from.y, to.y);
+        const maxY = Math.max(from.y, to.y);
+        const padding = 10;
+        
+        const cornerHandles = [
+          { x: minX - padding, y: minY - padding, name: 'top-left' },
+          { x: maxX + padding, y: minY - padding, name: 'top-right' },
+          { x: maxX + padding, y: maxY + padding, name: 'bottom-right' },
+          { x: minX - padding, y: maxY + padding, name: 'bottom-left' }
+        ];
+        
+        const tolerance = 20;
+        const clickedHandle = cornerHandles.find(h => 
+          Math.hypot(mouseX - h.x, mouseY - h.y) <= tolerance
+        );
+        
+        if (clickedHandle) {
           setIsResizingArrow(true);
           setInteractionMode('resize');
-          setArrowResizeEnd('start');
+          setArrowResizeEnd(clickedHandle.name as 'start' | 'end');
+          setInitialShapeData({
+            from: { ...from },
+            to: { ...to },
+            center: { ...center }
+          });
           return;
         }
-        if (nearEnd) {
-          setIsResizingArrow(true);
-          setInteractionMode('resize');
-          setArrowResizeEnd('end');
-          return;
-        }
+        
         // Otherwise move by dragging anywhere on the arrow
         setIsDraggingArrow(true);
         const c = getArrowCenter(clickedArrow);
@@ -1430,17 +1501,50 @@ const captureImage = () => {
     const mouseY = e.clientY - rect.top;
     
     // Handle arrow resizing globally regardless of mode
-    if (isResizingArrow && selectedArrowId !== null && arrowResizeEnd) {
+    if (isResizingArrow && selectedArrowId !== null && arrowResizeEnd && initialShapeData) {
       setLines(prev => prev.map(line => {
         if (line.id !== selectedArrowId) return line;
         if (line.points.length < 2) return line;
-        const newPoints = [...line.points];
-        if (arrowResizeEnd === 'start') {
-          newPoints[0] = { x: mouseX, y: mouseY };
+        
+        const initialFrom = initialShapeData.from!;
+        const initialTo = initialShapeData.to!;
+        
+        // Calculate which corner each point is at
+        const minX = Math.min(initialFrom.x, initialTo.x);
+        const maxX = Math.max(initialFrom.x, initialTo.x);
+        const minY = Math.min(initialFrom.y, initialTo.y);
+        const maxY = Math.max(initialFrom.y, initialTo.y);
+        const padding = 10;
+        
+        // Define the 4 bounding box corners
+        const corners = {
+          'top-left': { x: minX - padding, y: minY - padding },
+          'top-right': { x: maxX + padding, y: minY - padding },
+          'bottom-right': { x: maxX + padding, y: maxY + padding },
+          'bottom-left': { x: minX - padding, y: maxY + padding }
+        };
+        
+        // Find which corner we're dragging
+        const draggedCorner = corners[arrowResizeEnd as keyof typeof corners];
+        if (!draggedCorner) return line;
+        
+        // Calculate distance from each arrow endpoint to the dragged corner
+        const distFromToCorner = Math.hypot(initialFrom.x - draggedCorner.x, initialFrom.y - draggedCorner.y);
+        const distToToCorner = Math.hypot(initialTo.x - draggedCorner.x, initialTo.y - draggedCorner.y);
+        
+        // Move the endpoint that's closest to the corner being dragged
+        let newFrom = { ...initialFrom };
+        let newTo = { ...initialTo };
+        
+        if (distFromToCorner < distToToCorner) {
+          // from is closer to the dragged corner, so move from
+          newFrom = { x: mouseX, y: mouseY };
         } else {
-          newPoints[newPoints.length - 1] = { x: mouseX, y: mouseY };
+          // to is closer to the dragged corner, so move to
+          newTo = { x: mouseX, y: mouseY };
         }
-        return { ...line, points: newPoints };
+        
+        return { ...line, points: [newFrom, newTo] };
       }));
       return;
     }
@@ -1567,6 +1671,32 @@ const captureImage = () => {
         return;
       } else {
         // Check for hover effects on shapes in none mode
+        // 1) Prefer corner handles of selected arrow (so cursor becomes pointer on blue dots)
+        if (selectedArrowId !== null) {
+          const sel = lines.find(l => l.id === selectedArrowId && l.type === 'arrow' && l.points.length >= 2);
+          if (sel) {
+            const from = sel.points[0];
+            const to = sel.points[sel.points.length - 1];
+            const minX = Math.min(from.x, to.x);
+            const maxX = Math.max(from.x, to.x);
+            const minY = Math.min(from.y, to.y);
+            const maxY = Math.max(from.y, to.y);
+            const padding = 10;
+            const tolerance = 20;
+            const corners = [
+              { x: minX - padding, y: minY - padding },
+              { x: maxX + padding, y: minY - padding },
+              { x: maxX + padding, y: maxY + padding },
+              { x: minX - padding, y: maxY + padding },
+            ];
+            const overCorner = corners.some(c => Math.hypot(mouseX - c.x, mouseY - c.y) <= tolerance);
+            if (overCorner) {
+              setHoveredArrowId(sel.id);
+              return;
+            }
+          }
+        }
+        // 2) Otherwise, hover detection on shapes
         const hoveredShape = lines.find(line => {
           if (line.type === 'arrow') {
             return isPointInArrow(line, { x: mouseX, y: mouseY }, 25);
@@ -1632,7 +1762,33 @@ const captureImage = () => {
         setCurrentLine(prev => [...prev!, { x: mouseX, y: mouseY }]);
 
       } else {  
-        // Check for hover effects on arrows with increased selection area
+        // Hover effects in arrow mode
+        // 1) Show pointer when over corner handles of the selected arrow
+        if (selectedArrowId !== null) {
+          const sel = lines.find(l => l.id === selectedArrowId && l.type === 'arrow' && l.points.length >= 2);
+          if (sel) {
+            const from = sel.points[0];
+            const to = sel.points[sel.points.length - 1];
+            const minX = Math.min(from.x, to.x);
+            const maxX = Math.max(from.x, to.x);
+            const minY = Math.min(from.y, to.y);
+            const maxY = Math.max(from.y, to.y);
+            const padding = 10;
+            const tolerance = 20;
+            const corners = [
+              { x: minX - padding, y: minY - padding },
+              { x: maxX + padding, y: minY - padding },
+              { x: maxX + padding, y: maxY + padding },
+              { x: minX - padding, y: maxY + padding },
+            ];
+            const overCorner = corners.some(c => Math.hypot(mouseX - c.x, mouseY - c.y) <= tolerance);
+            if (overCorner) {
+              setHoveredArrowId(sel.id);
+              return;
+            }
+          }
+        }
+        // 2) Fallback: hover when over arrow body/head
         const hoveredArrow = lines.find(line => 
           line.type === 'arrow' && isPointInArrow(line, { x: mouseX, y: mouseY }, 25)
         );
@@ -2422,59 +2578,56 @@ const drawSquare = (
           drawTransformedArrow(ctx, line);
           ctx.globalAlpha = 1.0;
           
-          // Draw rotation guide circle
+          // Compute center once for rotation handle; skip green guide circle for a cleaner UI
           const center = getArrowCenter(line);
-          ctx.fillStyle = 'rgba(40, 167, 69, 0.3)';
-          ctx.strokeStyle = '#28a745';
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.arc(center.x, center.y, 40, 0, 2 * Math.PI);
-          ctx.fill();
-          ctx.stroke();
           
-          // Draw rotation handle
-          const rotation = line.rotation || 0;
-          const handleX = center.x + 50 * Math.sin(rotation);
-          const handleY = center.y - 50 * Math.cos(rotation);
-          
-          ctx.fillStyle = '#28a745';
-          ctx.beginPath();
-          ctx.arc(handleX, handleY, 8, 0, 2 * Math.PI);
-          ctx.fill();
-          
-          // Draw rotation direction indicator
-          ctx.fillStyle = 'white';
-          ctx.font = '14px Arial';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText('↻', handleX, handleY);
+          // Rotation handle removed by request; rotation by mouse is disabled for a cleaner UI
 
-          // Draw arrow resize handles at endpoints (like circle/square)
+          // Draw bounding box with 4 corner handles (like circle/square)
           const from = line.points[0];
           const to = line.points[line.points.length - 1];
+          
+          // Calculate bounding box
+          const minX = Math.min(from.x, to.x);
+          const maxX = Math.max(from.x, to.x);
+          const minY = Math.min(from.y, to.y);
+          const maxY = Math.max(from.y, to.y);
+          const padding = 10; // Extra space around arrow
+          
+          // Draw dashed bounding box
+          ctx.strokeStyle = 'rgba(0, 123, 255, 0.5)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([5, 5]);
+          ctx.strokeRect(minX - padding, minY - padding, maxX - minX + padding * 2, maxY - minY + padding * 2);
+          ctx.setLineDash([]);
+          
+          // Draw 4 corner handles
+          const cornerHandles = [
+            { x: minX - padding, y: minY - padding, name: 'top-left' },
+            { x: maxX + padding, y: minY - padding, name: 'top-right' },
+            { x: maxX + padding, y: maxY + padding, name: 'bottom-right' },
+            { x: minX - padding, y: maxY + padding, name: 'bottom-left' }
+          ];
+          
           const handleSize = 5;
-
-          const drawEndpointHandle = (hx: number, hy: number) => {
+          cornerHandles.forEach((h) => {
             // Outer ring
             ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
             ctx.beginPath();
-            ctx.arc(hx, hy, handleSize + 2, 0, 2 * Math.PI);
+            ctx.arc(h.x, h.y, handleSize + 2, 0, 2 * Math.PI);
             ctx.fill();
             // Inner dot
             ctx.fillStyle = 'rgba(0, 123, 255, 0.95)';
             ctx.beginPath();
-            ctx.arc(hx, hy, handleSize, 0, 2 * Math.PI);
+            ctx.arc(h.x, h.y, handleSize, 0, 2 * Math.PI);
             ctx.fill();
             // Border
             ctx.strokeStyle = 'rgba(0, 123, 255, 1)';
             ctx.lineWidth = 1.5;
             ctx.beginPath();
-            ctx.arc(hx, hy, handleSize, 0, 2 * Math.PI);
+            ctx.arc(h.x, h.y, handleSize, 0, 2 * Math.PI);
             ctx.stroke();
-          };
-
-          drawEndpointHandle(from.x, from.y);
-          drawEndpointHandle(to.x, to.y);
+          });
         }
       } else if (line.type === 'circle' && line.center && line.width !== undefined && line.height !== undefined) {
         // Draw hover effect if this circle is hovered

@@ -200,7 +200,64 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
         }
       }, 500);
       
-      return () => clearInterval(pollInterval);
+      // Listen for additional location photo notifications (from image editor)
+      const applyPendingAdditionalPhoto = () => {
+        try {
+          const pending = localStorage.getItem('pendingAdditionalLocationPhoto');
+          if (!pending) return;
+          const data = JSON.parse(pending);
+          if (data && data.inspectionId === inspectionId && data.defectId) {
+            // Optimistically update UI without a full refetch
+            setDefects(prev => prev.map(d => {
+              if (d._id !== data.defectId) return d;
+              const nextImages = [...(d.additional_images || [])];
+              // Avoid duplicates
+              if (!nextImages.some((img) => img.url === data.photo?.url)) {
+                nextImages.push({ url: data.photo?.url, location: data.photo?.location || '' });
+              }
+              return { ...d, additional_images: nextImages };
+            }));
+
+            // If currently editing this defect, also reflect in editedValues
+            setEditedValues(prev => {
+              if (!editingId || editingId !== data.defectId) return prev;
+              const curr = defects.find(d => d._id === editingId);
+              const baseArr = (prev.additional_images as any) || curr?.additional_images || [];
+              const nextArr = [...baseArr];
+              if (!nextArr.some((img: any) => img.url === data.photo?.url)) {
+                nextArr.push({ url: data.photo?.url, location: data.photo?.location || '' });
+              }
+              return { ...prev, additional_images: nextArr };
+            });
+
+            // Clear the flag so it doesn't re-apply
+            localStorage.removeItem('pendingAdditionalLocationPhoto');
+          }
+        } catch (e) {
+          console.error('Error applying pending additional photo:', e);
+        }
+      };
+
+      // Immediate check on open
+      applyPendingAdditionalPhoto();
+
+      // Listen to storage events (in case image editor tab updates it while this stays open)
+      const onStorage = (e: StorageEvent) => {
+        if (e.key === 'pendingAdditionalLocationPhoto' && e.newValue) {
+          applyPendingAdditionalPhoto();
+        }
+      };
+      window.addEventListener('storage', onStorage);
+
+      // Also refresh on window focus
+      const onFocus = () => applyPendingAdditionalPhoto();
+      window.addEventListener('focus', onFocus);
+
+      return () => {
+        clearInterval(pollInterval);
+        window.removeEventListener('storage', onStorage);
+        window.removeEventListener('focus', onFocus);
+      };
     } else if (!isOpen) {
       // Reset tab to defects when modal closes
       setActiveTab('defects');

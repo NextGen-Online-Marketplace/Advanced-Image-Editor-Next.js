@@ -4239,7 +4239,6 @@ export default function InspectionReportPage() {
         url: getProxiedSrc(img.url),
         location: img.location
       }))}
-      onPhotoClick={openLightbox}
     />
   ) : (
     <img

@@ -146,9 +146,19 @@ a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px
 .table th, .table td { padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 14px; text-align: left; color: var(--text); }
 .table thead th { background: #f9fafb; position: sticky; top: 0; }
 
-/* Make Summary table rows highlighted by default (mimic hover/active effect) */
-#summarySection .table tbody tr { background: #f8fafc; transition: background .2s ease; }
-#summarySection .table tbody tr:hover { background: #eef2ff; }
+/* Make Summary table rows highlighted by default (persistent, like web report) */
+#summarySection .table tbody tr { background: #f5f7ff; transition: background .2s ease; }
+#summarySection .table tbody tr:hover { background: #e9edff; }
+
+/* Optional: if rows are rendered with category classes, make them slightly brighter too */
+.summaryRowCatRed { border-left: 8px solid #dc2626; background: rgba(220,38,38,0.12); box-shadow: inset 0 0 0 1px rgba(220,38,38,0.06); }
+.summaryRowCatOrange { border-left: 8px solid #f59e0b; background: rgba(245,158,11,0.14); box-shadow: inset 0 0 0 1px rgba(245,158,11,0.08); }
+.summaryRowCatBlue { border-left: 8px solid #3b82f6; background: rgba(59,130,246,0.12); box-shadow: inset 0 0 0 1px rgba(59,130,246,0.06); }
+.summaryRowCatPurple { border-left: 8px solid #7c3aed; background: rgba(124,58,237,0.12); box-shadow: inset 0 0 0 1px rgba(124,58,237,0.06); }
+.summaryRowCatRed:hover { background: rgba(220,38,38,0.18); }
+.summaryRowCatOrange:hover { background: rgba(245,158,11,0.20); }
+.summaryRowCatBlue:hover { background: rgba(59,130,246,0.18); }
+.summaryRowCatPurple:hover { background: rgba(124,58,237,0.18); }
 
 /* ===== MODAL ===== */
 .modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 50; }

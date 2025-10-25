@@ -1,13 +1,14 @@
 import React, { useRef } from "react";
 
 interface FileUploadProps {
-  onFileSelect: (file: File) => void;
+  // New: support selecting multiple files at once
+  onFilesSelect: (files: File[]) => void;
   accept?: string;
   id?: string;
 }
 
 const FileUpload: React.FC<FileUploadProps> = ({ 
-  onFileSelect, 
+  onFilesSelect, 
   accept = "image/*,.heic,.heif", 
   id = "file-upload" 
 }) => {
@@ -15,21 +16,32 @@ const FileUpload: React.FC<FileUploadProps> = ({
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      // Light client-side validation to avoid round-trip on completely unsupported types
-      const isImage = file.type.startsWith('image/');
-      const isVideo = file.type.startsWith('video/');
-      if (!isImage && !isVideo) {
-        alert('Unsupported file type. Please select an image or video.');
-        e.target.value = '';
-        return;
-      }
-      onFileSelect(file);
-      // Reset the input so the same file can be selected again if needed
+  // Image inputs: allow multiple selection
+  const handleImagesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    const filtered = files.filter((f) => f.type.startsWith('image/') || /heic|heif/i.test(f.type) || /\.(heic|heif)$/i.test(f.name));
+    if (!filtered.length) {
+      alert('Unsupported file type. Please select image files.');
       e.target.value = '';
+      return;
     }
+    onFilesSelect(filtered);
+    // Reset the input so the same file(s) can be selected again if needed
+    e.target.value = '';
+  };
+
+  // Video input: single file selection
+  const handleVideoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('video/')) {
+      alert('Unsupported file type. Please select a video.');
+      e.target.value = '';
+      return;
+    }
+    onFilesSelect([file]);
+    e.target.value = '';
   };
 
   return (
@@ -38,24 +50,26 @@ const FileUpload: React.FC<FileUploadProps> = ({
       <input 
         type="file" 
         ref={fileInputRef}
-        onChange={handleFileChange} 
+        onChange={handleImagesChange} 
         id={id} 
         style={{ display: 'none' }}
-        accept="image/*,.heic,.heif"
+        accept={accept}
+        multiple
       />
       <input 
         type="file" 
         ref={cameraInputRef}
-        onChange={handleFileChange} 
+        onChange={handleImagesChange} 
         id={`${id}-camera`} 
         style={{ display: 'none' }}
-        accept="image/*,.heic,.heif"
+        accept={accept}
+        multiple
         /* No capture attribute: lets users switch between cameras in OS UI */
       />
       <input 
         type="file" 
         ref={videoInputRef}
-        onChange={handleFileChange} 
+        onChange={handleVideoChange} 
         id={`${id}-video`} 
         style={{ display: 'none' }}
         accept="video/*"
