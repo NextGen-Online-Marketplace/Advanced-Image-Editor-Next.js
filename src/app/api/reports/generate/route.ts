@@ -181,37 +181,56 @@ export async function POST(req: NextRequest) {
 
     const filename = (meta?.title || "inspection-report").toLowerCase().replace(/[^a-z0-9]+/g, "-") + ".pdf";
 
-    // If inspectionId is provided, upload to R2 and save permanent URL
-    let permanentUrl: string | null = null;
+    // Upload to R2 and return only the proxy URL (NOT the PDF file itself)
+    // This prevents "Fast Origin Transfer" quota consumption on Vercel
     if (inspectionId) {
       try {
         console.log(`📤 Uploading PDF to R2 for inspection ${inspectionId}...`);
-  const { url: publicUrl, key } = await uploadReportToR2(Buffer.from(pdfBuffer), inspectionId, 'pdf', reportMode);
-  // Build a proxy URL hosted under our own domain (absolute using request origin)
-  const origin = new URL(req.url).origin;
-  permanentUrl = `${origin}/api/reports/file?key=${encodeURIComponent(key)}`;
+        const { url: publicUrl, key } = await uploadReportToR2(Buffer.from(pdfBuffer), inspectionId, 'pdf', reportMode);
+        
+        // Build a proxy URL hosted under our own domain (absolute using request origin)
+        const origin = new URL(req.url).origin;
+        const downloadUrl = `${origin}/api/reports/file?key=${encodeURIComponent(key)}`;
         
         // Save the permanent URL to MongoDB
         await updateInspection(inspectionId, {
-          pdfReportUrl: permanentUrl,
+          pdfReportUrl: downloadUrl,
           pdfReportGeneratedAt: new Date()
         });
         
-  console.log(`✅ PDF permanent URL saved: ${permanentUrl}`);
+        console.log(`✅ PDF uploaded to R2. Proxy URL: ${downloadUrl}`);
+        
+        // Return JSON response with download URL instead of the PDF itself
+        return new Response(JSON.stringify({ 
+          success: true,
+          downloadUrl,
+          filename,
+          message: 'PDF generated and uploaded successfully'
+        }), {
+          status: 200,
+          headers: { 
+            "content-type": "application/json",
+            "cache-control": "no-store"
+          },
+        });
       } catch (uploadError) {
         console.error('⚠️ Failed to upload PDF to R2:', uploadError);
-        // Continue with download even if upload fails
+        return new Response(JSON.stringify({ 
+          error: 'Failed to upload PDF to storage',
+          details: uploadError instanceof Error ? uploadError.message : String(uploadError)
+        }), {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        });
       }
     }
 
-    return new Response(new Uint8Array(pdfBuffer), {
-      status: 200,
-      headers: {
-        "content-type": "application/pdf",
-        "content-disposition": `attachment; filename=${filename}`,
-        "cache-control": "no-store",
-        ...(permanentUrl && { "x-permanent-url": permanentUrl }), // Include permanent URL in response header
-      },
+    // If no inspectionId provided, return error (we always need R2 upload)
+    return new Response(JSON.stringify({ 
+      error: "inspectionId is required for PDF generation" 
+    }), {
+      status: 400,
+      headers: { "content-type": "application/json" },
     });
   } catch (err: any) {
     console.error("PDF generation error:", err);

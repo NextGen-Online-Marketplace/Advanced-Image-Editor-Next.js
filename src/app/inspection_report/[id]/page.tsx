@@ -537,34 +537,35 @@ export default function Page() {
         }),
       });
       if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`Failed to generate PDF: ${res.status} ${text}`);
+        const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(`Failed to generate PDF: ${res.status} ${errorData.error || errorData.details || 'Unknown error'}`);
       }
-      const blob = await res.blob();
       
-      // Check if permanent URL was returned
-      const permanentUrl = res.headers.get('x-permanent-url');
-      if (permanentUrl) {
-        console.log(`✅ PDF uploaded to: ${permanentUrl}`);
-        // Refresh inspection data to get the new permanent URL
-        const inspectionRes = await fetch(`/api/inspections/${id}`);
-        if (inspectionRes.ok) {
-          const updatedInspection = await inspectionRes.json();
-          setInspection(updatedInspection); // Update state with new URLs
-          if (updatedInspection.pdfReportUrl) {
-            console.log(`✅ Permanent PDF URL available: ${updatedInspection.pdfReportUrl}`);
-          }
+      // Response now contains JSON with downloadUrl, not the PDF file itself
+      const data = await res.json();
+      if (!data.success || !data.downloadUrl) {
+        throw new Error('Invalid response from PDF generation API');
+      }
+      
+      console.log(`✅ PDF generated. Download URL: ${data.downloadUrl}`);
+      
+      // Refresh inspection data to get the new permanent URL
+      const inspectionRes = await fetch(`/api/inspections/${id}`);
+      if (inspectionRes.ok) {
+        const updatedInspection = await inspectionRes.json();
+        setInspection(updatedInspection); // Update state with new URLs
+        if (updatedInspection.pdfReportUrl) {
+          console.log(`✅ Permanent PDF URL available: ${updatedInspection.pdfReportUrl}`);
         }
       }
       
-      const url = window.URL.createObjectURL(blob);
+      // Download the PDF via the proxy URL (this is now a small redirect, not a large data transfer from Vercel)
       const a = document.createElement('a');
-      a.href = url;
-      a.download = `${meta.title}.pdf`;
+      a.href = data.downloadUrl;
+      a.download = data.filename || `${meta.title}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
-      window.URL.revokeObjectURL(url);
     } catch (e) {
       console.error('PDF generation failed', e);
       alert('Failed to generate PDF. See console for details.');

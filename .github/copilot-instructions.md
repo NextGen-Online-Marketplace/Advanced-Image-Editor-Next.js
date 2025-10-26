@@ -12,9 +12,9 @@ Run locally
 
 Architecture (where things live)
 
-- UI: components/ (e.g., ImageEditor.tsx, InformationSections.tsx). App routes: src/app/**/route.ts. Domain logic: lib/*.ts. Types/models: types/*, models/*.
+- UI: components/ (e.g., ImageEditor.tsx, InformationSections.tsx). App routes: src/app/\*_/route.ts. Domain logic: lib/_.ts. Types/models: types/_, models/_.
 - MongoDB: lib/mongodb.ts caches a global client; DB is "agi_inspections_db". lib/inspection.ts and lib/defect.ts handle ObjectId storage and updates.
-- Cloudflare R2: lib/r2.ts wraps S3Client. Public base URL via CLOUDFLARE_PUBLIC_URL. Key spaces: uploads/*, inspections/{inspectionId}/*, reports/inspection-{id}/*.
+- Cloudflare R2: lib/r2.ts wraps S3Client. Public base URL via CLOUDFLARE_PUBLIC_URL. Key spaces: uploads/_, inspections/{inspectionId}/_, reports/inspection-{id}/\*.
 
 Media rules (critical)
 
@@ -29,8 +29,8 @@ AI analysis (async pipeline)
 
 Reports (PDF/HTML)
 
-- POST /api/reports/generate builds HTML with lib/pdfTemplate.generateInspectionReportHTML, inlines R2 images via getR2ObjectAsDataURI, renders with puppeteer-core, uploads to R2 via lib/r2.uploadReportToR2, and returns a PDF. The permanent link is proxied through /api/reports/file?key=... (also returned in x-permanent-url header when saved).
-- POST /api/reports/upload-html rewrites <img>/<source>/srcset/background-image URLs to data URIs when possible, or copies assets into reports/* via copyInR2, then saves and proxies via /api/reports/file.
+- POST /api/reports/generate builds HTML with lib/pdfTemplate.generateInspectionReportHTML, inlines R2 images via getR2ObjectAsDataURI, renders with puppeteer-core, uploads to R2 via lib/r2.uploadReportToR2, and returns a JSON response with the download URL (not the PDF itself to avoid Fast Origin Transfer quota consumption). The permanent link is proxied through /api/reports/file?key=... Response format: { success: true, downloadUrl: string, filename: string }
+- POST /api/reports/upload-html rewrites <img>/<source>/srcset/background-image URLs to data URIs when possible, or copies assets into reports/\* via copyInR2, then saves and proxies via /api/reports/file.
 - Numbering and costs: pdfTemplate computes display_number as Section.Subsection.Defect; total cost is base_cost multiplied by (1 + additional_images.length). Maintain base_cost when adding photos.
 
 Image editor contract
@@ -39,12 +39,12 @@ Image editor contract
 
 Information sections (persistence)
 
-- components/InformationSections.tsx persists per-inspection UI state to localStorage with keys: inspection_checklists_${inspectionId}, inspection_hidden_checklists_${inspectionId}, pendingAnnotation, returnToSection. Reordering templates uses reorder mode stored in-memory.
+- components/InformationSections.tsx persists per-inspection UI state to localStorage with keys: inspection*checklists*${inspectionId}, inspection_hidden_checklists_${inspectionId}, pendingAnnotation, returnToSection. Reordering templates uses reorder mode stored in-memory.
 
 Conventions and gotchas
 
 - Heavy routes (puppeteer, AWS SDK) must export: export const runtime = 'nodejs'; export const dynamic = 'force-dynamic'; optionally export const maxDuration.
-- next.config.mjs externalizes puppeteer-core/@sparticuz/* and exifr for server; client chunkLoadTimeout is increased to reduce ChunkLoadError; InformationSections is split into its own chunk.
+- next.config.mjs externalizes puppeteer-core/@sparticuz/\* and exifr for server; client chunkLoadTimeout is increased to reduce ChunkLoadError; InformationSections is split into its own chunk.
 - R2 helpers: use extractR2KeyFromUrl/resolveR2KeyFromUrl to derive keys; use getR2ObjectAsDataURI for inlining; use copyInR2 for server-side copies.
 - 360° photos: components/ThreeSixtyViewer.tsx is dynamically loaded (SSR off) and always feeds images through /api/proxy-image.
 
@@ -54,4 +54,4 @@ Environment (min set)
 
 Quick jump points
 
-- lib/r2.ts (R2 helpers), lib/pdfTemplate.ts (report HTML), src/app/api/proxy-image/route.ts (robust proxy), src/app/api/llm/analyze-image/route.ts and src/app/api/process-analysis/route.ts (AI flow), src/app/api/reports/* (report generation/storage).
+- lib/r2.ts (R2 helpers), lib/pdfTemplate.ts (report HTML), src/app/api/proxy-image/route.ts (robust proxy), src/app/api/llm/analyze-image/route.ts and src/app/api/process-analysis/route.ts (AI flow), src/app/api/reports/\* (report generation/storage).
