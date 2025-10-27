@@ -4404,9 +4404,11 @@ export default function Page() {
           : URL.createObjectURL(section.image)
       }
       mainLocation={section.location}
+      mainIsThreeSixty={(section as any).isThreeSixty === true}
       additionalPhotos={(section as any).additional_images.map((img: any) => ({
         url: getProxiedSrc(img.url),
-        location: img.location
+        location: img.location,
+        isThreeSixty: img.isThreeSixty === true
       }))}
     />
   ) : (

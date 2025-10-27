@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import HeaderImageUploader from './HeaderImageUploader';
 import LocationSearch from './LocationSearch';
+import FileUpload from './FileUpload';
 import { LOCATION_OPTIONS } from '../constants/locations';
 import dynamic from 'next/dynamic';
 
@@ -76,7 +77,7 @@ interface Defect {
   thumbnail: string;
   video: string;
   isThreeSixty?: boolean; // 360° photo flag
-  additional_images?: Array<{ url: string; location: string }>; // Multiple location photos
+  additional_images?: Array<{ url: string; location: string; isThreeSixty?: boolean }>; // Multiple location photos (supports 360)
   base_cost?: number; // Base cost from AI analysis
 }
 
@@ -109,6 +110,11 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
   // Scroll to top button state
   const [showScrollTop, setShowScrollTop] = useState(false);
   const modalBodyRef = useRef<HTMLDivElement | null>(null);
+
+  // Bulk add state for additional location photos
+  const [bulkAddOpen, setBulkAddOpen] = useState<boolean>(false);
+  const [bulkItems, setBulkItems] = useState<Array<{ file: File; preview: string; location: string; isThreeSixty: boolean }>>([]);
+  const [bulkSaving, setBulkSaving] = useState<boolean>(false);
 
 
 
@@ -217,7 +223,7 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
               const nextImages = [...(d.additional_images || [])];
               // Avoid duplicates
               if (!nextImages.some((img) => img.url === data.photo?.url)) {
-                nextImages.push({ url: data.photo?.url, location: data.photo?.location || '' });
+                nextImages.push({ url: data.photo?.url, location: data.photo?.location || '', isThreeSixty: !!data.photo?.isThreeSixty });
               }
               return { ...d, additional_images: nextImages };
             }));
@@ -229,7 +235,7 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
               const baseArr = (prev.additional_images as any) || curr?.additional_images || [];
               const nextArr = [...baseArr];
               if (!nextArr.some((img: any) => img.url === data.photo?.url)) {
-                nextArr.push({ url: data.photo?.url, location: data.photo?.location || '' });
+                nextArr.push({ url: data.photo?.url, location: data.photo?.location || '', isThreeSixty: !!data.photo?.isThreeSixty });
               }
               return { ...prev, additional_images: nextArr };
             });
@@ -366,11 +372,7 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
     const defect = defects.find(d => d._id === editingId);
     if (!defect) return;
     
-    const currentCount = 1 + (defect.additional_images?.length || 0);
-    if (currentCount >= 10) {
-      alert('Maximum 10 location photos allowed');
-      return;
-    }
+    // No upper limit for number of location photos
 
     // Redirect to image editor with defect context
     const params = new URLSearchParams({
@@ -1080,25 +1082,137 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
                               <div style={{ marginTop: '1.5rem', padding: '1rem', backgroundColor: '#f8f9fa', borderRadius: '8px', border: '1px solid #dee2e6' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                                   <strong style={{ fontSize: '0.95rem', color: '#495057' }}>
-                                    📍 Additional Location Photos ({(displayDefect.additional_images?.length || 0) + 1}/10)
+                                    📍 Additional Location Photos ({displayDefect.additional_images?.length || 0})
                                   </strong>
                                   <button
-                                    onClick={handleAddLocationPhoto}
-                                    disabled={(displayDefect.additional_images?.length || 0) >= 9}
+                                    onClick={() => setBulkAddOpen((v) => !v)}
                                     style={{
-                                      padding: '0.5rem 1rem',
-                                      backgroundColor: (displayDefect.additional_images?.length || 0) >= 9 ? '#6c757d' : '#8230c9',
+                                      padding: '0.6rem 1.2rem',
+                                      backgroundColor: '#4f46e5',
                                       color: 'white',
                                       border: 'none',
-                                      borderRadius: '4px',
-                                      cursor: (displayDefect.additional_images?.length || 0) >= 9 ? 'not-allowed' : 'pointer',
-                                      fontSize: '0.85rem',
-                                      fontWeight: 500,
+                                      borderRadius: '8px',
+                                      cursor: 'pointer',
+                                      fontSize: '0.9rem',
+                                      fontWeight: 600,
+                                      boxShadow: '0 2px 4px rgba(79, 70, 229, 0.2)',
+                                      transition: 'all 0.2s ease',
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      e.currentTarget.style.backgroundColor = '#4338ca';
+                                      e.currentTarget.style.transform = 'translateY(-1px)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      e.currentTarget.style.backgroundColor = '#4f46e5';
+                                      e.currentTarget.style.transform = 'translateY(0)';
                                     }}
                                   >
-                                    + Add Location Photo
+                                    {bulkAddOpen ? 'Close' : 'Add Another Locations For This Defect'}
                                   </button>
                                 </div>
+
+                                {bulkAddOpen && (
+                                  <div style={{
+                                    marginBottom: '1rem',
+                                    padding: '0.75rem',
+                                    background: '#f8fafc',
+                                    border: '1px solid #e5e7eb',
+                                    borderRadius: 8
+                                  }}>
+                                    <p style={{ margin: '0 0 8px 0', color: '#374151', fontWeight: 600 }}>Select multiple photos and set a location for each:</p>
+                                    <FileUpload
+                                      onFilesSelect={(files) => {
+                                        const mapped = files.map((file) => ({
+                                          file,
+                                          preview: URL.createObjectURL(file),
+                                          location: '',
+                                          isThreeSixty: false,
+                                        }));
+                                        setBulkItems((prev) => [...prev, ...mapped]);
+                                      }}
+                                    />
+                                    {bulkItems.length > 0 && (
+                                      <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                                        {bulkItems.map((item, i) => (
+                                          <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'center', background: 'white', border: '1px solid #e5e7eb', borderRadius: 8, padding: 10 }}>
+                                            <img src={item.preview} alt={`bulk-${i}`} style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 6 }} />
+                                            <div style={{ flex: 1 }}>
+                                              <label style={{ display: 'block', fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Location</label>
+                                              <LocationSearch
+                                                options={LOCATION_OPTIONS}
+                                                value={item.location}
+                                                onChangeAction={(val) => setBulkItems((prev) => {
+                                                  const copy = [...prev];
+                                                  copy[i] = { ...copy[i], location: val };
+                                                  return copy;
+                                                })}
+                                                placeholder="Type to search…"
+                                                width={260}
+                                              />
+                                              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 12, color: '#374151' }}>
+                                                <input type="checkbox" checked={item.isThreeSixty} onChange={(e) => setBulkItems((prev) => {
+                                                  const copy = [...prev];
+                                                  copy[i] = { ...copy[i], isThreeSixty: e.target.checked };
+                                                  return copy;
+                                                })} />
+                                                This is a 360° photo
+                                              </label>
+                                            </div>
+                                            <button
+                                              onClick={() => setBulkItems((prev) => prev.filter((_, idx) => idx !== i))}
+                                              style={{ padding: '0.4rem 0.8rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}
+                                            >
+                                              Remove
+                                            </button>
+                                          </div>
+                                        ))}
+                                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                                          <button
+                                            disabled={bulkSaving || bulkItems.length === 0}
+                                            onClick={async () => {
+                                              if (!editingId) return;
+                                              const defect = defects.find(d => d._id === editingId);
+                                              if (!defect) return;
+                                              setBulkSaving(true);
+                                              try {
+                                                const updatedImages = [...(defect.additional_images || [])];
+                                                for (const item of bulkItems) {
+                                                  const fd = new FormData();
+                                                  fd.append('file', item.file);
+                                                  const uploadRes = await fetch('/api/r2api', { method: 'POST', body: fd });
+                                                  if (!uploadRes.ok) throw new Error('Upload failed');
+                                                  const { url } = await uploadRes.json();
+                                                  updatedImages.push({ url, location: item.location || defect.location || '', isThreeSixty: item.isThreeSixty });
+                                                }
+                                                // Persist via PATCH
+                                                const resp = await fetch(`/api/defects/${editingId}`, {
+                                                  method: 'PATCH',
+                                                  headers: { 'Content-Type': 'application/json' },
+                                                  body: JSON.stringify({ inspection_id: defect.inspection_id, additional_images: updatedImages })
+                                                });
+                                                if (!resp.ok) throw new Error('Failed to save');
+                                                // Update local state
+                                                setDefects(prev => prev.map(d => d._id === editingId ? { ...d, additional_images: updatedImages } : d));
+                                                setEditedValues(prev => ({ ...prev, additional_images: updatedImages }));
+                                                setBulkItems([]);
+                                                setBulkAddOpen(false);
+                                              } catch (e) {
+                                                alert('Failed to add photos. Please try again.');
+                                                console.error(e);
+                                              } finally {
+                                                setBulkSaving(false);
+                                              }
+                                            }}
+                                            style={{ padding: '0.5rem 0.9rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}
+                                          >
+                                            {bulkSaving ? 'Saving…' : 'Add All'}
+                                          </button>
+                                          <button onClick={() => { setBulkItems([]); setBulkAddOpen(false); }} style={{ padding: '0.5rem 0.9rem', background: '#e5e7eb', color: '#111827', border: 'none', borderRadius: 8, cursor: 'pointer' }}>Cancel</button>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
                                 
                                 {displayDefect.additional_images && displayDefect.additional_images.length > 0 && (
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -1113,15 +1227,13 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
                                           <label style={{ display: 'block', fontSize: '0.8rem', color: '#6c757d', marginBottom: '0.25rem' }}>
                                             Location:
                                           </label>
-                                          <select
+                                          <LocationSearch
+                                            options={LOCATION_OPTIONS}
                                             value={img.location}
-                                            onChange={(e) => handleUpdateLocationForImage(idx, e.target.value)}
-                                            style={{ width: '100%', padding: '0.4rem', fontSize: '0.85rem', border: '1px solid #ced4da', borderRadius: '4px' }}
-                                          >
-                                            {LOCATION_OPTIONS.map(loc => (
-                                              <option key={loc} value={loc}>{loc}</option>
-                                            ))}
-                                          </select>
+                                            onChangeAction={(val) => handleUpdateLocationForImage(idx, val)}
+                                            placeholder="Type to search…"
+                                            width={260}
+                                          />
                                         </div>
                                         <button
                                           onClick={() => handleRemoveLocationPhoto(idx)}

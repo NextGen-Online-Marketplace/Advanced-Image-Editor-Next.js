@@ -1519,8 +1519,11 @@
   
   .defect-edit-modal {
     margin: 0;
-    max-height: 100vh;
-    height: 100vh;
+    /* Use dynamic viewport height on iOS Safari to avoid hidden footer */
+    max-height: 100vh; /* fallback */
+    height: 100vh;     /* fallback */
+    height: 100svh;    /* small viewport units */
+    height: 100dvh;    /* dynamic viewport units */
     border-radius: 0;
     width: 100vw;
   }
@@ -1558,14 +1561,19 @@
     flex: 1;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
+    /* Make room for sticky footer + iOS safe area so last controls aren't hidden */
+    padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
   }
   
   .modal-footer {
     padding: 12px 16px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
     position: sticky;
     bottom: 0;
     background: #f8fafc;
     border-top: 2px solid #e5e7eb;
+    /* Create own stacking context so it sits above content */
+    z-index: 2;
   }
   
   .header-image-section {

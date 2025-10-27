@@ -2,6 +2,8 @@
 
 A modern, feature-rich image editor built with Next.js, TypeScript, and Tailwind CSS.
 
+> Looking for the full product and architecture overview? Read the comprehensive guide: `docs/Project-Guide.md`.
+
 ## Features
 
 ### Image Editing
@@ -114,20 +116,23 @@ Note: This endpoint uses Puppeteer and requires a Node.js runtime (already confi
 ## File Size Limits
 
 ### Image & Video Upload Limits
+
 - **Maximum File Size**: 200MB per file
-- **Supported Formats**: 
+- **Supported Formats**:
   - Images: JPEG, PNG, WebP, HEIC/HEIF (iPhone photos)
   - Videos: MP4, MOV, WebM, 3GP
 - **360° Photos**: Supported up to 200MB
 - **Warning Threshold**: 150MB (shows compression recommendation)
 
 ### Server Requirements
+
 - **Vercel Pro Plan**: Required for files over 100MB
 - **Vercel Hobby Plan**: Limited to 4.5MB (upgrade recommended)
 - **Processing Time**: Up to 60 seconds for large files
 - **HEIC Conversion**: Automatic conversion to JPEG for iPhone photos
 
 ### Optimization Tips
+
 - Use TinyPNG or Squoosh for image compression
 - Target under 10MB for best performance
 - 360° photos: Compress to 8K resolution for optimal balance

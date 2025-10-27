@@ -424,17 +424,12 @@ export default function ImageEditorPage() {
         // Add new photo to additional_images array
         const additionalImages = currentDefect.additional_images || [];
         
-        // Check if we've reached the limit of 10 photos
-        if (additionalImages.length >= 10) {
-          alert('Maximum 10 location photos per defect. Please remove an existing photo first.');
-          setIsSubmitting(false);
-          setSubmitStatus('');
-          return;
-        }
+        // No upper limit for additional location photos
 
         additionalImages.push({
           url: uploadData.url,
-          location: selectedLocation2
+          location: selectedLocation2,
+          isThreeSixty
         });
 
         // Update defect with new additional_images
@@ -457,7 +452,7 @@ export default function ImageEditorPage() {
           const notice = {
             inspectionId: selectedInspectionId,
             defectId,
-            photo: { url: uploadData.url, location: selectedLocation2 },
+            photo: { url: uploadData.url, location: selectedLocation2, isThreeSixty },
             timestamp: Date.now()
           };
           localStorage.setItem('pendingAdditionalLocationPhoto', JSON.stringify(notice));

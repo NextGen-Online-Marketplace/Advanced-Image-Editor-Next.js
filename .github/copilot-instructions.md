@@ -1,57 +1,180 @@
-## Copilot guide for this repo (concise and specific)
+# Copilot Instructions for Advanced Image Editor / Inspection Reporting Platform
 
-What this is
+## Architecture Overview
 
-- Next.js 13.4 App Router app for property inspections: image editing, AI defect analysis, and PDF/HTML report generation.
-- Tech: TypeScript, MongoDB, Cloudflare R2 (S3-compatible), OpenAI Assistants, Upstash QStash, puppeteer-core + @sparticuz/chromium-min, Zustand, Tailwind.
+This is a Next.js 13 (App Router) inspection reporting platform with three-tier architecture:
 
-Run locally
+- **Frontend**: React 18 + TypeScript client components with inline styles and Tailwind
+- **Backend**: Next.js API routes (serverless) accessing MongoDB Atlas and Cloudflare R2
+- **Storage**: Binary assets in R2 (S3-compatible), inspection data in MongoDB with Mongoose models
 
-- Node 22.x. Install: npm install. Dev: npm run dev. Build: npm run build. Lint: npm run lint.
-- PDF routes use Chromium. On Windows set PUPPETEER_EXECUTABLE_PATH (e.g., C:\Program Files\Google\Chrome\Application\chrome.exe). In serverless, set CHROMIUM_PACK_URL.
+**Critical principle**: Large files (PDFs, HTML exports) are NEVER streamed in API responses. APIs return small JSON payloads with proxied download URLs (`/api/reports/file?key=...`) to avoid high origin transfer costs.
 
-Architecture (where things live)
+## Project Structure
 
-- UI: components/ (e.g., ImageEditor.tsx, InformationSections.tsx). App routes: src/app/\*_/route.ts. Domain logic: lib/_.ts. Types/models: types/_, models/_.
-- MongoDB: lib/mongodb.ts caches a global client; DB is "agi_inspections_db". lib/inspection.ts and lib/defect.ts handle ObjectId storage and updates.
-- Cloudflare R2: lib/r2.ts wraps S3Client. Public base URL via CLOUDFLARE_PUBLIC_URL. Key spaces: uploads/_, inspections/{inspectionId}/_, reports/inspection-{id}/\*.
+- `src/app/` - App Router pages and API routes
+  - `inspection_report/[id]/page.tsx` - Main report builder UI (4800+ lines, inline styled)
+  - `api/**/route.ts` - Serverless endpoints (all use `export const runtime = "nodejs"` and `export const dynamic = "force-dynamic"`)
+- `components/` - All client components (`"use client"` directive required)
+  - `InformationSections.tsx` - Core 5000+ line feature: template-driven checklists with drag-drop, collapsible sections, and bi-directional sync
+- `lib/` - Service layer (MongoDB, R2, PDF generation, stores)
+- `src/models/` - Mongoose schemas (Section, SectionChecklist, InspectionInformationBlock)
+- `types/` - TypeScript definitions for external deps (Chromium, Cloudflare, LLM)
+- `public/report-template/` - Static HTML/CSS for report rendering
 
-Media rules (critical)
+## Key Conventions
 
-- Always render remote media via the hardened proxy: /api/proxy-image?url=... It normalizes TLS/ports and falls back to R2 SDK GetObject. Example: const src = url?.startsWith('data:') ? url : `/api/proxy-image?url=${encodeURIComponent(url)}`.
-- Uploads: prefer presigned browser uploads via GET /api/r2api?action=presigned&fileName=...&contentType=... then PUT; the app should send only the resulting public URL to APIs.
-- Server upload endpoint /api/r2api (POST) accepts images and videos up to 200MB and converts HEIC/HEIF to JPEG.
+### API Routes Pattern
 
-AI analysis (async pipeline)
+Every API route in `src/app/api/**/route.ts` must export:
 
-- POST /api/llm/analyze-image accepts JSON or multipart; uploads media to R2; enqueues QStash to call /api/process-analysis.
-- /api/process-analysis is wrapped with verifySignatureAppRouter; runs an OpenAI Assistant; persists a defect via lib/defect.createDefect.
+```typescript
+export const runtime = "nodejs"; // Required for Puppeteer, R2, MongoDB
+export const dynamic = "force-dynamic"; // Disable caching
+export const maxDuration = 60; // For heavy operations (PDF, large uploads)
+```
 
-Reports (PDF/HTML)
+### Client/Server Boundaries
 
-- POST /api/reports/generate builds HTML with lib/pdfTemplate.generateInspectionReportHTML, inlines R2 images via getR2ObjectAsDataURI, renders with puppeteer-core, uploads to R2 via lib/r2.uploadReportToR2, and returns a JSON response with the download URL (not the PDF itself to avoid Fast Origin Transfer quota consumption). The permanent link is proxied through /api/reports/file?key=... Response format: { success: true, downloadUrl: string, filename: string }
-- POST /api/reports/upload-html rewrites <img>/<source>/srcset/background-image URLs to data URIs when possible, or copies assets into reports/\* via copyInR2, then saves and proxies via /api/reports/file.
-- Numbering and costs: pdfTemplate computes display_number as Section.Subsection.Defect; total cost is base_cost multiplied by (1 + additional_images.length). Maintain base_cost when adding photos.
+- All `/components/*.tsx` files require `"use client"` directive (React hooks, event handlers, canvas)
+- Use `dynamic()` import for browser-only libs like `ThreeSixtyViewer` (pannellum.js):
+  ```typescript
+  const ThreeSixtyViewer = dynamic(
+    () => import("@/components/ThreeSixtyViewer"),
+    { ssr: false }
+  );
+  ```
 
-Image editor contract
+### R2 Storage Patterns (`lib/r2.ts`)
 
-- src/app/image-editor/page.tsx dispatches DOM CustomEvents: undoAction, redoAction, rotateImage, applyCrop, setArrowColor (plus circle/square). components/ImageEditor.tsx listens and records actions in actionHistory; use renderMetricsRef.current.{offsetX,offsetY,drawWidth,drawHeight} for coordinate transforms.
+1. **Upload**: `uploadToR2(buffer, key, contentType)` → returns public URL
+2. **Copy**: `copyInR2(srcKey, destKey)` → duplicate R2 objects without download
+3. **Inline**: `getR2ObjectAsDataURI(key)` → convert to base64 data URI for embedding
+4. **Proxy**: `/api/reports/file?key=<r2-key>` and `/api/proxy-image?url=<url>` for CORS-safe access
 
-Information sections (persistence)
+**Key structure**:
 
-- components/InformationSections.tsx persists per-inspection UI state to localStorage with keys: inspection*checklists*${inspectionId}, inspection_hidden_checklists_${inspectionId}, pendingAnnotation, returnToSection. Reordering templates uses reorder mode stored in-memory.
+- `inspections/{id}/...` - inspection images/videos
+- `reports/inspection-{id}/...` - exported HTML/PDF and report-specific assets
+- Use `extractR2KeyFromUrl()` or `resolveR2KeyFromUrl()` helpers for URL parsing
 
-Conventions and gotchas
+### Report Generation Flow
 
-- Heavy routes (puppeteer, AWS SDK) must export: export const runtime = 'nodejs'; export const dynamic = 'force-dynamic'; optionally export const maxDuration.
-- next.config.mjs externalizes puppeteer-core/@sparticuz/\* and exifr for server; client chunkLoadTimeout is increased to reduce ChunkLoadError; InformationSections is split into its own chunk.
-- R2 helpers: use extractR2KeyFromUrl/resolveR2KeyFromUrl to derive keys; use getR2ObjectAsDataURI for inlining; use copyInR2 for server-side copies.
-- 360° photos: components/ThreeSixtyViewer.tsx is dynamically loaded (SSR off) and always feeds images through /api/proxy-image.
+**HTML Export** (`/api/reports/upload-html`):
 
-Environment (min set)
+1. Rewrite all `<img>`, `<source>`, `srcset`, `background-image` URLs
+2. Inline eligible R2 images as data URIs (PNG/JPEG up to ~3MB)
+3. Copy non-inlined assets to `reports/inspection-{id}/images/...`
+4. Upload final HTML to R2, persist `htmlReportUrl` in MongoDB
+5. Return JSON: `{ success: true, url: "/api/reports/file?key=...", html: "..." }`
 
-- MONGODB_URI, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_R2_BUCKET, CLOUDFLARE_R2_ACCESS_KEY_ID, CLOUDFLARE_R2_SECRET_ACCESS_KEY, CLOUDFLARE_PUBLIC_URL, OPENAI_API_KEY, OPENAI_ASSISTANT_ID, QSTASH_TOKEN, NEXT_PUBLIC_BASE_URL.
+**PDF Export** (`/api/reports/generate`):
 
-Quick jump points
+1. Pre-process defects + meta to inline R2 images as data URIs via `maybeInline(url)`
+2. Render HTML with `generateInspectionReportHTML()` from `lib/pdfTemplate.ts`
+3. Launch Puppeteer with `@sparticuz/chromium-min` (serverless-compatible)
+4. Upload PDF to R2, update MongoDB with `pdfReportUrl`
+5. Return JSON: `{ success: true, downloadUrl: "/api/reports/file?key=...", filename: "..." }`
 
-- lib/r2.ts (R2 helpers), lib/pdfTemplate.ts (report HTML), src/app/api/proxy-image/route.ts (robust proxy), src/app/api/llm/analyze-image/route.ts and src/app/api/process-analysis/route.ts (AI flow), src/app/api/reports/\* (report generation/storage).
+### MongoDB Patterns (`lib/mongodb.ts`, `lib/inspection.ts`, `lib/defect.ts`)
+
+- Singleton client cached in `global._mongoClientPromise` (Vercel serverless requirement)
+- Use Mongoose models in `src/models/` (auto-created indexes, timestamps)
+- Service functions: `createInspection()`, `updateInspection()`, `getDefectsByInspection()`, etc.
+- All API routes import from `lib/` layer, never direct MongoDB calls
+
+### AI Analysis (`/api/process-analysis`)
+
+- OpenAI Assistants API with Vision (`image_url` message part)
+- Converts data URIs to R2 before sending to API (avoids token bloat)
+- Parses JSON response for `materials_total_cost`, `labor_rate`, `hours_required`
+- Computes `totalCost = materials + (labor_rate * hours)` and stores as `base_cost`
+- Tune pricing via Assistant's System Instructions; optionally hard-cap values server-side
+
+### Environment Variables (`env.d.ts`)
+
+Required for all environments:
+
+```
+OPENAI_API_KEY, OPENAI_ASSISTANT_ID
+MONGODB_URI
+CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_R2_BUCKET
+CLOUDFLARE_R2_ACCESS_KEY_ID, CLOUDFLARE_R2_SECRET_ACCESS_KEY
+CLOUDFLARE_R2_ENDPOINT, CLOUDFLARE_PUBLIC_URL
+```
+
+Locally add `PUPPETEER_EXECUTABLE_PATH` if Chrome not auto-detected.
+
+## Development Workflow
+
+```powershell
+# Install dependencies
+npm install
+
+# Run dev server (http://localhost:3000)
+npm run dev
+
+# Build production
+npm run build
+
+# Start production build locally
+npm run start
+
+# 360° photo tests
+npm run test:360          # Quick test
+npm run test:360:full     # Full E2E
+```
+
+## Critical Implementation Details
+
+### InformationSections Component
+
+- 5000+ line component managing template-driven checklists (Status, Limitations, Information)
+- **Collapsible logic**: Status and Limitations items collapse by default when selected
+- **Default-checked sync**: Template flag must match selection state (can't be default=true if unselected)
+- **Drag-drop**: Reorder mode for template items (Status/Limitations) and answer choices (horizontal/vertical detection)
+- **Custom answers**: Inspection-specific answers tracked separately from template choices
+- State managed via hooks, no external store; saves to `/api/information-sections/[inspectionId]`
+
+### Image/Video Upload Limits
+
+- Max 200MB per file (requires Vercel Pro for >100MB)
+- HEIC/HEIF auto-converted to JPEG via `heic-convert` or `heic2any`
+- 360° photos flagged with `isThreeSixty` boolean; rendered via `@photo-sphere-viewer/core`
+
+### Styling Approach
+
+- Mix of Tailwind utilities and inline styles (especially in `inspection_report/[id]/page.tsx`)
+- Module CSS for specific components (`DefectPhotoGrid.module.css`, `user-report.module.css`)
+- Global styles in `src/app/globals.css` and `public/shared-report-styles.css`
+- No styled-components or CSS-in-JS library
+
+### Next.js Configuration (`next.config.mjs`)
+
+- `serverComponentsExternalPackages`: Exclude Puppeteer, Chromium, exifr from bundling
+- Webpack externals for server to prevent ESM parse errors
+- Client-side `chunkLoadTimeout: 300000` (5 min) for slow networks
+- Custom chunk splitting for `InformationSections` (priority: 10)
+
+## Common Gotchas
+
+1. **PDF generation timeouts**: Ensure `maxDuration = 60` and `runtime = "nodejs"` in route
+2. **Missing images in exports**: Check `CLOUDFLARE_PUBLIC_URL` env var and R2 key extraction logic
+3. **High repair costs from AI**: Adjust OpenAI Assistant's System Instructions with conservative ranges (GC $50-75/h, 1-2h fixes, retail material costs); optionally cap in `process-analysis/route.ts`
+4. **Mongoose model caching**: Use `mongoose.models.X || mongoose.model(...)` pattern to avoid recompilation errors in serverless
+5. **ChunkLoadError**: Already mitigated with 5-min timeout + vendor chunk splitting; if persists, check network conditions
+
+## Extension Points
+
+- **New checklist types**: Extend `ISectionChecklist` interface; update `InformationSections.tsx` filter logic
+- **New export formats**: Follow HTML/PDF pattern in `/api/reports/*`; upload to R2, return proxied URL JSON
+- **Custom AI pricing logic**: Modify `process-analysis/route.ts` after polling Assistant response; add server-side validations/caps
+
+## Reference Files
+
+- Architecture: `docs/Project-Guide.md`
+- Main UX logic: `components/InformationSections.tsx`
+- Report builder: `src/app/inspection_report/[id]/page.tsx`
+- R2 integration: `lib/r2.ts`
+- PDF generation: `src/app/api/reports/generate/route.ts`, `lib/pdfTemplate.ts`
+- HTML export: `src/app/api/reports/upload-html/route.ts`

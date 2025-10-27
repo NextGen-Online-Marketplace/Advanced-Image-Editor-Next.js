@@ -3080,8 +3080,15 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                         const isStatus = clType === 'status';
                         
                         return (
-                          <div key={clId} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.625rem', padding: '0.375rem 0' }}>
+                          <div key={clId} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', paddingBottom: '0.5rem', borderBottom: '1px solid #f1f5f9' }}>
+                            <div style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: isMobile ? '0.5rem' : '0.625rem',
+                              padding: '0.375rem 0',
+                              flexDirection: 'row',
+                              flexWrap: 'wrap'
+                            }}>
                               {/* Spectora-style type indicator - checkbox for status, badge for others */}
                               {isStatus ? (
                                 <input
@@ -3094,8 +3101,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                     height: '18px',
                                     cursor: 'default',
                                     accentColor: '#3b82f6',
-                                    flexShrink: 0,
-                                    marginTop: '0.125rem'
+                                    flexShrink: 0
                                   }}
                                   title="Maintenance Item (selected)"
                                 />
@@ -3110,21 +3116,26 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                   textTransform: 'capitalize' as const,
                                   flexShrink: 0,
                                   lineHeight: 1.2,
-                                  minWidth: '120px',
-                                  textAlign: 'center'
+                                  minWidth: isMobile ? undefined : '120px',
+                                  textAlign: isMobile ? 'left' : 'center',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center'
                                 }}>
                                   {clType === 'information' ? 'Information' : 'Limitation'}
                                 </span>
                               )}
-                              <span style={{ fontWeight: 500, color: '#111827', lineHeight: 1.5 }}>{clText}</span>
+                              <span style={{ fontWeight: 600, color: '#111827', lineHeight: 1.45, whiteSpace: 'normal', flex: 1, minWidth: 0 }}>{clText}</span>
                             </div>
                             {typeof cl === 'object' && cl?.comment && cl.comment.trim() !== '' && (
                               <div style={{ 
-                                marginLeft: '8.125rem', 
+                                marginLeft: isMobile ? (isStatus ? '2rem' : 0) : '8.125rem', 
                                 color: '#6b7280',
                                 fontSize: '0.8125rem',
                                 paddingTop: '0.125rem',
-                                lineHeight: 1.5
+                                lineHeight: 1.6,
+                                whiteSpace: 'normal',
+                                wordBreak: 'break-word'
                               }}>
                                 {cl.comment}
                               </div>
@@ -3431,7 +3442,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                 </div>
                               )}
                               {cl.comment && (
-                                <div style={{ marginLeft: '1.75rem', marginTop: '0.375rem', color: '#6b7280', fontSize: '0.8125rem', lineHeight: 1.5 }}>
+                                <div style={{ marginLeft: '0.5rem', marginTop: '0.375rem', color: '#6b7280', fontSize: '0.8125rem', lineHeight: 1.5 }}>
                                   {cl.comment.length > 150 ? cl.comment.slice(0, 150) + '…' : cl.comment}
                                 </div>
                               )}
@@ -3698,7 +3709,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
 
                           {/* Image upload section - show only when item is selected and expanded */}
                           {isSelected && isStatusExpanded(cl._id) && (
-                            <div style={{ marginTop: '0.75rem', marginLeft: '1.75rem', paddingTop: '0.75rem', borderTop: '1px solid #e5e7eb' }}>
+                            <div style={{ marginTop: '0.75rem', marginLeft: '0.5rem', paddingTop: '0.75rem', borderTop: '1px solid #e5e7eb' }}>
                               {/* 360° Photo Checkbox */}
                               <div 
                                 onPointerDown={(e) => {
@@ -4142,7 +4153,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                 </div>
                               )}
                               {cl.comment && (
-                                <div style={{ marginLeft: '1.75rem', marginTop: '0.375rem', color: '#6b7280', fontSize: '0.8125rem', lineHeight: 1.5 }}>
+                                <div style={{ marginLeft: '0.5rem', marginTop: '0.375rem', color: '#6b7280', fontSize: '0.8125rem', lineHeight: 1.5 }}>
                                   {cl.comment.length > 150 ? cl.comment.slice(0, 150) + '…' : cl.comment}
                                 </div>
                               )}
@@ -4404,7 +4415,7 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
 
                           {/* Image upload section - show only when item is selected and expanded */}
                           {isSelected && isLimitExpanded(cl._id) && (
-                            <div style={{ marginTop: '0.75rem', marginLeft: '1.75rem', paddingTop: '0.75rem', borderTop: '1px solid #e5e7eb' }}>
+                            <div style={{ marginTop: '0.75rem', marginLeft: '0.5rem', paddingTop: '0.75rem', borderTop: '1px solid #e5e7eb' }}>
                               {/* 360° Photo Checkbox */}
                               <div 
                                 onPointerDown={(e) => {
