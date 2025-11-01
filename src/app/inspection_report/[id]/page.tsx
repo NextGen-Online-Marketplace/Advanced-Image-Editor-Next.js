@@ -350,6 +350,228 @@ export default function Page() {
   };
 
 
+  // Escape HTML for safe export/rendering of dynamic information sections
+  const escapeHtml = (s: any) =>
+    String(s ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+  // Reusable generator for Information Section HTML (used for export and on-screen rendering)
+  const generateInformationSectionHTMLForExport = (block: any): string => {
+    const allItems = block?.selected_checklist_ids || [];
+    const itemsArray: any[] = Array.isArray(allItems) ? allItems : [];
+    const sortedItems = itemsArray.some((i) => i && typeof i === 'object')
+      ? [...itemsArray].sort((a, b) => {
+          const ao = typeof a?.order_index === 'number' ? a.order_index : Number.POSITIVE_INFINITY;
+          const bo = typeof b?.order_index === 'number' ? b.order_index : Number.POSITIVE_INFINITY;
+          return ao - bo;
+        })
+      : itemsArray;
+    const hasContent = (sortedItems?.length ?? 0) > 0 || !!block?.custom_text;
+    if (!hasContent) return '';
+
+    // Preprocess long paragraphs for better readability in HTML export/on-screen
+    const formatTextForHTML = (text: string): string => {
+      if (!text) return '';
+      let preprocessed = text
+        .replace(/(Purpose:)(\s*The home)/g, '$1\n\n$2')
+        .replace(/(sections\.)(\s*No responsibility)/g, '$1\n\n$2')
+        .replace(/(purpose\.)(\s*Scope:)/g, '$1\n\n$2')
+        .replace(/(deadfront\.)(\s*Report Limitations)/g, '$1\n\n$2')
+        .replace(/(Report Limitations & Exclusions:)(\s*The Report)/g, '$1\n\n$2')
+        .replace(/(building\.)(\s*AGI accepts)/g, '$1\n\n$2')
+        .replace(/(building:)(\s*1\.\s)/g, '$1\n\n$2')
+        .replace(/(wiring\);)(\s*2\.\s)/g, '$1\n\n$2')
+        .replace(/(possible\.)(\s*In addition)/g, '$1\n\n$2')
+        .replace(/(them\.)(\s*Any area)/g, '$1\n\n$2')
+        .replace(/(Report\.)(\s*Descriptions in the Report)/g, '$1\n\n$2')
+        .replace(/(appliances\.)(\s*The Report:)/g, '$1\n\n$2')
+        .replace(/(property\.)(\s*AGI has not undertaken)/g, '$1\n\n$2')
+        .replace(/(property\.)(\s*No property survey)/g, '$1\n\n$2')
+        .replace(/(search\.)(\s*Unit Title Properties:)/g, '$1\n\n$2')
+        .replace(/(areas\.)(\s*AGI recommends)/g, '$1\n\n$2')
+        .replace(/(Corporate\.)(\s*Responsibility to Third Parties:)/g, '$1\n\n$2')
+        .replace(/(Report\.)(\s*AGI reserves)/g, '$1\n\n$2')
+        .replace(/(party\.)(\s*Publication:)/g, '$1\n\n$2')
+        .replace(/(inspector\.)(\s*Claims & Disputes:)/g, '$1\n\n$2')
+        .replace(/(matter\.)(\s*Any claim relating)/g, '$1\n\n$2')
+        .replace(/(Agreement\)\.)(\s*Except in the case)/g, '$1\n\n$2')
+        .replace(/(matter\.)(\s*Limitation of Liability:)/g, '$1\n\n$2')
+        .replace(/(client\.)(\s*AGI shall have no)/g, '$1\n\n$2')
+        .replace(/(loss\.)(\s*Subject to any)/g, '$1\n\n$2')
+        .replace(/(inspection\.)(\s*Consumer Guarantees Act:)/g, '$1\n\n$2')
+        .replace(/(law\.)(\s*Partial Invalidity:)/g, '$1\n\n$2')
+        .replace(/([a-z.,)])(\d+\.\s)/g, '$1\n$2');
+
+      const paragraphs = preprocessed.split('\n\n').filter((p) => p.trim());
+      return paragraphs
+        .map((p) => {
+          const trimmed = p.trim();
+          if (/^\d+\.\s/.test(trimmed)) {
+            return `<div style="margin-left: 1rem; margin-bottom: 0.5rem; font-size: 0.875rem; line-height: 1.6; color: #374151;">${escapeHtml(
+              trimmed
+            )}</div>`;
+          }
+          return `<p style="margin: 0 0 1rem 0; line-height: 1.6; font-size: 0.875rem; color: #374151;">${escapeHtml(
+            trimmed
+          )}</p>`;
+        })
+        .join('');
+    };
+
+    const statusItems = sortedItems.filter((item: any) => item.type === 'status');
+    const informationItems = sortedItems.filter((item: any) => item.type === 'information');
+
+    const selectedAnswersMap = new Map();
+    if (block?.selected_answers && Array.isArray(block.selected_answers)) {
+      block.selected_answers.forEach((entry: any) => {
+        if (entry.checklist_id && Array.isArray(entry.selected_answers)) {
+          selectedAnswersMap.set(entry.checklist_id, entry.selected_answers);
+        }
+      });
+    }
+
+    const statusItemsHtml = statusItems
+      .map((item: any) => {
+        const itemId = item._id || '';
+        const itemImages = (block.images || []).filter((img: any) => img.checklist_id === itemId);
+        const selectedAnswers = selectedAnswersMap.get(itemId) || [];
+        const parts = (item.text || '').split(':');
+        const label = parts[0]?.trim() || '';
+        const value = parts.slice(1).join(':').trim() || '';
+        const formattedComment = item.comment ? formatTextForHTML(item.comment) : '';
+        return `
+          <div class="rpt-info-grid-item">
+            <div>
+              <span style="font-weight: 700; color: #000000;">${escapeHtml(label)}:</span>${
+                value
+                  ? `
+              <span style="margin-left: 0.25rem; font-weight: 400; color: #6b7280;">
+                ${escapeHtml(value)}
+              </span>`
+                  : ''
+              }
+            </div>
+            ${
+              formattedComment
+                ? `
+            <div style="font-size: 0.875rem; color: #374151; line-height: 1.6; margin-top: 0.5rem;">
+              ${formattedComment}
+            </div>`
+                : ''
+            }
+            ${
+              selectedAnswers.length > 0
+                ? `
+            <div style="margin-left: 0.25rem; font-weight: 400; color: #6b7280; font-size: 0.875rem;">
+              ${selectedAnswers.map((ans: string) => escapeHtml(ans)).join(', ')}
+            </div>`
+                : ''
+            }
+            ${
+              itemImages.length > 0
+                ? `
+            <div class="rpt-info-images">
+              ${itemImages
+                .map(
+                  (img: any) => `
+              <div style="position: relative;">
+                ${/\.(mp4|mov|webm|3gp|3gpp|m4v)(\?.*)?$/i.test(img.url)
+                  ? `<video src="${escapeHtml(img.url)}" controls class="rpt-img rpt-info-image" style="background-color: #000;"></video>`
+                  : `<img src="${escapeHtml(img.url)}" alt="Item image" class="rpt-img rpt-info-image" />`}
+                ${img.location
+                  ? `
+                <div style="text-align: center; font-size: 0.75rem; color: #6b7280; margin-top: 0.25rem; font-weight: 500;">
+                  ${escapeHtml(img.location)}
+                </div>`
+                  : ''}
+              </div>`
+                )
+                .join('')}
+            </div>`
+                : ''
+            }
+          </div>`;
+      })
+      .join('');
+
+    const informationItemsHtml = informationItems
+      .map((item: any) => {
+        const itemId = item._id || '';
+        const itemImages = (block.images || []).filter((img: any) => img.checklist_id === itemId);
+        const selectedAnswers = selectedAnswersMap.get(itemId) || [];
+        const formattedComment = item.comment ? formatTextForHTML(item.comment) : '';
+        return `
+          <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+            <div style="font-weight: 700; color: #000000; font-size: 0.9375rem;">
+              ${escapeHtml(item.text || '')}
+            </div>
+            ${
+              formattedComment
+                ? `
+            <div style="font-size: 0.875rem; color: #374151; line-height: 1.6;">
+              ${formattedComment}
+            </div>`
+                : ''
+            }
+            ${
+              selectedAnswers.length > 0
+                ? `
+            <div style="margin-left: 0.75rem; font-size: 0.8125rem; color: #6b7280; line-height: 1.4;">
+              ${selectedAnswers.map((ans: string) => escapeHtml(ans)).join(', ')}
+            </div>`
+                : ''
+            }
+            ${
+              itemImages.length > 0
+                ? `
+            <div class="rpt-info-images" style="margin-left: 1rem; margin-top: 0.75rem;">
+              ${itemImages
+                .map(
+                  (img: any) => `
+              <div style="position: relative;">
+                ${/\.(mp4|mov|webm|3gp|3gpp|m4v)(\?.*)?$/i.test(img.url)
+                  ? `<video src="${escapeHtml(img.url)}" controls class="rpt-img rpt-info-image" style="background-color: #000;"></video>`
+                  : `<img src="${escapeHtml(img.url)}" alt="Item image" class="rpt-img rpt-info-image" />`}
+                ${img.location
+                  ? `
+                <div style="text-align: center; font-size: 0.75rem; color: #6b7280; margin-top: 0.25rem; font-weight: 500;">
+                  ${escapeHtml(img.location)}
+                </div>`
+                  : ''}
+              </div>`
+                )
+                .join('')}
+            </div>`
+                : ''
+            }
+          </div>`;
+      })
+      .join('');
+
+    return `
+    <div class="rpt-information-section">
+      <div class="rpt-info-header">
+        <h3 class="rpt-info-heading">INFORMATION</h3>
+      </div>
+      ${statusItems.length > 0 ? `
+      <div class="rpt-info-grid" style="${(informationItems.length > 0 || block.custom_text) ? 'margin-bottom: 1.5rem;' : ''}">
+        ${statusItemsHtml}
+      </div>` : ''}
+      ${informationItems.length > 0 ? `
+      <div style="display: flex; flex-direction: column; gap: 1.25rem;${block.custom_text ? ' margin-bottom: 1.5rem;' : ''}">
+        ${informationItemsHtml}
+      </div>` : ''}
+      ${block.custom_text ? `
+      <div class="rpt-info-custom-notes"${(statusItems.length > 0 || informationItems.length > 0) ? ' style="border-top: 1px solid #e2e8f0; padding-top: 1rem;"' : ''}>
+        <div class="rpt-info-custom-label">Custom Notes</div>
+        <div class="rpt-info-custom-text">${escapeHtml(block.custom_text).replace(/\n/g, '<br>')}</div>
+      </div>` : ''}
+    </div>`;
+  };
+
+
 
   const onImageLoad = () => {
     // Capture the displayed size at scale=1 to compute bounds reliably
@@ -580,207 +802,6 @@ export default function Page() {
       // Use header image only if explicitly set (inspection data or UI selection)
       // Do NOT fallback to a defect image when none is set
       const headerImageUrl = headerImage || null;
-      
-      const escapeHtml = (s: any) =>
-        String(s ?? '')
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;');
-
-      // Helper: Generate information section HTML - MOVED HERE before it's used
-      const generateInformationSectionHTMLForExport = (block: any): string => {
-        const allItems = block.selected_checklist_ids || [];
-        // Ensure items reflect template order (saved via drag-and-drop)
-        const itemsArray: any[] = Array.isArray(allItems) ? allItems : [];
-        const sortedItems = itemsArray.some((i) => i && typeof i === 'object')
-          ? [...itemsArray].sort((a, b) => {
-              const ao = typeof a?.order_index === 'number' ? a.order_index : Number.POSITIVE_INFINITY;
-              const bo = typeof b?.order_index === 'number' ? b.order_index : Number.POSITIVE_INFINITY;
-              return ao - bo;
-            })
-          : itemsArray;
-        const hasContent = allItems.length > 0 || block.custom_text;
-        
-        if (!hasContent) return '';
-        
-        // Helper function to format text with proper paragraph breaks (for HTML export)
-        const formatTextForHTML = (text: string): string => {
-          if (!text) return '';
-          
-          // Apply the same preprocessing logic as in live report
-          let preprocessed = text
-            // Special patterns for "Inspections Disclaimer"
-            .replace(/(Purpose:)(\s*The home)/g, '$1\n\n$2')
-            .replace(/(sections\.)(\s*No responsibility)/g, '$1\n\n$2')
-            .replace(/(purpose\.)(\s*Scope:)/g, '$1\n\n$2')
-            .replace(/(deadfront\.)(\s*Report Limitations)/g, '$1\n\n$2')
-            .replace(/(Report Limitations & Exclusions:)(\s*The Report)/g, '$1\n\n$2')
-            .replace(/(building\.)(\s*AGI accepts)/g, '$1\n\n$2')
-            .replace(/(building:)(\s*1\.\s)/g, '$1\n\n$2')
-            .replace(/(wiring\);)(\s*2\.\s)/g, '$1\n\n$2')
-            .replace(/(possible\.)(\s*In addition)/g, '$1\n\n$2')
-            .replace(/(them\.)(\s*Any area)/g, '$1\n\n$2')
-            .replace(/(Report\.)(\s*Descriptions in the Report)/g, '$1\n\n$2')
-            .replace(/(appliances\.)(\s*The Report:)/g, '$1\n\n$2')
-            .replace(/(property\.)(\s*AGI has not undertaken)/g, '$1\n\n$2')
-            .replace(/(property\.)(\s*No property survey)/g, '$1\n\n$2')
-            .replace(/(search\.)(\s*Unit Title Properties:)/g, '$1\n\n$2')
-            .replace(/(areas\.)(\s*AGI recommends)/g, '$1\n\n$2')
-            .replace(/(Corporate\.)(\s*Responsibility to Third Parties:)/g, '$1\n\n$2')
-            .replace(/(Report\.)(\s*AGI reserves)/g, '$1\n\n$2')
-            .replace(/(party\.)(\s*Publication:)/g, '$1\n\n$2')
-            .replace(/(inspector\.)(\s*Claims & Disputes:)/g, '$1\n\n$2')
-            .replace(/(matter\.)(\s*Any claim relating)/g, '$1\n\n$2')
-            .replace(/(Agreement\)\.)(\s*Except in the case)/g, '$1\n\n$2')
-            .replace(/(matter\.)(\s*Limitation of Liability:)/g, '$1\n\n$2')
-            .replace(/(client\.)(\s*AGI shall have no)/g, '$1\n\n$2')
-            .replace(/(loss\.)(\s*Subject to any)/g, '$1\n\n$2')
-            .replace(/(inspection\.)(\s*Consumer Guarantees Act:)/g, '$1\n\n$2')
-            .replace(/(law\.)(\s*Partial Invalidity:)/g, '$1\n\n$2')
-            // Other patterns
-            .replace(/(FINAL WALK-THROUGH)([A-Z][a-z])/g, '$1\n\n$2')
-            .replace(/(Read sellers disclosure\.)(\s*The links below)/g, '$1\n\n$2')
-            .replace(/(ENERGY SAVING WEBSITES\/TIPS:)(\s*Perhaps)/g, '$1\n\n$2')
-            .replace(/(can be made\.)(\s*By checking out)/g, '$1\n\n$2')
-            .replace(/([a-z.,)])([A-Z][A-Z\s,/]+[-:])/g, '$1\n\n$2')
-            .replace(/([a-z.,)])(\d+\.\s)/g, '$1\n$2')
-            .replace(/([a-z.,)])(-\s[A-Z])/g, '$1\n$2');
-          
-          // Split into paragraphs and format as HTML
-          const paragraphs = preprocessed.split('\n\n').filter(p => p.trim());
-          return paragraphs.map(p => {
-            const trimmed = p.trim();
-            // Check if it's a numbered list item
-            if (/^\d+\.\s/.test(trimmed)) {
-              return `<div style="margin-left: 1rem; margin-bottom: 0.5rem; font-size: 0.875rem; line-height: 1.6; color: #374151;">${escapeHtml(trimmed)}</div>`;
-            }
-            // Regular paragraph
-            return `<p style="margin: 0 0 1rem 0; line-height: 1.6; font-size: 0.875rem; color: #374151;">${escapeHtml(trimmed)}</p>`;
-          }).join('');
-        };
-        
-        // Separate status items from information items (like in live report)
-  // Split by type and keep order per order_index
-  const statusItems = sortedItems.filter((item: any) => item.type === 'status');
-  const informationItems = sortedItems.filter((item: any) => item.type === 'information');
-        
-        // Create selectedAnswersMap for answer choices
-        const selectedAnswersMap = new Map();
-        if (block.selected_answers && Array.isArray(block.selected_answers)) {
-          block.selected_answers.forEach((answerEntry: any) => {
-            if (answerEntry.checklist_id && Array.isArray(answerEntry.selected_answers)) {
-              selectedAnswersMap.set(answerEntry.checklist_id, answerEntry.selected_answers);
-            }
-          });
-        }
-        
-        // Generate status items HTML (3-column grid)
-        const statusItemsHtml = statusItems.map((item: any) => {
-          const itemId = item._id || '';
-          const itemImages = (block.images || []).filter((img: any) => img.checklist_id === itemId);
-          const selectedAnswers = selectedAnswersMap.get(itemId) || [];
-          const parts = (item.text || '').split(':');
-          const label = parts[0]?.trim() || '';
-          const value = parts.slice(1).join(':').trim() || '';
-          const formattedComment = item.comment ? formatTextForHTML(item.comment) : '';
-          
-          return `
-            <div class="rpt-info-grid-item">
-              <div>
-                <span style="font-weight: 700; color: #000000;">${escapeHtml(label)}:</span>${value ? `
-                <span style="margin-left: 0.25rem; font-weight: 400; color: #6b7280;">
-                  ${escapeHtml(value)}
-                </span>` : ''}
-              </div>
-              ${formattedComment ? `
-              <div style="font-size: 0.875rem; color: #374151; line-height: 1.6; margin-top: 0.5rem;">
-                ${formattedComment}
-              </div>` : ''}
-              ${selectedAnswers.length > 0 ? `
-              <div style="margin-left: 0.25rem; font-weight: 400; color: #6b7280; font-size: 0.875rem;">
-                ${selectedAnswers.map((ans: string) => escapeHtml(ans)).join(', ')}
-              </div>` : ''}
-              ${itemImages.length > 0 ? `
-              <div class="rpt-info-images">
-                ${itemImages.map((img: any) => `
-                <div style="position: relative;">
-                  ${/\.(mp4|mov|webm|3gp|3gpp|m4v)(\?.*)?$/i.test(img.url) 
-                    ? `<video src="${escapeHtml(img.url)}" controls class="rpt-img rpt-info-image" style="background-color: #000;"></video>`
-                    : `<img src="${escapeHtml(img.url)}" alt="Item image" class="rpt-img rpt-info-image" />`
-                  }
-                  ${img.location ? `
-                  <div style="text-align: center; font-size: 0.75rem; color: #6b7280; margin-top: 0.25rem; font-weight: 500;">
-                    ${escapeHtml(img.location)}
-                  </div>` : ''}
-                </div>`).join('')}
-              </div>` : ''}
-            </div>`;
-        }).join('');
-        
-        // Generate information items HTML (vertical stack, full width)
-        const informationItemsHtml = informationItems.map((item: any) => {
-          const itemId = item._id || '';
-          const itemImages = (block.images || []).filter((img: any) => img.checklist_id === itemId);
-          const selectedAnswers = selectedAnswersMap.get(itemId) || [];
-          const formattedComment = item.comment ? formatTextForHTML(item.comment) : '';
-          
-          return `
-            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-              <div style="font-weight: 700; color: #000000; font-size: 0.9375rem;">
-                ${escapeHtml(item.text || '')}
-              </div>
-              ${formattedComment ? `
-              <div style="font-size: 0.875rem; color: #374151; line-height: 1.6;">
-                ${formattedComment}
-              </div>` : ''}
-              ${selectedAnswers.length > 0 ? `
-              <div style="margin-left: 0.75rem; font-size: 0.8125rem; color: #6b7280; line-height: 1.4;">
-                ${selectedAnswers.map((ans: string) => escapeHtml(ans)).join(', ')}
-              </div>` : ''}
-              ${itemImages.length > 0 ? `
-              <div class="rpt-info-images" style="margin-left: 1rem; margin-top: 0.75rem;">
-                ${itemImages.map((img: any) => `
-                <div style="position: relative;">
-                  ${/\.(mp4|mov|webm|3gp|3gpp|m4v)(\?.*)?$/i.test(img.url) 
-                    ? `<video src="${escapeHtml(img.url)}" controls class="rpt-img rpt-info-image" style="background-color: #000;"></video>`
-                    : `<img src="${escapeHtml(img.url)}" alt="Item image" class="rpt-img rpt-info-image" />`
-                  }
-                  ${img.location ? `
-                  <div style="text-align: center; font-size: 0.75rem; color: #6b7280; margin-top: 0.25rem; font-weight: 500;">
-                    ${escapeHtml(img.location)}
-                  </div>` : ''}
-                </div>`).join('')}
-              </div>` : ''}
-            </div>`;
-        }).join('');
-        
-        return `
-        <div class="rpt-information-section">
-          <!-- Header -->
-          <div class="rpt-info-header">
-            <h3 class="rpt-info-heading">INFORMATION</h3>
-          </div>
-          
-          ${statusItems.length > 0 ? `
-          <!-- 3-Column Grid for STATUS items -->
-          <div class="rpt-info-grid" style="${(informationItems.length > 0 || block.custom_text) ? 'margin-bottom: 1.5rem;' : ''}">
-            ${statusItemsHtml}
-          </div>` : ''}
-          
-          ${informationItems.length > 0 ? `
-          <!-- Vertical Stack for INFORMATION items -->
-          <div style="display: flex; flex-direction: column; gap: 1.25rem;${block.custom_text ? ' margin-bottom: 1.5rem;' : ''}">
-            ${informationItemsHtml}
-          </div>` : ''}
-          
-          ${block.custom_text ? `
-          <!-- Custom Notes -->
-          <div class="rpt-info-custom-notes"${(statusItems.length > 0 || informationItems.length > 0) ? ' style="border-top: 1px solid #e2e8f0; padding-top: 1rem;"' : ''}>
-            <div class="rpt-info-custom-label">Custom Notes</div>
-            <div class="rpt-info-custom-text">${escapeHtml(block.custom_text).replace(/\n/g, '<br>')}</div>
-          </div>` : ''}
-        </div>`;
-      };
 
       // Filter sections based on report type
       const sectionsToExport = reportType === 'summary' 
@@ -1082,6 +1103,46 @@ export default function Page() {
         })
         .join('\n');
 
+      // Build dynamic information-only sections for export (sections with no defects)
+      let infoOnlyExportHtml = '';
+      if (reportType === 'full' && Array.isArray(informationBlocks) && informationBlocks.length > 0) {
+        const defectSectionNames = new Set(
+          sectionsToExport.map((s: any) => String(s.sectionName || '').replace(/^\d+\s*-\s*/, '').trim())
+        );
+        const seen = new Set<string>();
+        const infoOnlyBlocks = informationBlocks
+          .filter((block: any) => {
+            const rawName = typeof block.section_id === 'object' ? block.section_id?.name : null;
+            if (!rawName) return false;
+            const clean = String(rawName).replace(/^\d+\s*-\s*/, '').trim();
+            if (defectSectionNames.has(clean)) return false;
+            if (seen.has(clean)) return false;
+            seen.add(clean);
+            return true;
+          })
+          .sort((a: any, b: any) => {
+            const ai = typeof a.section_id === 'object' && typeof a.section_id?.order_index === 'number' ? a.section_id.order_index : Number.POSITIVE_INFINITY;
+            const bi = typeof b.section_id === 'object' && typeof b.section_id?.order_index === 'number' ? b.section_id.order_index : Number.POSITIVE_INFINITY;
+            return ai - bi;
+          });
+
+        infoOnlyExportHtml = infoOnlyBlocks
+          .map((block: any) => {
+            const rawName = typeof block.section_id === 'object' ? (block.section_id?.name || '') : '';
+            const cleanName = String(rawName).replace(/^\d+\s*-\s*/, '');
+            const secNum = typeof block.section_id === 'object' ? block.section_id?.order_index : null;
+            const headingHtml = `
+              <div class="rpt-section-heading" style="border-bottom: 2px solid #111827;">
+                <h2 class="rpt-section-heading-text" style="color: #111827;">
+                  ${secNum ? `Section ${escapeHtml(secNum)} - ${escapeHtml(cleanName)}` : `${escapeHtml(cleanName)}`}
+                </h2>
+              </div>`;
+            const contentHtml = generateInformationSectionHTMLForExport(block);
+            return `${headingHtml}\n${contentHtml}`;
+          })
+          .join('\n');
+      }
+
       const doc = `<!doctype html>
 <html lang="en">
 <head>
@@ -1301,133 +1362,7 @@ export default function Page() {
     ` : ''}
     
     ${sectionHtml}
-    ${reportType === 'full' ? `
-    <!-- Hardcoded Section - Resources and Disclaimers -->
-    <div class="rpt-section-heading" style="border-bottom: 2px solid #111827;">
-      <h2 class="rpt-section-heading-text" style="color: #111827;">
-        Resources and Disclaimers
-      </h2>
-    </div>
-    <div style="margin-top: 1.25rem; margin-bottom: 2rem; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 0.5rem; padding: 1.5rem;">
-      <!-- Header -->
-      <div style="display: flex; align-items: center; margin-bottom: 1.25rem; padding-bottom: 0.75rem; border-bottom: 2px solid #3b82f6;">
-        <h3 style="font-size: 1rem; font-weight: 700; letter-spacing: 0.05em; color: #1e40af; margin: 0; text-transform: uppercase;">INFORMATION</h3>
-      </div>
-      
-      <!-- Vertical Stack for INFORMATION items -->
-      <div style="display: flex; flex-direction: column; gap: 1.75rem;">
-        <!-- Final Checklist -->
-        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-          <div style="font-weight: 700; color: #000000; font-size: 0.9375rem;">
-            General: Final Checklist
-          </div>
-          <div style="font-size: 0.875rem; color: #374151; line-height: 1.6;">
-            <p style="margin: 0 0 1rem 0;">
-              Our goal is to treat every home with respect and leave them in the same condition as when we arrived. The following are steps taken as part of our final checklist to ensure that everything was reset to its original position/condition.
-            </p>
-            <div style="margin-left: 1rem;">
-              <p style="margin: 0.25rem 0;">• All Interior and Exterior Lights Are Off</p>
-              <p style="margin: 0.25rem 0;">• All Accessible GFCI Receptacles Were Reset</p>
-              <p style="margin: 0.25rem 0;">• All Gates Were Closed on The Fence</p>
-              <p style="margin: 0.25rem 0;">• Dishwasher Was Finished and Off</p>
-              <p style="margin: 0.25rem 0;">• Oven/Range/Cooktops Turned Off</p>
-              <p style="margin: 0.25rem 0;">• Thermostat Was Reset to Original Position</p>
-              <p style="margin: 0.25rem 0;">• All Exterior Doors and Windows Are Locked</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- Post Inspection -->
-        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-          <div style="font-weight: 700; color: #000000; font-size: 0.9375rem;">
-            General: Post Inspection
-          </div>
-          <div style="font-size: 0.875rem; color: #374151; line-height: 1.6;">
-            <p style="margin: 0 0 0.75rem 0;">
-              The "Final Walk-Through" prior to closing is the time for you to go back to the property to ensure there aren't any major changes. Conditions can change between the time of a home inspection and the time of closing. Restrictions that existed during the inspection may have been removed for the walk-through, which could expose issues that weren't visible the day of the inspection The following are recommendations of things you can check during your final walkthrough:
-            </p>
-            <p style="margin: 0 0 0.75rem 0;">1. Check the heating and cooling system. Turn the thermostat to heat mode and turn the temperature setting up. Confirm that the heating system is running and making heat. Turn the thermostat to cool mode and turn the temperature setting down. Confirm the condenser fan (outside equipment) is spinning and the system is making cool air.</p>
-            <p style="margin: 0 0 0.75rem 0;">2. Operate all appliances; oven/stove, dishwasher, microwave, etc.</p>
-            <p style="margin: 0 0 0.75rem 0;">3. Run the water at all plumbing fixtures, both inside and outside, and flush toilets.</p>
-            <p style="margin: 0 0 0.75rem 0;">4. Operate all exterior doors, windows and locks. Sudden change of functionality with any of these, could indicate serious issues, like foundation movement.</p>
-            <p style="margin: 0 0 0.75rem 0;">5. Test smoke/carbon monoxide detectors, following the manufacturer's instructions. Only their presence or absence is reported on. We always recommend you replace them, unless they are clearly only a few years old or the seller can specifically say when they were installed.</p>
-            <p style="margin: 0 0 0.75rem 0;">6. Ask for all remote controls to any garage door openers, fans, gas fireplaces, etc. so that you can ensure that they work before your last opportunity to have them correct that.</p>
-            <p style="margin: 0 0 0.75rem 0;">7. Inspect areas that may have been restricted or covered, at the time of the inspection. There are videos in your report of any such restriction present at the time of the inspection.</p>
-            <p style="margin: 0 0 0.75rem 0;">8. Ask sellers about warranties for major building systems, security codes, smart equipment, etc.</p>
-            <p style="margin: 0 0 0.75rem 0;">9. Ask seller about any warranties that may be transferable or subscriptions like, pool, pest control, security.</p>
-          </div>
-        </div>
-
-        <!-- Inspections Disclaimer -->
-        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-          <div style="font-weight: 700; color: #000000; font-size: 0.9375rem;">
-            General: Inspections Disclaimer
-          </div>
-          <div style="font-size: 0.875rem; color: #374151; line-height: 1.6;">
-            <p style="margin: 0 0 0.75rem 0;">The home inspection report (Report) was prepared by AGI: Property Inspections (AGI) for the specific purposes of assessing the general condition of the building and identifying defects that are readily apparent at the time of inspection based on the limited visual, non-invasive inspection as further described below in the Scope and Limitations & Exclusions sections. No responsibility is accepted if the Report is used for any other purpose, by any other parties, than the client in this inspection.</p>
-            
-            <p style="margin: 0 0 0.75rem 0; font-weight: 700;">Scope</p>
-            <p style="margin: 0 0 0.75rem 0;">The Report is based on a limited visual, above-ground, non-invasive inspection of the standard systems and components of the building AGI does not open up, uncover or dismantle any part of the building as part of the inspection or undertake any internal assessment of the building, aside from the electrical panel dead front.</p>
-            
-            <p style="margin: 0 0 0.75rem 0; font-weight: 700;">Report Limitations & Exclusions</p>
-            <p style="margin: 0 0 0.75rem 0;">The Report is an evaluation only and not a guarantee or warranty as to the state of the building or any product, system, or feature in the building.</p>
-            
-            <p style="margin: 0 0 0.75rem 0;">AGI accepts no responsibility or liability for any omission in its inspection or the Report related to defects or irregularities which are not reasonably visible at the time of the inspection or which relate to components of the building:</p>
-            
-            <p style="margin: 0 0 0.75rem 0;">1. which are below ground or which are concealed or closed in behind finished surfaces (such as plumbing, drainage, heating, framing, ventilation, insulation, or wiring);</p>
-            
-            <p style="margin: 0 0 0.75rem 0;">2. which required the moving of anything that impeded access or limited visibility (such as floor coverings, furniture, appliances, personal property, vehicles, vegetation, debris, or soil). AGI does not move owner/occupier items for the inspection, to which access is not readily accessible. This may also include roofs, subfloors, ceiling cavities, and high, constricted, or dangerous areas, for which dangerous, hazardous, or adverse situations are possible.</p>
-            
-            <p style="margin: 0 0 0.75rem 0;">In addition, the customer understands and accepts that it's possible that AGI will not find some defects because the defect may only occur intermittently or the defect has been deliberately concealed. If you believe that any of these circumstances apply, you should immediately contact AGI to try and resolve them.</p>
-            
-            <p style="margin: 0 0 0.75rem 0;">Any area, system, item, or component of the building not explicitly identified in the Report as having been inspected was not included in the scope of the inspection. This consists of the condition and location of any special features or services, underground services drainage, or any systems including electrical, plumbing, gas, or heating except as otherwise may be described in the Report.</p>
-            
-            <p style="margin: 0 0 0.75rem 0;">Descriptions in the Report of systems or appliances relate to the existence of such systems or appliances only and not the adequacy, efficiency, or life expectancy of such systems or appliances.</p>
-            
-            <p style="margin: 0 0 0.75rem 0; font-weight: 700;">The Report</p>
-            <p style="margin: 0 0 0.75rem 0;">is not a structural survey, engineer's report, or weather tightness inspection; does not assess compliance with the requirements of any legislation (including any act, regulation, code, or by-law) unless otherwise stated; is not a geotechnical, site or environmental report. AGI makes no representation as to the existence or absence of any hazard (as defined in the Health and Safety in Employment Act) or any hazardous substance, natural hazard, or contaminant (as those terms are defined in the Resource Management Act) in the building or property.</p>
-            
-            <p style="margin: 0 0 0.75rem 0;">AGI has not undertaken any title search and assumes all improvements are within the legal boundaries of the property.</p>
-            
-            <p style="margin: 0 0 0.75rem 0;">No property survey or any search of the information held by the territorial authority or any other relevant authority has been undertaken. It is recommended that the customer conducts its own Land Information Memorandum or Council property file search.</p>
-            
-            <p style="margin: 0 0 0.75rem 0; font-weight: 700;">Unit Title Properties</p>
-            <p style="margin: 0 0 0.75rem 0;">If the property is a Unit Title property, the inspection and Report are limited to the actual unit and any accessory unit(s) and do not extend to the remainder of the building or the common areas.</p>
-            
-            <p style="margin: 0 0 0.75rem 0;">AGI recommends the customer obtain a copy of the financial statements and minutes from meetings of the Body Corporate to establish the history of the inspected property under such Body Corporate.</p>
-            
-            <p style="margin: 0 0 0.75rem 0; font-weight: 700;">Responsibility to Third Parties</p>
-            <p style="margin: 0 0 0.75rem 0;">Our responsibility in connection with this Report is limited to the client to whom the Report is addressed and to that client only. We disclaim all responsibility and will accept no liability to any other party without first obtaining the written consent of AGI and the author of the Report.</p>
-            
-            <p style="margin: 0 0 0.75rem 0;">AGI reserves the right to alter, amend, explain, or limit any information given to any other party.</p>
-            
-            <p style="margin: 0 0 0.75rem 0; font-weight: 700;">Publication</p>
-            <p style="margin: 0 0 0.75rem 0;">Neither the whole nor any part of the Report (or any other report provided by AGI, whether written or verbal) may be published or included in any published document, circular, or statement whether in hard copy or electronic form or otherwise disseminated or sold without the prior written approval of AGI and the inspector.</p>
-            
-            <p style="margin: 0 0 0.75rem 0; font-weight: 700;">Claims & Disputes</p>
-            <p style="margin: 0 0 0.75rem 0;">Should any dispute arise as a result of the inspection or the Report, it must be submitted to AGI in writing as soon as practically possible but in any case, within ten working days of discovery. The customer agrees that in the event of a dispute, the Report's contents may not be used to satisfy any terms of a sale and purchase agreement until the dispute/dispute has been resolved. In the event the customer nevertheless enters into an unconditional agreement for the purchase of the subject property or makes an existing agreement unconditional before the resolution of the dispute, the customer shall be deemed to have waived the customer's rights to continue with and/or make any future claim against AGI in relation to that matter.</p>
-            
-            <p style="margin: 0 0 0.75rem 0;">Any claim relating to the accuracy of the Report, in the form of errors or omissions, is limited to the failure on the part of AGI to follow the Standards of Practice promulgated by the Louisiana State Board of Home Inspectors (a copy is made available for viewing along with the Pre-Inspection Agreement).</p>
-            
-            <p style="margin: 0 0 0.75rem 0;">Except in the case of an emergency, the customer further agrees not to disturb, repair, replace, or alter anything that may constitute evidence relating to the dispute or claimed discrepancy before AGI has had an opportunity to re-inspect and investigate the claim. The Client understands and agrees that any failure to notify AGI or permit AGI to re-inspect as stated above shall be deemed a waiver of the customer's rights to continue with and/or make any future claim against AGI about that matter.</p>
-            
-            <p style="margin: 0 0 0.75rem 0; font-weight: 700;">Limitation of Liability</p>
-            <p style="margin: 0 0 0.75rem 0;">The customer acknowledges and agrees that the director(s) and employee(s) of AGI shall not be held liable to the client.</p>
-            
-            <p style="margin: 0 0 0.75rem 0;">AGI shall have no liability to the client for any indirect or consequential loss suffered by the client or any other person. The client indemnifies AGI concerning any claims concerning any such loss.</p>
-            
-            <p style="margin: 0 0 0.75rem 0;">Subject to any legal provisions, if AGI becomes liable to the customer for any reason, for any loss, damage, harm, or injury in any way connected to the inspection and/or the Report, AGI's total liability shall be limited to a sum not exceeding the original fee of the home inspection.</p>
-            
-            <p style="margin: 0 0 0.75rem 0; font-weight: 700;">Consumer Guarantees Act</p>
-            <p style="margin: 0 0 0.75rem 0;">Nothing contained in these terms and conditions shall be deemed to exclude or restrict any rights or remedies that the client may have under the Consumer Guarantees Act 1993 or otherwise at law.</p>
-            
-            <p style="margin: 0 0 0.75rem 0; font-weight: 700;">Partial Invalidity</p>
-            <p style="margin: 0 0 0.75rem 0;">If any provision in these terms and conditions is illegal, invalid, or unenforceable, such provision shall be deemed to be excluded or read down to the extent necessary to make the provision legal, valid, or enforceable, and the remaining provisions of these terms and conditions shall not be affected.</p>
-          </div>
-        </div>
-      </div>
-    </div>
-    ` : ''}
+    ${reportType === 'full' ? infoOnlyExportHtml : ''}
     ${reportType === 'summary' && !inspection?.hidePricing ? `
     <section class="rpt-section">
       <h2 class="rpt-h2">Total Estimated Cost</h2>
@@ -3677,204 +3612,7 @@ export default function Page() {
                   );
                 })}
 
-            {/* Hardcoded Section 17 - Resources and Disclaimers (Always appears at end of report) */}
-            {filterMode === 'full' && (
-              <>
-                <div 
-                  className={styles.sectionHeading}
-                  style={{
-                    '--selected-color': '#111827',
-                    '--text-color': '#111827',
-                    marginTop: '3rem',
-                  } as React.CSSProperties}
-                >
-                  <h2 className={styles.sectionHeadingText} style={{ color: '#111827' }}>
-                    Resources and Disclaimers
-                  </h2>
-                </div>
-
-                {/* INFORMATION Block */}
-                <div style={{ 
-                  marginTop: '1.25rem', 
-                  marginBottom: '2rem', 
-                  backgroundColor: '#f8fafc', 
-                  border: '1px solid #cbd5e1', 
-                  borderRadius: '0.5rem', 
-                  padding: '1.5rem'
-                }}>
-                  {/* Header */}
-                  <div style={{ 
-                    display: 'flex',
-                    alignItems: 'center',
-                    marginBottom: '1.25rem',
-                    paddingBottom: '0.75rem',
-                    borderBottom: '2px solid #3b82f6'
-                  }}>
-                    <h3 style={{ 
-                      fontSize: '1rem',
-                      fontWeight: 700,
-                      letterSpacing: '0.05em',
-                      color: '#1e40af',
-                      margin: 0,
-                      textTransform: 'uppercase'
-                    }}>INFORMATION</h3>
-                  </div>
-                  
-                  {/* Vertical Stack for INFORMATION items */}
-                  <div style={{ 
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '1.75rem'
-                  }}>
-                    {/* Final Checklist */}
-                    <div style={{ 
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '0.5rem'
-                    }}>
-                      <div style={{ 
-                        fontWeight: 700,
-                        color: '#000000',
-                        fontSize: '0.9375rem'
-                      }}>
-                        General: Final Checklist
-                      </div>
-                      <div style={{ 
-                        fontSize: '0.875rem',
-                        color: '#374151',
-                        lineHeight: '1.6'
-                      }}>
-                        <p style={{ margin: '0 0 1rem 0' }}>
-                          Our goal is to treat every home with respect and leave them in the same condition as when we arrived. The following are steps taken as part of our final checklist to ensure that everything was reset to its original position/condition.
-                        </p>
-                        <div style={{ marginLeft: '1rem' }}>
-                          <p style={{ margin: '0.25rem 0' }}>• All Interior and Exterior Lights Are Off</p>
-                          <p style={{ margin: '0.25rem 0' }}>• All Accessible GFCI Receptacles Were Reset</p>
-                          <p style={{ margin: '0.25rem 0' }}>• All Gates Were Closed on The Fence</p>
-                          <p style={{ margin: '0.25rem 0' }}>• Dishwasher Was Finished and Off</p>
-                          <p style={{ margin: '0.25rem 0' }}>• Oven/Range/Cooktops Turned Off</p>
-                          <p style={{ margin: '0.25rem 0' }}>• Thermostat Was Reset to Original Position</p>
-                          <p style={{ margin: '0.25rem 0' }}>• All Exterior Doors and Windows Are Locked</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Post Inspection */}
-                    <div style={{ 
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '0.5rem'
-                    }}>
-                      <div style={{ 
-                        fontWeight: 700,
-                        color: '#000000',
-                        fontSize: '0.9375rem'
-                      }}>
-                        General: Post Inspection
-                      </div>
-                      <div style={{ 
-                        fontSize: '0.875rem',
-                        color: '#374151',
-                        lineHeight: '1.6'
-                      }}>
-                        <p style={{ margin: '0 0 0.75rem 0' }}>
-                          The "Final Walk-Through" prior to closing is the time for you to go back to the property to ensure there aren't any major changes. Conditions can change between the time of a home inspection and the time of closing. Restrictions that existed during the inspection may have been removed for the walk-through, which could expose issues that weren't visible the day of the inspection The following are recommendations of things you can check during your final walkthrough:
-                        </p>
-                        <p style={{ margin: '0 0 0.75rem 0' }}>1. Check the heating and cooling system. Turn the thermostat to heat mode and turn the temperature setting up. Confirm that the heating system is running and making heat. Turn the thermostat to cool mode and turn the temperature setting down. Confirm the condenser fan (outside equipment) is spinning and the system is making cool air.</p>
-                        <p style={{ margin: '0 0 0.75rem 0' }}>2. Operate all appliances; oven/stove, dishwasher, microwave, etc.</p>
-                        <p style={{ margin: '0 0 0.75rem 0' }}>3. Run the water at all plumbing fixtures, both inside and outside, and flush toilets.</p>
-                        <p style={{ margin: '0 0 0.75rem 0' }}>4. Operate all exterior doors, windows and locks. Sudden change of functionality with any of these, could indicate serious issues, like foundation movement.</p>
-                        <p style={{ margin: '0 0 0.75rem 0' }}>5. Test smoke/carbon monoxide detectors, following the manufacturer's instructions. Only their presence or absence is reported on. We always recommend you replace them, unless they are clearly only a few years old or the seller can specifically say when they were installed.</p>
-                        <p style={{ margin: '0 0 0.75rem 0' }}>6. Ask for all remote controls to any garage door openers, fans, gas fireplaces, etc. so that you can ensure that they work before your last opportunity to have them correct that.</p>
-                        <p style={{ margin: '0 0 0.75rem 0' }}>7. Inspect areas that may have been restricted or covered, at the time of the inspection. There are videos in your report of any such restriction present at the time of the inspection.</p>
-                        <p style={{ margin: '0 0 0.75rem 0' }}>8. Ask sellers about warranties for major building systems, security codes, smart equipment, etc.</p>
-                        <p style={{ margin: '0 0 0.75rem 0' }}>9. Ask seller about any warranties that may be transferable or subscriptions like, pool, pest control, security.</p>
-                      </div>
-                    </div>
-
-                    {/* Inspections Disclaimer */}
-                    <div style={{ 
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '0.5rem'
-                    }}>
-                      <div style={{ 
-                        fontWeight: 700,
-                        color: '#000000',
-                        fontSize: '0.9375rem'
-                      }}>
-                        General: Inspections Disclaimer
-                      </div>
-                      <div style={{ 
-                        fontSize: '0.875rem',
-                        color: '#374151',
-                        lineHeight: '1.6'
-                      }}>
-                        <p style={{ margin: '0 0 0.75rem 0' }}>The home inspection report (Report) was prepared by AGI: Property Inspections (AGI) for the specific purposes of assessing the general condition of the building and identifying defects that are readily apparent at the time of inspection based on the limited visual, non-invasive inspection as further described below in the Scope and Limitations & Exclusions sections. No responsibility is accepted if the Report is used for any other purpose, by any other parties, than the client in this inspection.</p>
-                        
-                        <p style={{ margin: '0 0 0.75rem 0', fontWeight: 700 }}>Scope</p>
-                        <p style={{ margin: '0 0 0.75rem 0' }}>The Report is based on a limited visual, above-ground, non-invasive inspection of the standard systems and components of the building. AGI does not open up, uncover or dismantle any part of the building as part of the inspection or undertake any internal assessment of the building, aside from the electrical panel dead front.</p>
-                        
-                        <p style={{ margin: '0 0 0.75rem 0', fontWeight: 700 }}>Report Limitations & Exclusions</p>
-                        <p style={{ margin: '0 0 0.75rem 0' }}>The Report is an evaluation only and not a guarantee or warranty as to the state of the building or any product, system, or feature in the building.</p>
-                        
-                        <p style={{ margin: '0 0 0.75rem 0' }}>AGI accepts no responsibility or liability for any omission in its inspection or the Report related to defects or irregularities which are not reasonably visible at the time of the inspection or which relate to components of the building:</p>
-                        
-                        <p style={{ margin: '0 0 0.75rem 0' }}>1. which are below ground or which are concealed or closed in behind finished surfaces (such as plumbing, drainage, heating, framing, ventilation, insulation, or wiring);</p>
-                        
-                        <p style={{ margin: '0 0 0.75rem 0' }}>2. which required the moving of anything that impeded access or limited visibility (such as floor coverings, furniture, appliances, personal property, vehicles, vegetation, debris, or soil). AGI does not move owner/occupier items for the inspection, to which access is not readily accessible. This may also include roofs, subfloors, ceiling cavities, and high, constricted, or dangerous areas, for which dangerous, hazardous, or adverse situations are possible.</p>
-                        
-                        <p style={{ margin: '0 0 0.75rem 0' }}>In addition, the customer understands and accepts that it's possible that AGI will not find some defects because the defect may only occur intermittently or the defect has been deliberately concealed. If you believe that any of these circumstances apply, you should immediately contact AGI to try and resolve them.</p>
-                        
-                        <p style={{ margin: '0 0 0.75rem 0' }}>Any area, system, item, or component of the building not explicitly identified in the Report as having been inspected was not included in the scope of the inspection. This consists of the condition and location of any special features or services, underground services drainage, or any systems including electrical, plumbing, gas, or heating except as otherwise may be described in the Report.</p>
-                        
-                        <p style={{ margin: '0 0 0.75rem 0' }}>Descriptions in the Report of systems or appliances relate to the existence of such systems or appliances only and not the adequacy, efficiency, or life expectancy of such systems or appliances.</p>
-                        
-                        <p style={{ margin: '0 0 0.75rem 0', fontWeight: 700 }}>The Report</p>
-                        <p style={{ margin: '0 0 0.75rem 0' }}>is not a structural survey, engineer's report, or weather tightness inspection; does not assess compliance with the requirements of any legislation (including any act, regulation, code, or by-law) unless otherwise stated; is not a geotechnical, site or environmental report. AGI makes no representation as to the existence or absence of any hazard (as defined in the Health and Safety in Employment Act) or any hazardous substance, natural hazard, or contaminant (as those terms are defined in the Resource Management Act) in the building or property.</p>
-                        
-                        <p style={{ margin: '0 0 0.75rem 0' }}>AGI has not undertaken any title search and assumes all improvements are within the legal boundaries of the property.</p>
-                        
-                        <p style={{ margin: '0 0 0.75rem 0' }}>No property survey or any search of the information held by the territorial authority or any other relevant authority has been undertaken. It is recommended that the customer conducts its own Land Information Memorandum or Council property file search.</p>
-                        
-                        <p style={{ margin: '0 0 0.75rem 0', fontWeight: 700 }}>Unit Title Properties</p>
-                        <p style={{ margin: '0 0 0.75rem 0' }}>If the property is a Unit Title property, the inspection and Report are limited to the actual unit and any accessory unit(s) and do not extend to the remainder of the building or the common areas.</p>
-                        
-                        <p style={{ margin: '0 0 0.75rem 0' }}>AGI recommends the customer obtain a copy of the financial statements and minutes from meetings of the Body Corporate to establish the history of the inspected property under such Body Corporate.</p>
-                        
-                        <p style={{ margin: '0 0 0.75rem 0', fontWeight: 700 }}>Responsibility to Third Parties</p>
-                        <p style={{ margin: '0 0 0.75rem 0' }}>Our responsibility in connection with this Report is limited to the client to whom the Report is addressed and to that client only. We disclaim all responsibility and will accept no liability to any other party without first obtaining the written consent of AGI and the author of the Report.</p>
-                        
-                        <p style={{ margin: '0 0 0.75rem 0' }}>AGI reserves the right to alter, amend, explain, or limit any information given to any other party.</p>
-                        
-                        <p style={{ margin: '0 0 0.75rem 0', fontWeight: 700 }}>Publication</p>
-                        <p style={{ margin: '0 0 0.75rem 0' }}>Neither the whole nor any part of the Report (or any other report provided by AGI, whether written or verbal) may be published or included in any published document, circular, or statement whether in hard copy or electronic form or otherwise disseminated or sold without the prior written approval of AGI and the inspector.</p>
-                        
-                        <p style={{ margin: '0 0 0.75rem 0', fontWeight: 700 }}>Claims & Disputes</p>
-                        <p style={{ margin: '0 0 0.75rem 0' }}>Should any dispute arise as a result of the inspection or the Report, it must be submitted to AGI in writing as soon as practically possible but in any case, within ten working days of discovery. The customer agrees that in the event of a dispute, the Report's contents may not be used to satisfy any terms of a sale and purchase agreement until the disagreement/dispute has been resolved. In the event the customer nevertheless enters into an unconditional agreement for the purchase of the subject property or makes an existing agreement unconditional before the resolution of the dispute, the customer shall be deemed to have waived the customer's rights to continue with and/or make any future claim against AGI in relation to that matter.</p>
-                        
-                        <p style={{ margin: '0 0 0.75rem 0' }}>Any claim relating to the accuracy of the Report, in the form of errors or omissions, is limited to the failure on the part of AGI to follow the Standards of Practice promulgated by the Louisiana State Board of Home Inspectors (a copy is made available for viewing along with the Pre-Inspection Agreement).</p>
-                        
-                        <p style={{ margin: '0 0 0.75rem 0' }}>Except in the case of an emergency, the customer further agrees not to disturb, repair, replace, or alter anything that may constitute evidence relating to the dispute or claimed discrepancy before AGI has had an opportunity to re-inspect and investigate the claim. The Client understands and agrees that any failure to notify AGI or permit AGI to re-inspect as stated above shall be deemed a waiver of the customer's rights to continue with and/or make any future claim against AGI about that matter.</p>
-                        
-                        <p style={{ margin: '0 0 0.75rem 0', fontWeight: 700 }}>Limitation of Liability</p>
-                        <p style={{ margin: '0 0 0.75rem 0' }}>The customer acknowledges and agrees that the director(s) and employee(s) of AGI shall not be held liable to the client.</p>
-                        
-                        <p style={{ margin: '0 0 0.75rem 0' }}>AGI shall have no liability to the client for any indirect or consequential loss suffered by the client or any other person. The client indemnifies AGI concerning any claims concerning any such loss.</p>
-                        
-                        <p style={{ margin: '0 0 0.75rem 0' }}>Subject to any statutory provisions, if AGI becomes liable to the customer for any reason, for any loss, damage, harm, or injury in any way connected to the inspection and/or the Report, AGI's total liability shall be limited to a sum not exceeding the original fee of the home inspection.</p>
-                        
-                        <p style={{ margin: '0 0 0.75rem 0', fontWeight: 700 }}>Consumer Guarantees Act</p>
-                        <p style={{ margin: '0 0 0.75rem 0' }}>Nothing contained in these terms and conditions shall be deemed to exclude or restrict any rights or remedies that the client may have under the Consumer Guarantees Act 1993 or otherwise at law.</p>
-                        
-                        <p style={{ margin: '0 0 0.75rem 0', fontWeight: 700 }}>Partial Invalidity</p>
-                        <p style={{ margin: '0 0 0.75rem 0' }}>If any provision in these terms and conditions is illegal, invalid, or unenforceable, such provision shall be deemed to be excluded or read down to the extent necessary to make the provision legal, valid, or enforceable, and the remaining provisions of these terms and conditions shall not be affected.</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </>
-            )}
+            {/* Removed hardcoded Section 18. Information-only sections are now rendered dynamically above via informationBlocks. */}
 
             {/* Defects Summary Table - Only show in Full Report mode */}
             {filterMode === 'full' && (() => {

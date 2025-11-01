@@ -1679,6 +1679,19 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
       }
       
       setFormState(updatedFormState);
+
+      // Auto-expand the item's options immediately upon checking
+      try {
+        const cl = activeSection?.checklists.find(c => c._id === id);
+        if (cl) {
+          if (cl.type === 'status') {
+            expandStatus(id);
+          } else {
+            // Applies to both limitations and information tabs
+            expandLimit(id);
+          }
+        }
+      } catch {}
       
       // Cancel any pending auto-save and schedule a new one
       if (autoSaveTimerRef.current) {
@@ -3380,41 +3393,56 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                         const resolved = rawItems
                           .map((cl: any) => resolveChecklist(sectionId, cl))
                           .filter(Boolean) as ISectionChecklist[];
-                        // Group: Status first, then others (keep original relative order within groups)
-                        const grouped = [
-                          ...resolved.filter(item => item.type === 'status'),
-                          ...resolved.filter(item => item.type !== 'status')
-                        ];
+                        // Split into Status and Other (Limitations/Information)
+                        const statusItems = resolved.filter(item => item.type === 'status');
+                        const otherItems = resolved.filter(item => item.type !== 'status');
 
-                        return grouped.map((item) => {
-                          const isStatus = item.type === 'status';
-                          return (
-                            <div key={item._id} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', paddingBottom: '0.5rem', borderBottom: '1px solid #f1f5f9' }}>
-                              <div style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: isMobile ? '0.5rem' : '0.625rem',
-                                padding: '0.375rem 0',
-                                flexDirection: 'row',
-                                flexWrap: 'wrap'
-                              }}>
-                                {/* Spectora-style type indicator - checkbox for status, badge for others */}
-                                {isStatus ? (
-                                  <input
-                                    type="checkbox"
-                                    checked={true}
-                                    readOnly
-                                    aria-readonly="true"
-                                    style={{
-                                      width: '18px',
-                                      height: '18px',
-                                      cursor: 'default',
-                                      accentColor: '#3b82f6',
-                                      flexShrink: 0
-                                    }}
-                                    title="Maintenance Item (selected)"
-                                  />
-                                ) : (
+                        return (
+                          <>
+                            {/* Status items displayed in a compact 2-column grid to save space */}
+                            {statusItems.length > 0 && (
+                              <div
+                                style={{
+                                  display: 'grid',
+                                  gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))',
+                                  gap: '0.5rem 1rem',
+                                  paddingBottom: otherItems.length ? '0.5rem' : 0,
+                                  borderBottom: otherItems.length ? '1px solid #f1f5f9' : 'none'
+                                }}
+                              >
+                                {statusItems.map(item => (
+                                  <div key={item._id} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                      <input
+                                        type="checkbox"
+                                        checked={true}
+                                        readOnly
+                                        aria-readonly="true"
+                                        style={{ width: '18px', height: '18px', cursor: 'default', accentColor: '#3b82f6', flexShrink: 0 }}
+                                        title="Maintenance Item (selected)"
+                                      />
+                                      <span style={{ fontWeight: 600, color: '#111827', lineHeight: 1.45, whiteSpace: 'normal' }}>{item.text}</span>
+                                    </div>
+                                    {item.comment && item.comment.trim() !== '' && (
+                                      <div style={{ marginLeft: '2rem', color: '#6b7280', fontSize: '0.8125rem', lineHeight: 1.6 }} title={item.comment}>
+                                        {item.comment.length > 150 ? item.comment.slice(0, 150) + '…' : item.comment}
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Limitations / Information remain full width list */}
+                            {otherItems.map(item => (
+                              <div key={item._id} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', padding: '0.5rem 0', borderBottom: '1px solid #f1f5f9' }}>
+                                <div style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: isMobile ? '0.5rem' : '0.625rem',
+                                  flexDirection: 'row',
+                                  flexWrap: 'wrap'
+                                }}>
                                   <span style={{
                                     fontSize: '0.75rem',
                                     padding: '0.25rem 0.5rem',
@@ -3433,25 +3461,25 @@ const InformationSections: React.FC<InformationSectionsProps> = ({ inspectionId 
                                   }}>
                                     {item.tab === 'limitations' ? 'Limitation' : 'Information'}
                                   </span>
-                                )}
-                                <span style={{ fontWeight: 600, color: '#111827', lineHeight: 1.45, whiteSpace: 'normal', flex: 1, minWidth: 0 }}>{item.text}</span>
-                              </div>
-                              {item.comment && item.comment.trim() !== '' && (
-                                <div style={{ 
-                                  marginLeft: isMobile ? (isStatus ? '2rem' : 0) : '8.125rem', 
-                                  color: '#6b7280',
-                                  fontSize: '0.8125rem',
-                                  paddingTop: '0.125rem',
-                                  lineHeight: 1.6,
-                                  whiteSpace: 'normal',
-                                  wordBreak: 'break-word'
-                                }} title={item.comment}>
-                                  {item.comment.length > 150? item.comment.slice(0, 150) + '…' : item.comment}
+                                  <span style={{ fontWeight: 600, color: '#111827', lineHeight: 1.45, whiteSpace: 'normal', flex: 1, minWidth: 0 }}>{item.text}</span>
                                 </div>
-                              )}
-                            </div>
-                          );
-                        });
+                                {item.comment && item.comment.trim() !== '' && (
+                                  <div style={{ 
+                                    marginLeft: isMobile ? 0 : '8.125rem',
+                                    color: '#6b7280',
+                                    fontSize: '0.8125rem',
+                                    paddingTop: '0.125rem',
+                                    lineHeight: 1.6,
+                                    whiteSpace: 'normal',
+                                    wordBreak: 'break-word'
+                                  }} title={item.comment}>
+                                    {item.comment.length > 150 ? item.comment.slice(0, 150) + '…' : item.comment}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </>
+                        );
                       })()}
                     </div>
                     {block.custom_text && (
