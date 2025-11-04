@@ -8,7 +8,8 @@ export async function GET(
   { params }: { params: { inspectionId: string } }
 ) {
   try {
-    const { inspectionId } = params;
+  const { inspectionId } = params;
+  const defectId = inspectionId;
     const defects = await getDefectsByInspection(inspectionId);
     return NextResponse.json(defects);
   } catch (error: any) {
@@ -69,6 +70,34 @@ export async function DELETE(
 // import { NextResponse } from "next/server";
 import { updateDefect } from "@/lib/defect";
 
+const normalizeObjectId = (value: unknown): string | null => {
+  if (!value) {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (typeof value === "object") {
+    const maybeRecord = value as Record<string, unknown>;
+    if (typeof maybeRecord.$oid === "string") {
+      return maybeRecord.$oid;
+    }
+    if (typeof maybeRecord.oid === "string") {
+      return maybeRecord.oid;
+    }
+    if (typeof maybeRecord.toString === "function") {
+      const str = maybeRecord.toString();
+      if (str && str !== "[object Object]") {
+        return str;
+      }
+    }
+  }
+
+  return null;
+};
+
 // PATCH /api/defects/[defectId]
 export async function PATCH(
   req: Request,
@@ -76,6 +105,7 @@ export async function PATCH(
 ) {
   try {
     const { inspectionId } = params;
+    const defectId = inspectionId;
     const body = await req.json();
 
     const {
@@ -93,9 +123,11 @@ export async function PATCH(
       base_cost,
     } = body;
 
-    if (!inspection_id) {
+    const normalizedInspectionId = normalizeObjectId(inspection_id);
+
+    if (!normalizedInspectionId) {
       return NextResponse.json(
-        { error: "inspection_id is required" },
+        { error: "inspection_id is required or invalid" },
         { status: 400 }
       );
     }
@@ -119,7 +151,7 @@ export async function PATCH(
       (key) => updates[key as keyof typeof updates] === undefined && delete updates[key as keyof typeof updates]
     );
 
-    const result = await updateDefect(inspectionId, inspection_id, updates);
+    const result = await updateDefect(defectId, normalizedInspectionId, updates);
 
     if (result.matchedCount === 0) {
       return NextResponse.json(

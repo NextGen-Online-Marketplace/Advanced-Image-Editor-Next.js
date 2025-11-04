@@ -77,8 +77,11 @@ export default function LocationSearch({
     }
   };
 
+  // Make width responsive: cap at 100% on small screens to avoid horizontal overflow
+  const containerWidth = typeof width === "number" ? `min(100%, ${width}px)` : (width || "100%");
+
   return (
-    <div ref={containerRef} style={{ position: "relative", width }}>
+    <div ref={containerRef} style={{ position: "relative", width: containerWidth }}>
       <div style={{ position: "relative" }}>
         <input
           ref={inputRef}
@@ -93,7 +96,7 @@ export default function LocationSearch({
           placeholder={placeholder}
           autoFocus={autoFocus}
           style={{
-            width: typeof width === "number" ? `${width}px` : (width || "100%"),
+            width: "100%",
             padding: "0.5rem 2rem 0.5rem 0.5rem",
             fontSize: "0.75rem",
             borderRadius: "0.25rem",

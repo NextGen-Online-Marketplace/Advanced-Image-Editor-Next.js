@@ -3473,18 +3473,36 @@ export default function Page() {
                       <h3 className={styles.imageTitle}>Visual Evidence</h3>
                     <div className={styles.imageContainer}>
 {section.isThreeSixty && section.image ? (
-  <div className={styles.panoramaWrapper}>
-    <ThreeSixtyViewer
-      imageUrl={
+  // If there are additional photos, show them together with the 360° as a grid; otherwise show the solo 360° viewer
+  (section as any).additional_images && (section as any).additional_images.length > 0 ? (
+    <DefectPhotoGrid
+      mainPhoto={
         typeof section.image === "string"
           ? getProxiedSrc(section.image)
           : URL.createObjectURL(section.image)
       }
-      alt={`360° view for ${section.subsectionName || "defect"}`}
-      width="100%"
-      height="100%"
+      mainLocation={section.location}
+      mainIsThreeSixty={true}
+      additionalPhotos={(section as any).additional_images.map((img: any) => ({
+        url: getProxiedSrc(img.url),
+        location: img.location,
+        isThreeSixty: img.isThreeSixty === true
+      }))}
     />
-  </div>
+  ) : (
+    <div className={styles.panoramaWrapper}>
+      <ThreeSixtyViewer
+        imageUrl={
+          typeof section.image === "string"
+            ? getProxiedSrc(section.image)
+            : URL.createObjectURL(section.image)
+        }
+        alt={`360° view for ${section.subsectionName || "defect"}`}
+        width="100%"
+        height="100%"
+      />
+    </div>
+  )
 ) : section.type === "video" && section.video ? (
   <video
     src={

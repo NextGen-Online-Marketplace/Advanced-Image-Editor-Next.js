@@ -1097,6 +1097,10 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
                                       fontWeight: 600,
                                       boxShadow: '0 2px 4px rgba(79, 70, 229, 0.2)',
                                       transition: 'all 0.2s ease',
+                                      maxWidth: '100%',
+                                      whiteSpace: 'normal',
+                                      wordBreak: 'break-word',
+                                      textAlign: 'center',
                                     }}
                                     onMouseEnter={(e) => {
                                       e.currentTarget.style.backgroundColor = '#4338ca';
@@ -1225,8 +1229,9 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
                                     {displayDefect.additional_images.map((img, idx) => (
                                       <div key={idx} style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', padding: '0.75rem', backgroundColor: 'white', borderRadius: '6px', border: '1px solid #e9ecef' }}>
                                         <img 
-                                          src={img.url} 
+                                          src={getProxiedSrc(img.url)} 
                                           alt={`Location ${idx + 2}`}
+                                          onError={handleImgError}
                                           style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '4px' }}
                                         />
                                         <div style={{ flex: 1 }}>

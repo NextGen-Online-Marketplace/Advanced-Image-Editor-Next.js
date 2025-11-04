@@ -137,6 +137,40 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
   const [redoHistory, setRedoHistory] = useState<Action[]>([]);
   const [lineIdCounter, setLineIdCounter] = useState(0);
   const [isCameraFullscreen, setIsCameraFullscreen] = useState(false);
+  // Responsive sizing for canvas container
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [canvasSizeVersion, setCanvasSizeVersion] = useState(0);
+
+  // Dynamically size the canvas to its container to avoid overflow and keep aspect
+  useEffect(() => {
+    const updateCanvasSize = () => {
+      const canvas = canvasRef.current;
+      const container = containerRef.current;
+      if (!canvas || !container) return;
+
+      const containerWidth = Math.max(1, container.clientWidth || 0);
+      // Target a 4:3 area but cap height to 60vh to avoid tall overflow on phones
+      const targetHeight = Math.max(
+        240,
+        Math.min(
+          Math.round(containerWidth * 4 / 3),
+          Math.round((typeof window !== 'undefined' ? window.innerHeight : 800) * 0.6)
+        )
+      );
+
+      // Set the actual canvas bitmap size in CSS pixels to keep pointer math aligned
+      if (canvas.width !== containerWidth || canvas.height !== targetHeight) {
+        canvas.width = containerWidth;
+        canvas.height = targetHeight;
+        // Trigger a redraw
+        setCanvasSizeVersion(v => v + 1);
+      }
+    };
+
+    updateCanvasSize();
+    window.addEventListener('resize', updateCanvasSize);
+    return () => window.removeEventListener('resize', updateCanvasSize);
+  }, []);
 
   // Animation frame reference for smooth rotation
   const animationRef = useRef<number | null>(null);
@@ -159,6 +193,27 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
     drawWidth: 0,
     drawHeight: 0,
   });
+
+  // Ensure canvas is sized when image/video state toggles the view
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+    const containerWidth = Math.max(1, container.clientWidth || 0);
+    const targetHeight = Math.max(
+      240,
+      Math.min(
+        Math.round(containerWidth * 4 / 3),
+        Math.round((typeof window !== 'undefined' ? window.innerHeight : 800) * 0.6)
+      )
+    );
+    if (canvas.width !== containerWidth || canvas.height !== targetHeight) {
+      canvas.width = containerWidth;
+      canvas.height = targetHeight;
+    }
+    // Trigger a redraw when view switches
+    setCanvasSizeVersion(v => v + 1);
+  }, [image, videoSrc]);
 
   // Load preloaded image if provided
   useEffect(() => {
@@ -234,27 +289,104 @@ const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
 
 
 
-const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
-  const file = e.target.files?.[0];
-  if (!file) return;
+const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const original = e.target.files?.[0];
+  if (!original) return;
 
-  setEditedFile(file);
-  if (onEditedFile) onEditedFile(file);
+  let file: File = original;
 
-  // Check MIME type
-  if (file.type.startsWith("image/")) {
-    // 🖼 Image handling
-    const img = new Image();
-    img.onload = () => {
-      setImage(img);
-      setLines([]);
-      setCropFrame(null);
-      onCropStateChange(false);
-      if (onImageChange) onImageChange(img);
-    };
-    img.src = URL.createObjectURL(file);
-  } 
-  else if (file.type.startsWith("video/")) {
+  // Detect HEIC/HEIF from type or extension (Safari/iOS, some Samsung cameras)
+  const lowerName = file.name.toLowerCase();
+  const isHeic = lowerName.endsWith('.heic') || lowerName.endsWith('.heif') ||
+                 file.type === 'image/heic' || file.type === 'image/heif' ||
+                 /heic|heif/i.test(file.type || '');
+
+  try {
+    if (isHeic) {
+      // Convert HEIC/HEIF to JPEG in-browser for preview and editing
+      const heic2any: any = (await import('heic2any')).default || (await import('heic2any'));
+      const convertedBlob: Blob = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.92 });
+      file = new File([convertedBlob], `${file.name.replace(/\.(heic|heif)$/i,'')}.jpg`, { type: 'image/jpeg' });
+    }
+  } catch (convErr) {
+    console.warn('HEIC conversion failed (continuing with original):', convErr);
+  }
+
+  // Normalize EXIF orientation for JPEG/PNG after optional HEIC conversion
+  const fixImageOrientation = async (inputFile: File): Promise<File> => {
+    try {
+      if (!inputFile.type.startsWith('image/')) return inputFile;
+      const exifr: any = (await import('exifr/dist/full.esm.mjs')) as any;
+      const orientation: number | undefined = await exifr.orientation(inputFile);
+      if (!orientation || orientation === 1) return inputFile;
+
+      const imgUrl = URL.createObjectURL(inputFile);
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const i = new Image();
+        i.onload = () => resolve(i);
+        i.onerror = reject;
+        i.src = imgUrl;
+      });
+
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { URL.revokeObjectURL(imgUrl); return inputFile; }
+
+      const width = img.naturalWidth || img.width;
+      const height = img.naturalHeight || img.height;
+
+      switch (orientation) {
+        case 2:
+          canvas.width = width; canvas.height = height; ctx.translate(width, 0); ctx.scale(-1, 1); break;
+        case 3:
+          canvas.width = width; canvas.height = height; ctx.translate(width, height); ctx.rotate(Math.PI); break;
+        case 4:
+          canvas.width = width; canvas.height = height; ctx.translate(0, height); ctx.scale(1, -1); break;
+        case 5:
+          canvas.width = height; canvas.height = width; ctx.rotate(0.5 * Math.PI); ctx.scale(1, -1); ctx.translate(0, -height); break;
+        case 6:
+          canvas.width = height; canvas.height = width; ctx.rotate(0.5 * Math.PI); ctx.translate(0, -height); break;
+        case 7:
+          canvas.width = height; canvas.height = width; ctx.rotate(0.5 * Math.PI); ctx.translate(width, -height); ctx.scale(-1, 1); break;
+        case 8:
+          canvas.width = height; canvas.height = width; ctx.rotate(-0.5 * Math.PI); ctx.translate(-width, 0); break;
+        default:
+          canvas.width = width; canvas.height = height;
+      }
+
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(imgUrl);
+
+      const blob: Blob = await new Promise((resolve) =>
+        canvas.toBlob((b) => resolve(b || new Blob()), 'image/jpeg', 0.95)
+      );
+      return new File([blob], inputFile.name.replace(/\.(png|jpg|jpeg|webp)$/i, '') + '.jpg', { type: 'image/jpeg' });
+    } catch (err) {
+      console.warn('Orientation normalization skipped:', err);
+      return inputFile;
+    }
+  };
+
+  try {
+    if (file.type.startsWith('image/')) {
+      // Fix orientation when needed
+      file = await fixImageOrientation(file);
+
+      setEditedFile(file);
+      if (onEditedFile) onEditedFile(file);
+
+      const img = new Image();
+      img.onload = () => {
+        setImage(img);
+        setLines([]);
+        setCropFrame(null);
+        onCropStateChange(false);
+        if (onImageChange) onImageChange(img);
+      };
+      img.src = URL.createObjectURL(file);
+    } else if (file.type.startsWith('video/')) {
     // 🎥 Video handling
     const videoURL = URL.createObjectURL(file);
     setImage(null); // clear canvas image
@@ -296,10 +428,11 @@ const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
         console.log("Thumbnail captured:", thumbnailDataUrl);
       }
     });
+    }
+  } finally {
+    // Reset so same file can be chosen again
+    e.target.value = "";
   }
-
-  // Reset so same file can be chosen again
-  e.target.value = "";
 };
 
 
@@ -635,8 +768,8 @@ const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
       const quarterTurn = normalizedRotation === 90 || normalizedRotation === 270;
 
       const exportCanvas = document.createElement('canvas');
-      exportCanvas.width = quarterTurn ? naturalHeight : naturalWidth;
-      exportCanvas.height = quarterTurn ? naturalWidth : naturalHeight;
+      exportCanvas.width = naturalWidth;
+      exportCanvas.height = naturalHeight;
 
       const ctx = exportCanvas.getContext('2d', {
         willReadFrequently: false,
@@ -2505,7 +2638,7 @@ const drawSquare = (
       const isQuarterTurn = normalizedRotation === 90 || normalizedRotation === 270;
       const imgW = image.width;
       const imgH = image.height;
-      const effectiveImgAspect = isQuarterTurn ? imgH / imgW : imgW / imgH;
+      const effectiveImgAspect = imgW / imgH;
       const canvasAspect = canvas.width / canvas.height;
 
       let drawWidth: number, drawHeight: number, offsetX: number, offsetY: number;
@@ -2820,7 +2953,7 @@ const drawSquare = (
         ctx.fill();
       });
     }
-  }, [image, imageRotation, lines, currentLine, isDrawing, drawingColor, brushSize, activeMode, cropFrame, selectedArrowId, hoveredArrowId, currentArrowSize, circleColor, squareColor, hasDragged]);
+  }, [image, imageRotation, lines, currentLine, isDrawing, drawingColor, brushSize, activeMode, cropFrame, selectedArrowId, hoveredArrowId, currentArrowSize, circleColor, squareColor, hasDragged, canvasSizeVersion]);
 
   const getCursor = () => {
     if (isMovingShape) {
@@ -2893,7 +3026,7 @@ const drawSquare = (
   {!image && !videoSrc ? (
     <>
       <div className={styles.uploadInstructions}>
-        Drag & drop your image or video here or click to browse
+        You can upload videos, photos or take pictures here
       </div>
       <div className={styles.buttonContainer}>
         <div className="button-group">
@@ -2986,14 +3119,14 @@ const drawSquare = (
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/*,.heic,.heif"
             style={{ display: "none" }}
             onChange={handleFileSelected}
           />
           <input
             ref={cameraInputRef}
             type="file"
-            accept="image/*"
+            accept="image/*,.heic,.heif"
             capture="environment"
             style={{ display: "none" }}
             onChange={handleFileSelected}
@@ -3021,7 +3154,7 @@ const drawSquare = (
     </div>
   ) : (
     // 👇 Fallback: image canvas
-    <div className={styles.imageDisplayArea}>
+    <div className={styles.imageDisplayArea} ref={containerRef}>
       <canvas
         ref={canvasRef}
         width={300}
@@ -3032,7 +3165,7 @@ const drawSquare = (
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        style={{ cursor: getCursor() }}
+        style={{ cursor: getCursor(), display: 'block' }}
       />
     </div>
   )}
