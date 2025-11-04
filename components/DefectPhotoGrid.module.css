@@ -51,36 +51,44 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
-.photoWrapperLarge {
-  /* No special grid positioning needed - renders as first item */
-}
+/* .photoWrapperLarge inherits base wrapper styles; first item naturally renders on top */
 
 .photo {
   width: 100%;
-  height: 100%;
-  object-fit: cover;
   display: block;
+  object-fit: cover;
+}
+
+/* Safari/iOS fix: Only non-img containers (e.g., 360° viewer wrappers) should stretch to fill */
+.photo:not(img) {
+  height: 100%;
   min-height: 200px;
 }
 
-.gridSingle .photo {
+/* Apply min/max heights only to non-img containers so images keep natural aspect ratio */
+.gridSingle .photo:not(img) {
   min-height: 300px;
   max-height: 500px;
 }
 
-.gridTwo .photo {
+.gridTwo .photo:not(img) {
   min-height: 250px;
   max-height: 400px;
 }
 
-.gridMultiple .photoWrapperLarge .photo {
+.gridMultiple .photoWrapperLarge .photo:not(img) {
   min-height: 300px;
   max-height: 500px;
 }
 
-.gridMultiple .photoColumn .photo {
+.gridMultiple .photoColumn .photo:not(img) {
   min-height: 145px;
   max-height: 245px;
+}
+
+/* Ensure <img> elements use height:auto for proper aspect on iOS Safari */
+img.photo {
+  height: auto;
 }
 
 .locationLabel {
