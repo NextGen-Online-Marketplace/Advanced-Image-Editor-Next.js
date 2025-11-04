@@ -11,11 +11,11 @@ async function dbConnect() {
 // PUT /api/checklists/[checklistId] - Update checklist
 export async function PUT(
   req: NextRequest,
-  { params }: { params: { checklistId: string } }
+  { params }: { params: Promise<{ checklistId: string }> }
 ) {
   try {
     await dbConnect();
-    const { checklistId } = params;
+    const { checklistId } = await params;
 
     if (!checklistId || !mongoose.isValidObjectId(checklistId)) {
       return NextResponse.json({ success: false, error: 'Invalid checklistId' }, { status: 400 });
@@ -84,11 +84,11 @@ export async function PUT(
 // DELETE /api/checklists/[checklistId] - Delete checklist
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { checklistId: string } }
+  { params }: { params: Promise<{ checklistId: string }> }
 ) {
   try {
     await dbConnect();
-    const { checklistId } = params;
+    const { checklistId } = await params;
 
     if (!checklistId || !mongoose.isValidObjectId(checklistId)) {
       return NextResponse.json({ success: false, error: 'Invalid checklistId' }, { status: 400 });

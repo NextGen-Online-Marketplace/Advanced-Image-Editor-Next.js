@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     // Get current user details to check if they're admin
     const admin = await User.findById(currentUser.userId);
     
-    if (!admin || admin.role !== 'admin') {
+    if (!admin || !admin.is_company_admin) {
       return NextResponse.json(
         { error: 'Forbidden: Admin access required' },
         { status: 403 }
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Prevent admin from revoking their own access
-    if (user._id.toString() === currentUser.userId) {
+    if (String(user._id) === currentUser.userId) {
       return NextResponse.json(
         { error: 'Cannot revoke your own access' },
         { status: 400 }

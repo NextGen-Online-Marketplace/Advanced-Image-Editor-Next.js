@@ -21,11 +21,11 @@ async function dbConnect() {
 // GET /api/information-sections/[inspectionId]
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { inspectionId: string } }
+  { params }: { params: Promise<{ inspectionId: string }> }
 ) {
   try {
     await dbConnect();
-    const { inspectionId } = params;
+    const { inspectionId } = await params;
     
     if (!inspectionId || !mongoose.isValidObjectId(inspectionId)) {
       return NextResponse.json({ success: false, error: 'Invalid inspectionId' }, { status: 400 });
@@ -56,11 +56,11 @@ export async function GET(
 // POST /api/information-sections/[inspectionId]
 export async function POST(
   req: NextRequest,
-  { params }: { params: { inspectionId: string } }
+  { params }: { params: Promise<{ inspectionId: string }> }
 ) {
   try {
     await dbConnect();
-    const { inspectionId } = params;
+    const { inspectionId } = await params;
     
     if (!inspectionId || !mongoose.isValidObjectId(inspectionId)) {
       return NextResponse.json({ success: false, error: 'Invalid inspectionId' }, { status: 400 });
@@ -169,11 +169,11 @@ export async function POST(
 // PUT /api/information-sections/[inspectionId]?blockId=xxx
 export async function PUT(
   req: NextRequest,
-  { params }: { params: { inspectionId: string } }
+  { params }: { params: Promise<{ inspectionId: string }> }
 ) {
   try {
     await dbConnect();
-    const { inspectionId } = params;
+    const { inspectionId } = await params;
     const { searchParams } = new URL(req.url);
     const blockId = searchParams.get('blockId');
     
@@ -276,11 +276,11 @@ export async function PUT(
 // DELETE /api/information-sections/[inspectionId]?blockId=xxx
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { inspectionId: string } }
+  { params }: { params: Promise<{ inspectionId: string }> }
 ) {
   try {
     await dbConnect();
-    const { inspectionId } = params;
+    const { inspectionId } = await params;
     const { searchParams } = new URL(req.url);
     const blockId = searchParams.get('blockId');
     

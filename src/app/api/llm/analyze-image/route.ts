@@ -3,8 +3,11 @@ import OpenAI from 'openai';
 import { uploadToR2 } from "@/lib/r2";
 import { createDefect } from "@/lib/defect";
 
+// Force dynamic rendering to avoid build-time execution
+export const dynamic = 'force-dynamic';
+
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
+  apiKey: process.env.OPENAI_API_KEY || '',
 });
 
 interface ErrorResponse {

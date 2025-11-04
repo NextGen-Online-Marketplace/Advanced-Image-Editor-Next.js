@@ -2,10 +2,10 @@
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import ImageEditor from '../../../components/ImageEditor';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, Suspense } from 'react';
 import { useAnalysisStore } from '@/lib/store';
 
-export default function ImageEditorPage() {
+function ImageEditorPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const selectedInspectionId = searchParams.get('inspectionId') || '';
@@ -1113,5 +1113,13 @@ export default function ImageEditorPage() {
       </div>
       )}
     </div>
+  );
+}
+
+export default function ImageEditorPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+      <ImageEditorPageContent />
+    </Suspense>
   );
 }

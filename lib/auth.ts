@@ -46,11 +46,11 @@ export function authenticateRequest(request: NextRequest): JWTPayload | null {
 /**
  * Generate JWT token for user
  */
-export function generateToken(userId: string, email: string, expiresIn: string = '24h'): string {
+export function generateToken(userId: string, email: string, expiresIn: string | number = '24h'): string {
   return jwt.sign(
     { userId, email },
     JWT_SECRET,
-    { expiresIn }
+    { expiresIn } as jwt.SignOptions
   );
 }
 

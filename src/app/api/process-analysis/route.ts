@@ -8,8 +8,11 @@ import { createDefect } from "@/lib/defect";
 import { verifySignatureAppRouter } from "@upstash/qstash/nextjs";
 // import { NextResponse } from "next/server";
 
+// Force dynamic rendering to avoid build-time execution
+export const dynamic = 'force-dynamic';
+
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
+  apiKey: process.env.OPENAI_API_KEY || '',
 });
 
 function decodeBase64Image(dataString: string) {
@@ -183,4 +186,7 @@ async function handler(request: Request) {
 }
 
 // ✅ Secure endpoint with QStash signature verification
-export const POST = verifySignatureAppRouter(handler);
+// Only apply verification if QSTASH keys are available (runtime, not build time)
+export const POST = process.env.QSTASH_CURRENT_SIGNING_KEY 
+  ? verifySignatureAppRouter(handler)
+  : handler;

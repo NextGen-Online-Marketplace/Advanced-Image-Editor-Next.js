@@ -5,10 +5,10 @@ import { getDefectsByInspection } from "@/lib/defect";
 // GET /api/defects/[inspectionId]
 export async function GET(
   req: Request,
-  { params }: { params: { inspectionId: string } }
+  { params }: { params: Promise<{ inspectionId: string }> }
 ) {
   try {
-    const { inspectionId } = params;
+    const { inspectionId } = await params;
     const defects = await getDefectsByInspection(inspectionId);
     return NextResponse.json(defects);
   } catch (error: any) {
@@ -22,10 +22,10 @@ import { deleteDefect } from "@/lib/defect";
 // DELETE /api/defects/[defectId]
 export async function DELETE(
   req: Request,
-  { params }: { params: { inspectionId: string } }
+  { params }: { params: Promise<{ inspectionId: string }> }
 ) {
   try {
-    const { inspectionId } = params;
+    const { inspectionId } = await params;
     
     if (!inspectionId) {
       console.log('123');
@@ -72,10 +72,10 @@ import { updateDefect } from "@/lib/defect";
 // PATCH /api/defects/[defectId]
 export async function PATCH(
   req: Request,
-  { params }: { params: { inspectionId: string } }
+  { params }: { params: Promise<{ inspectionId: string }> }
 ) {
   try {
-    const { inspectionId } = params;
+    const { inspectionId } = await params;
     const body = await req.json();
 
     const {

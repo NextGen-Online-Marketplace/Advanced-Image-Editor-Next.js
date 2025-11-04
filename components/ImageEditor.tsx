@@ -57,7 +57,7 @@ interface ImageEditorProps {
   onRedo: () => void;
   onImageChange?: (img: HTMLImageElement | null) => void;
   onEditedFile?: (file: File | null) => void;
-  videoRef?: React.RefObject<HTMLVideoElement>;
+  videoRef?: React.RefObject<HTMLVideoElement | null>;
   setIsCameraOpen: (val: boolean) => void;
   isCameraOpen: boolean;
   setVideoFile: (file: File | null) => void;

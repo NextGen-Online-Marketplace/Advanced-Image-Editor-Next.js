@@ -3654,7 +3654,7 @@ export default function InspectionReportPage() {
                                             .replace(/(contractor:)(\s*https?)/gi, '$1\n$2');
                                           
                                           const lines = preprocessed.split('\n');
-                                          const elements: JSX.Element[] = [];
+                                          const elements: React.JSX.Element[] = [];
                                           let currentParagraph = '';
                                           
                                           lines.forEach((line, idx) => {

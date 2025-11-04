@@ -6,7 +6,7 @@ import { getCurrentUser } from '../../../../../lib/auth-helpers';
 // PUT - Update a team member
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { userId: string } }
+  { params }: { params: Promise<{ userId: string }> }
 ) {
   try {
     await dbConnect();
@@ -47,9 +47,11 @@ export async function PUT(
       can_delete_inspections,
     } = body;
 
+    const { userId } = await params;
+
     // Find the team member to update
     const teamMember = await User.findOne({
-      _id: params.userId,
+      _id: userId,
       company: currentUser.company,
     });
 
@@ -62,7 +64,7 @@ export async function PUT(
 
     // Update the team member
     const updatedUser = await User.findByIdAndUpdate(
-      params.userId,
+      userId,
       {
         firstName: firstName || teamMember.firstName,
         lastName: lastName || teamMember.lastName,
@@ -100,7 +102,7 @@ export async function PUT(
 // DELETE - Delete a team member
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { userId: string } }
+  { params }: { params: Promise<{ userId: string }> }
 ) {
   try {
     await dbConnect();
@@ -122,8 +124,10 @@ export async function DELETE(
       );
     }
 
+    const { userId } = await params;
+
     // Prevent user from deleting themselves
-    if (currentUser._id.toString() === params.userId) {
+    if (String(currentUser._id) === userId) {
       return NextResponse.json(
         { error: 'You cannot delete your own account' },
         { status: 400 }
@@ -132,7 +136,7 @@ export async function DELETE(
 
     // Find the team member to delete
     const teamMember = await User.findOne({
-      _id: params.userId,
+      _id: userId,
       company: currentUser.company,
     });
 
@@ -144,7 +148,7 @@ export async function DELETE(
     }
 
     // Soft delete by setting isActive to false
-    await User.findByIdAndUpdate(params.userId, {
+    await User.findByIdAndUpdate(userId, {
       isActive: false,
     });
 

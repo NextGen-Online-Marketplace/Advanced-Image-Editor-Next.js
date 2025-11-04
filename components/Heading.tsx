@@ -8,7 +8,7 @@ interface HeadingProps {
 }
 
 const Heading: React.FC<HeadingProps> = ({ level = 2, children, icon, className = "" }) => {
-  const Tag = `h${level}` as keyof JSX.IntrinsicElements;
+  const Tag = `h${level}` as keyof React.JSX.IntrinsicElements;
   
   return (
     <Tag className={`text-gray-800 font-bold flex items-center gap-2 ${className}`}>

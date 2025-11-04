@@ -3,10 +3,10 @@ import { deleteInspection, updateInspection } from "@/lib/inspection";
 
 export async function GET(
   req: Request,
-  { params }: { params: { inspectionId: string } }
+  { params }: { params: Promise<{ inspectionId: string }> }
 ) {
   try {
-    const { inspectionId } = params;
+    const { inspectionId } = await params;
     
     if (!inspectionId) {
       return NextResponse.json(
@@ -52,10 +52,10 @@ export async function GET(
 
 export async function PUT(
   req: Request,
-  { params }: { params: { inspectionId: string } }
+  { params }: { params: Promise<{ inspectionId: string }> }
 ) {
   try {
-    const { inspectionId } = params;
+    const { inspectionId } = await params;
     
     console.log('Updating inspection ID:', inspectionId);
     
@@ -102,10 +102,10 @@ export async function PUT(
 
 export async function DELETE(
   req: Request,
-  { params }: { params: { inspectionId: string } }
+  { params }: { params: Promise<{ inspectionId: string }> }
 ) {
   try {
-    const { inspectionId } = params;
+    const { inspectionId } = await params;
     
     console.log('Deleting inspection ID:', inspectionId);
     
