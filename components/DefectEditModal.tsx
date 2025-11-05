@@ -1079,7 +1079,7 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
 
                             {/* Additional Location Photos Section */}
                             {isEditing && (
-                              <div style={{ marginTop: '1.5rem', padding: '1rem', backgroundColor: '#f8f9fa', borderRadius: '8px', border: '1px solid #dee2e6', maxWidth: 760, marginLeft: 'auto', marginRight: 'auto' }}>
+                              <div style={{ marginTop: '1.5rem', padding: '1rem', backgroundColor: '#f8f9fa', borderRadius: '8px', border: '1px solid #dee2e6', maxWidth: '100%', width: '100%', marginLeft: 'auto', marginRight: 'auto', boxSizing: 'border-box', overflowX: 'hidden' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
                                   <strong style={{ fontSize: '0.95rem', color: '#495057' }}>
                                     📍 Additional Location Photos ({displayDefect.additional_images?.length || 0})

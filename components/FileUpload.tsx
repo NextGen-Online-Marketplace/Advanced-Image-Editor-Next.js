@@ -87,9 +87,11 @@ const FileUpload: React.FC<FileUploadProps> = ({
         display: 'grid', 
         gridTemplateColumns: layoutColumns ? `repeat(${layoutColumns}, minmax(140px, 1fr))` : 'repeat(auto-fit, minmax(140px, 1fr))', 
         gap: '0.5rem',
-        maxWidth: '500px',
+        maxWidth: '100%',
         width: '100%',
-        margin: '0 auto'
+        margin: '0 auto',
+        boxSizing: 'border-box',
+        overflowX: 'hidden'
       }}>
         {/* Optional extra buttons (e.g., 360° Pic) can be prepended for custom layouts */}
         {extraButtons && extraButtons.length > 0 && extraButtons.map((node, idx) => (
