@@ -1735,7 +1735,7 @@
 .bulk-item-row,
 .additional-item-row {
   display: grid;
-  grid-template-columns: 80px 1fr auto; /* thumbnail | controls | remove */
+  grid-template-columns: 80px minmax(0, 1fr) auto; /* thumbnail | controls | remove */
   column-gap: 12px;
   align-items: center;
   max-width: 100%;
@@ -1755,7 +1755,7 @@
 @media (max-width: 480px) {
   .bulk-item-row,
   .additional-item-row {
-    grid-template-columns: 64px 1fr auto;
+    grid-template-columns: 64px minmax(0, 1fr) auto;
     column-gap: 10px;
   }
   .bulk-item-row img,
@@ -1770,6 +1770,10 @@
     min-width: 0; /* Allow shrinking below min-content */
     overflow: hidden;
   }
+  .bulk-item-row > button,
+  .additional-item-row > button {
+    justify-self: end;
+  }
 }
 
 /* Fallback spacing for browsers without grid support (very old) */
@@ -1782,10 +1786,24 @@
   .additional-item-row {
     display: flex;
     align-items: center;
+    gap: 12px;
+    box-sizing: border-box;
+    max-width: 100%;
+    overflow-x: hidden;
   }
   .bulk-item-row > * + *,
   .additional-item-row > * + * {
     margin-left: 12px;
+  }
+  .bulk-item-row > div,
+  .additional-item-row > div {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .bulk-item-row > button,
+  .additional-item-row > button {
+    flex: 0 0 auto;
+    white-space: nowrap;
   }
 }
 
