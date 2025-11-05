@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 type Props = {
   options: string[];
@@ -22,12 +23,14 @@ export default function LocationSearch({
   width = 180,
   autoFocus = false,
 }: Props) {
-  const [query, setQuery] = useState<string>(value || "");
+  const [query, setQuery] = useState<string>("");
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [dropdownPos, setDropdownPos] = useState<{ left: number; top: number; width: number } | null>(null);
 
+  // Sync internal query state with external value prop
   useEffect(() => {
     setQuery(value || "");
   }, [value]);
@@ -49,6 +52,7 @@ export default function LocationSearch({
   }, []);
 
   const commit = (val: string) => {
+    setQuery(val); // Update internal query state immediately
     onChangeAction(val);
     setOpen(false);
     setHighlight(0);
@@ -79,6 +83,103 @@ export default function LocationSearch({
 
   // Make width responsive: cap at 100% on small screens to avoid horizontal overflow
   const containerWidth = typeof width === "number" ? `min(100%, ${width}px)` : (width || "100%");
+
+  // When open, position dropdown using a portal to escape ancestor overflow clipping (iOS Safari)
+  useEffect(() => {
+    if (!open) return;
+    const updatePos = () => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      setDropdownPos({ left: Math.round(rect.left), top: Math.round(rect.bottom + 4), width: Math.round(rect.width) });
+    };
+    updatePos();
+    window.addEventListener("scroll", updatePos, true);
+    window.addEventListener("resize", updatePos);
+    return () => {
+      window.removeEventListener("scroll", updatePos, true);
+      window.removeEventListener("resize", updatePos);
+    };
+  }, [open]);
+
+  // Dropdown content (shared between in-place and portal rendering)
+  const dropdownList = (
+    <>
+      {filtered.length === 0 ? (
+        <div style={{ padding: "8px 10px", fontSize: 12, color: "#6b7280" }}>
+          {allowCustom ? "Press Enter to use custom value" : "No results"}
+        </div>
+      ) : (
+        filtered.map((opt, i) => (
+          <div
+            key={`${opt}-${i}`}
+            onMouseEnter={() => setHighlight(i)}
+            onMouseDown={(e) => {
+              // Commit on mousedown so the value is set even if click doesn't fire (mobile/iOS quirks)
+              e.preventDefault();
+              e.stopPropagation();
+              commit(opt);
+            }}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              commit(opt);
+            }}
+            onClick={(e) => {
+              // Redundant safety: also commit on click
+              e.preventDefault();
+              e.stopPropagation();
+              commit(opt);
+            }}
+            role="option"
+            aria-selected={i === highlight}
+            style={{
+              padding: "8px 10px",
+              fontSize: 12,
+              cursor: "pointer",
+              background: i === highlight ? "#eff6ff" : "white",
+              color: "#111827",
+            }}
+          >
+            {opt}
+          </div>
+        ))
+      )}
+    </>
+  );
+
+  const dropdownBox = (
+    <div
+      role="listbox"
+      style={{
+        maxHeight: 280,
+        overflowY: "auto",
+        background: "white",
+        border: "1px solid #e5e7eb",
+        borderRadius: 6,
+        boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+      }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {dropdownList}
+    </div>
+  );
+
+  const portalDropdown = dropdownPos
+    ? createPortal(
+        <div
+          style={{
+            position: "fixed",
+            left: dropdownPos.left,
+            top: dropdownPos.top,
+            width: dropdownPos.width,
+            zIndex: 100000,
+          }}
+        >
+          {dropdownBox}
+        </div>,
+        document.body
+      )
+    : null;
 
   return (
     <div ref={containerRef} style={{ position: "relative", width: containerWidth }}>
@@ -114,7 +215,7 @@ export default function LocationSearch({
             }, 120);
           }}
         />
-        {value && (
+        {query && (
           <button
             type="button"
             onClick={() => commit("")}
@@ -137,48 +238,20 @@ export default function LocationSearch({
         )}
       </div>
       {open && (
-        <div
-          role="listbox"
-          style={{
-            position: "absolute",
-            zIndex: 30,
-            top: "calc(100% + 4px)",
-            left: 0,
-            right: 0,
-            maxHeight: 220,
-            overflowY: "auto",
-            background: "white",
-            border: "1px solid #e5e7eb",
-            borderRadius: 6,
-            boxShadow: "0 6px 16px rgba(0,0,0,0.08)",
-          }}
-        >
-          {filtered.length === 0 ? (
-            <div style={{ padding: "8px 10px", fontSize: 12, color: "#6b7280" }}>
-              {allowCustom ? "Press Enter to use custom value" : "No results"}
-            </div>
-          ) : (
-            filtered.map((opt, i) => (
-              <div
-                key={`${opt}-${i}`}
-                onMouseEnter={() => setHighlight(i)}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => commit(opt)}
-                role="option"
-                aria-selected={i === highlight}
-                style={{
-                  padding: "8px 10px",
-                  fontSize: 12,
-                  cursor: "pointer",
-                  background: i === highlight ? "#eff6ff" : "white",
-                  color: "#111827",
-                }}
-              >
-                {opt}
-              </div>
-            ))
-          )}
-        </div>
+        portalDropdown ?? (
+          <div
+            role="listbox"
+            style={{
+              position: "absolute",
+              zIndex: 30,
+              top: "calc(100% + 4px)",
+              left: 0,
+              right: 0,
+            }}
+          >
+            {dropdownBox}
+          </div>
+        )
       )}
     </div>
   );

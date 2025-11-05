@@ -14,9 +14,11 @@ export default function ImageEditorPage() {
   const checklistId = searchParams.get('checklistId'); // For information block images
   const mode = searchParams.get('mode'); // 'additional-location' for adding photos to existing defect
   const defectId = searchParams.get('defectId'); // Parent defect ID for additional photos
+  const editIndexParam = searchParams.get('index'); // Index when editing existing additional photo
   
   // Check if this is additional location photo mode
   const isAdditionalLocationMode = mode === 'additional-location' && defectId;
+  const isEditAdditionalMode = mode === 'edit-additional' && defectId && typeof editIndexParam === 'string';
   
   const [description, setDescription] = useState('');
   const [activeMode, setActiveMode] = useState<'none' | 'crop' | 'arrow' | 'circle' | 'square'>('none');
@@ -217,7 +219,7 @@ export default function ImageEditorPage() {
 
   // Fetch parent defect info when in additional location mode
   useEffect(() => {
-    if (isAdditionalLocationMode && defectId && selectedInspectionId) {
+    if ((isAdditionalLocationMode || isEditAdditionalMode) && defectId && selectedInspectionId) {
       const fetchParentDefect = async () => {
         try {
           const response = await fetch(`/api/defects/${selectedInspectionId}`);
@@ -229,6 +231,14 @@ export default function ImageEditorPage() {
               setSelectedLocation(parentDefect.section || '');
               setSelectedSubLocation(parentDefect.subsection || '');
               console.log('✅ Parent defect loaded:', parentDefect.section, '-', parentDefect.subsection);
+              // For edit mode, also prefill the location field with the photo's location
+              if (isEditAdditionalMode && Array.isArray(parentDefect.additional_images)) {
+                const idx = parseInt(editIndexParam as string, 10);
+                const target = parentDefect.additional_images[idx];
+                if (target && target.location) {
+                  setSelectedLocation2(target.location);
+                }
+              }
             }
           }
         } catch (error) {
@@ -237,7 +247,7 @@ export default function ImageEditorPage() {
       };
       fetchParentDefect();
     }
-  }, [isAdditionalLocationMode, defectId, selectedInspectionId]);
+  }, [isAdditionalLocationMode, isEditAdditionalMode, defectId, selectedInspectionId, editIndexParam]);
 
 
   // Close dropdowns when clicking outside
@@ -487,6 +497,105 @@ export default function ImageEditorPage() {
       }
       
       return; // Exit early for additional location flow
+    }
+
+    // Special handling for editing an existing additional location photo
+    if (isEditAdditionalMode && defectId) {
+      console.log('✏️ Editing existing additional location photo:', defectId, 'index:', editIndexParam);
+
+      if (!editedFile) {
+        alert('Please upload and edit an image before submitting.');
+        return;
+      }
+
+      setIsSubmitting(true);
+      setSubmitStatus('Uploading edited photo...');
+
+      try {
+        // Upload the annotated image to R2 via presigned URL
+        const presignedRes = await fetch(
+          `/api/r2api?action=presigned&fileName=${encodeURIComponent(editedFile.name)}&contentType=${encodeURIComponent(editedFile.type)}`
+        );
+        if (!presignedRes.ok) {
+          const t = await presignedRes.text();
+          throw new Error(`Failed to get presigned URL: ${t}`);
+        }
+        const { uploadUrl, publicUrl } = await presignedRes.json();
+        const putRes = await fetch(uploadUrl, {
+          method: 'PUT',
+          headers: { 'Content-Type': editedFile.type },
+          body: editedFile,
+        });
+        if (!putRes.ok) {
+          const t = await putRes.text();
+          throw new Error(`Failed to upload image to R2: ${putRes.status} ${t}`);
+        }
+        const uploadData = { url: publicUrl };
+        console.log('✅ Edited image uploaded (direct):', uploadData.url);
+
+        // Fetch current defect to get existing additional_images
+        const defectRes = await fetch(`/api/defects/${selectedInspectionId}`);
+        if (!defectRes.ok) {
+          throw new Error('Failed to fetch defect data');
+        }
+        const defects = await defectRes.json();
+        const currentDefect = defects.find((d: any) => d._id === defectId);
+        if (!currentDefect) throw new Error('Defect not found');
+
+        const photos = currentDefect.additional_images || [];
+        const idx = parseInt(editIndexParam as string, 10);
+        const oldUrl: string | undefined = photos[idx]?.url;
+        if (Number.isNaN(idx) || !photos[idx]) {
+          throw new Error('Invalid photo index');
+        }
+
+        // Replace URL at index, keep location and isThreeSixty as-is
+        const updatedImages = photos.map((p: any, i: number) => i === idx ? { ...p, url: uploadData.url } : p);
+
+        const updateRes = await fetch(`/api/defects/${defectId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            inspection_id: currentDefect.inspection_id,
+            additional_images: updatedImages,
+          })
+        });
+        if (!updateRes.ok) throw new Error('Failed to update defect');
+
+        // Notify parent via localStorage so the Manage Defects modal updates instantly
+        try {
+          const notice = {
+            inspectionId: selectedInspectionId,
+            defectId,
+            index: idx,
+            oldUrl,
+            newUrl: uploadData.url,
+            timestamp: Date.now()
+          };
+          localStorage.setItem('pendingEditedAdditionalLocationPhoto', JSON.stringify(notice));
+        } catch (e) {
+          console.warn('Unable to write pendingEditedAdditionalLocationPhoto to localStorage:', e);
+        }
+
+        setSubmitStatus('Done! Closing...');
+        setTimeout(() => {
+          window.close();
+          setTimeout(() => {
+            if (!window.closed) {
+              router.push(`/inspection_report/${selectedInspectionId}`);
+            }
+          }, 100);
+        }, 500);
+
+      } catch (error) {
+        console.error('❌ Error editing location photo:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+        alert(`Failed to save edited photo: ${errorMessage}`);
+        setIsSubmitting(false);
+        setSubmitStatus('');
+      }
+
+      return; // Exit early for edit-additional flow
     }
 
     // Special handling for information block annotation

@@ -115,6 +115,9 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
   const [bulkAddOpen, setBulkAddOpen] = useState<boolean>(false);
   const [bulkItems, setBulkItems] = useState<Array<{ file: File; preview: string; location: string; isThreeSixty: boolean }>>([]);
   const [bulkSaving, setBulkSaving] = useState<boolean>(false);
+  
+  // Note: Previously used a forced re-render counter for LocationSearch. Removed to keep
+  // the component truly controlled by value props and avoid wiping user selections.
 
 
 
@@ -248,19 +251,81 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
         }
       };
 
+      // Listen for edited additional photo notifications (from image editor)
+      const applyPendingEditedAdditionalPhoto = () => {
+        try {
+          const pending = localStorage.getItem('pendingEditedAdditionalLocationPhoto');
+          if (!pending) return;
+          const data = JSON.parse(pending);
+          if (data && data.inspectionId === inspectionId && data.defectId) {
+            const { defectId, index, oldUrl, newUrl } = data as { defectId: string; index?: number; oldUrl?: string; newUrl: string };
+
+            // Update defects list optimistically
+            setDefects(prev => prev.map(d => {
+              if (d._id !== defectId) return d;
+              const nextImages = [...(d.additional_images || [])];
+              let replaced = false;
+              if (typeof index === 'number' && nextImages[index]) {
+                nextImages[index] = { ...nextImages[index], url: newUrl };
+                replaced = true;
+              } else if (oldUrl) {
+                const idx = nextImages.findIndex(img => img.url === oldUrl);
+                if (idx >= 0) {
+                  nextImages[idx] = { ...nextImages[idx], url: newUrl };
+                  replaced = true;
+                }
+              }
+              return { ...d, additional_images: nextImages };
+            }));
+
+            // If currently editing this defect, also reflect in editedValues
+            setEditedValues(prev => {
+              if (!editingId || editingId !== defectId) return prev;
+              const curr = defects.find(d => d._id === editingId);
+              const baseArr = (prev.additional_images as any) || curr?.additional_images || [];
+              const nextArr = [...baseArr];
+              let updated = false;
+              if (typeof index === 'number' && nextArr[index]) {
+                nextArr[index] = { ...nextArr[index], url: newUrl };
+                updated = true;
+              } else if (oldUrl) {
+                const idx = nextArr.findIndex((img: any) => img.url === oldUrl);
+                if (idx >= 0) {
+                  nextArr[idx] = { ...nextArr[idx], url: newUrl };
+                  updated = true;
+                }
+              }
+              return updated ? { ...prev, additional_images: nextArr } : prev;
+            });
+
+            // Clear the flag so it doesn't re-apply
+            localStorage.removeItem('pendingEditedAdditionalLocationPhoto');
+          }
+        } catch (e) {
+          console.error('Error applying edited additional photo:', e);
+        }
+      };
+
       // Immediate check on open
       applyPendingAdditionalPhoto();
+      applyPendingEditedAdditionalPhoto();
 
       // Listen to storage events (in case image editor tab updates it while this stays open)
       const onStorage = (e: StorageEvent) => {
         if (e.key === 'pendingAdditionalLocationPhoto' && e.newValue) {
           applyPendingAdditionalPhoto();
         }
+        if (e.key === 'pendingEditedAdditionalLocationPhoto' && e.newValue) {
+          applyPendingEditedAdditionalPhoto();
+        }
       };
       window.addEventListener('storage', onStorage);
 
       // Also refresh on window focus
-      const onFocus = () => applyPendingAdditionalPhoto();
+      const onFocus = () => {
+        applyPendingAdditionalPhoto();
+        applyPendingEditedAdditionalPhoto();
+      };
       window.addEventListener('focus', onFocus);
 
       return () => {
@@ -304,7 +369,7 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
     try {
       setLoading(true);
       const response = await fetch(`/api/defects/${inspectionId}`);
-      if (response.ok) {
+    if (response.ok) {
         const data = await response.json();
         // Ensure data is an array and has proper structure
         const safeData = Array.isArray(data) ? data : [];
@@ -390,7 +455,7 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
     if (!defect || !defect.additional_images) return;
 
     const updatedImages = defect.additional_images.filter((_, i) => i !== index);
-    
+        
     // Update via API
     try {
       const response = await fetch(`/api/defects/${editingId}`, {
@@ -425,14 +490,41 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
 
   // Handler: Update location for additional image
   const handleUpdateLocationForImage = async (index: number, newLocation: string) => {
+    console.log('🔄 handleUpdateLocationForImage called:', { index, newLocation, editingId });
+    
     if (!editingId) return;
     const defect = defects.find(d => d._id === editingId);
     if (!defect || !defect.additional_images) return;
 
+    console.log('Current defect.additional_images:', defect.additional_images);
+
+    // First, update the editedValues immediately for instant UI feedback
+    setEditedValues(prev => {
+      const currentImages = (prev.additional_images as any) || defect.additional_images || [];
+      const updatedImages = currentImages.map((img: any, i: number) =>
+        i === index ? { ...img, location: newLocation } : img
+      );
+      console.log('Updated editedValues.additional_images:', updatedImages);
+      return {
+        ...prev,
+        additional_images: updatedImages,
+      };
+    });
+    
+  // No forced re-render; LocationSearch is controlled via value props
+
+    // Then update defects state
     const updatedImages = defect.additional_images.map((img, i) =>
       i === index ? { ...img, location: newLocation } : img
     );
 
+    setDefects(prev =>
+      prev.map(d =>
+        d._id === editingId ? { ...d, additional_images: updatedImages } : d
+      )
+    );
+
+    // Finally, persist to backend
     try {
       const response = await fetch(`/api/defects/${editingId}`, {
         method: "PATCH",
@@ -443,16 +535,9 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
         }),
       });
 
-      if (response.ok) {
-        setDefects(prev =>
-          prev.map(d =>
-            d._id === editingId ? { ...d, additional_images: updatedImages } : d
-          )
-        );
-        setEditedValues(prev => ({
-          ...prev,
-          additional_images: updatedImages,
-        }));
+      if (!response.ok) {
+        console.error('Failed to update location on server');
+        // Optionally: revert the change if server update fails
       }
     } catch (error) {
       console.error('Error updating location:', error);
@@ -692,7 +777,16 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
 
   const getDisplayDefect = (defect: Defect): Defect => {
     if (editingId === defect._id) {
-      return { ...defect, ...(editedValues as Partial<Defect>) } as Defect;
+      // Deep merge: if editedValues has additional_images, use it; otherwise use defect's
+      const merged = { ...defect, ...(editedValues as Partial<Defect>) } as Defect;
+      
+      // Ensure additional_images from editedValues takes priority
+      if (editedValues.additional_images !== undefined) {
+        merged.additional_images = editedValues.additional_images as any;
+      }
+      
+      console.log('getDisplayDefect merged:', merged.additional_images);
+      return merged;
     }
     return defect;
   };
@@ -1146,10 +1240,10 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
                                     {bulkItems.length > 0 && (
                                       <div className="bulk-items-list" style={{ marginTop: 12, width: '100%' }}>
                                         {bulkItems.map((item, i) => (
-                                          <div key={i} className="bulk-item-row" style={{ alignItems: 'center', background: 'white', border: '1px solid #e5e7eb', borderRadius: 8, padding: 10, boxSizing: 'border-box' }}>
-                                            <img src={item.preview} alt={`bulk-${i}`} style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
-                                            <div style={{ minWidth: 0, flex: 1 }}>
-                                              <label style={{ display: 'block', fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Location</label>
+                                          <div key={i} className="bulk-item-row" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', background: 'transparent', border: 'none', borderRadius: 0, padding: '12px 0', boxSizing: 'border-box' }}>
+                                            <img src={item.preview} alt={`bulk-${i}`} style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 8, flexShrink: 0, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }} />
+                                            <div style={{ minWidth: 0, flex: '1 1 260px' }}>
+                                              <label style={{ display: 'block', fontSize: 12, color: '#374151', marginBottom: 4, fontWeight: 500 }}>Location</label>
                                               <LocationSearch
                                                 options={LOCATION_OPTIONS}
                                                 value={item.location}
@@ -1161,7 +1255,7 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
                                                 placeholder="Type to search…"
                                                 width="100%"
                                               />
-                                              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 12, color: '#374151' }}>
+                                              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 12, color: '#374151', fontWeight: 500 }}>
                                                 <input type="checkbox" checked={item.isThreeSixty} onChange={(e) => setBulkItems((prev) => {
                                                   const copy = [...prev];
                                                   copy[i] = { ...copy[i], isThreeSixty: e.target.checked };
@@ -1173,7 +1267,7 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
                                             <button
                                               onClick={() => setBulkItems((prev) => prev.filter((_, idx) => idx !== i))}
                                               className="remove-btn"
-                                              style={{ padding: '0.4rem 0.8rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}
+                                              style={{ padding: '0.5rem 1rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap', fontSize: '0.85rem', fontWeight: 500, boxShadow: '0 2px 4px rgba(220, 38, 38, 0.2)', marginTop: 8 }}
                                             >
                                               Remove
                                             </button>
@@ -1229,45 +1323,82 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
                                 
                                 {displayDefect.additional_images && displayDefect.additional_images.length > 0 && (
                                   <div className="additional-items-list">
-                                    {displayDefect.additional_images.map((img, idx) => (
-                                      <div key={idx} className="additional-item-row" style={{ alignItems: 'center', padding: '0.75rem', backgroundColor: 'white', borderRadius: '6px', border: '1px solid #e9ecef', boxSizing: 'border-box' }}>
+                                    {displayDefect.additional_images.map((img, idx) => {
+                                      // Debug: Log the current location value
+                                      console.log(`Additional image ${idx} location:`, img.location);
+                                      const locationValue = img.location || "";
+                                      return (
+                                      <div key={`${img.url}-${idx}`} className="additional-item-row" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', padding: '12px 0', backgroundColor: 'transparent', borderRadius: 0, border: 'none', boxSizing: 'border-box' }}>
                                         <img 
                                           src={getProxiedSrc(img.url)} 
                                           alt={`Location ${idx + 2}`}
                                           onError={handleImgError}
-                                          style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '4px', flexShrink: 0 }}
+                                          style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '8px', flexShrink: 0, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}
                                         />
-                                        <div style={{ minWidth: 0, flex: 1 }}>
-                                          <label style={{ display: 'block', fontSize: '0.8rem', color: '#6c757d', marginBottom: '0.25rem' }}>
+                                        <div style={{ minWidth: 0, flex: '1 1 260px' }}>
+                                          <label style={{ display: 'block', fontSize: '0.8rem', color: '#374151', marginBottom: '0.25rem', fontWeight: 500 }}>
                                             Location:
                                           </label>
                                           <LocationSearch
+                                            key={`location-${displayDefect._id}-${idx}-${img.url}`}
                                             options={LOCATION_OPTIONS}
-                                            value={img.location}
-                                            onChangeAction={(val) => handleUpdateLocationForImage(idx, val)}
+                                            value={locationValue}
+                                            onChangeAction={(val) => {
+                                              console.log(`Location changed for index ${idx}:`, val);
+                                              handleUpdateLocationForImage(idx, val);
+                                            }}
                                             placeholder="Type to search…"
                                             width="100%"
                                           />
                                         </div>
                                         <button
+                                          onClick={() => {
+                                            const editorUrl = `/image-editor/?inspectionId=${encodeURIComponent(inspectionId)}&imageUrl=${encodeURIComponent(img.url)}&mode=edit-additional&defectId=${encodeURIComponent(displayDefect._id)}&index=${idx}`;
+                                            window.open(editorUrl, '_blank');
+                                          }}
+                                          className="annotate-btn"
+                                          style={{
+                                            padding: '0.5rem 1rem',
+                                            backgroundColor: '#10b981',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '8px',
+                                            cursor: 'pointer',
+                                            fontSize: '0.85rem',
+                                            flexShrink: 0,
+                                            whiteSpace: 'nowrap',
+                                            fontWeight: 500,
+                                            boxShadow: '0 2px 4px rgba(16, 185, 129, 0.2)',
+                                            marginRight: '8px',
+                                            marginTop: 8
+                                          }}
+                                          title="Annotate this photo"
+                                        >
+                                          Annotate
+                                        </button>
+                                        <button
                                           onClick={() => handleRemoveLocationPhoto(idx)}
                                           className="remove-btn"
                                           style={{
-                                            padding: '0.4rem 0.8rem',
+                                            padding: '0.5rem 1rem',
                                             backgroundColor: '#dc3545',
                                             color: 'white',
                                             border: 'none',
-                                            borderRadius: '4px',
+                                            borderRadius: '8px',
                                             cursor: 'pointer',
-                                            fontSize: '0.8rem',
+                                            fontSize: '0.85rem',
                                             flexShrink: 0,
-                                            whiteSpace: 'nowrap'
+                                            whiteSpace: 'nowrap',
+                                            fontWeight: 500,
+                                            boxShadow: '0 2px 4px rgba(220, 53, 69, 0.2)',
+                                            marginTop: 8
                                           }}
                                         >
                                           Remove
                                         </button>
                                       </div>
-                                    ))}
+                                      );
+                                    })}
                                   </div>
                                 )}
                                 
