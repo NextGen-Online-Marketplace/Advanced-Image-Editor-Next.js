@@ -33,6 +33,18 @@ type DefectTextParts = {
   paragraphs: string[];
 };
 
+// Local currency formatter for compact view
+const formatCurrency = (amount: number) => {
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD'
+    }).format(amount || 0);
+  } catch {
+    return `$${(amount || 0).toFixed(2)}`;
+  }
+};
+
 const splitDefectText = (raw?: string): DefectTextParts => {
   const normalized = (raw ?? "").replace(/\r\n/g, "\n").trim();
   if (!normalized) {
@@ -3441,220 +3453,126 @@ export default function Page() {
                   {/* Only render defect details if this is NOT an information-only section */}
                   {!section.isInformationOnly && (
                     <>
-                  {/* Subsection Heading (Colored with badge) - Always show */}
-                  <div 
-                    className={styles.sectionHeading}
+                  {/* Compact defect card */}
+                  <div
                     id={section.anchorId}
+                    className={styles.defectCompactCard}
                     style={{
                       '--selected-color': getSelectedColor(section),
-                      '--light-color': getLightColor(section),
-                      marginTop: isNewSection ? '1rem' : '0.5rem',
-                      borderBottom: `2px solid ${getSelectedColor(section)}`, // Add border for subsection headings only
                     } as React.CSSProperties}
                   >
-                    <h2 className={styles.sectionHeadingText}>
-                      {section.numbering} - {section.subsectionName}
-                      <span className={styles.importanceBadge} style={{ background: getSelectedColor(section) }}>
-                        {colorToImportance(section.color)}
-                      </span>
-                    </h2>
-                  </div>
-
-                  <div 
-                    className={styles.reportSection}
-                    style={{
-                      '--selected-color': getSelectedColor(section),
-                      '--light-color': getLightColor(section),
-                    } as React.CSSProperties}
-                  >
-                    <div className={styles.contentGrid}>
-                    {/* Image */}
-                    <div className={styles.imageSection}>
-                      <h3 className={styles.imageTitle}>Visual Evidence</h3>
-                    <div className={styles.imageContainer}>
-{section.isThreeSixty && section.image ? (
-  // If there are additional photos, show them together with the 360° as a grid; otherwise show the solo 360° viewer
-  (section as any).additional_images && (section as any).additional_images.length > 0 ? (
-    <DefectPhotoGrid
-      mainPhoto={
-        typeof section.image === "string"
-          ? getProxiedSrc(section.image)
-          : URL.createObjectURL(section.image)
-      }
-      mainLocation={section.location}
-      mainIsThreeSixty={true}
-      additionalPhotos={(section as any).additional_images.map((img: any) => ({
-        url: getProxiedSrc(img.url),
-        location: img.location,
-        isThreeSixty: img.isThreeSixty === true
-      }))}
-    />
-  ) : (
-    <div className={styles.panoramaWrapper}>
-      <ThreeSixtyViewer
-        imageUrl={
-          typeof section.image === "string"
-            ? getProxiedSrc(section.image)
-            : URL.createObjectURL(section.image)
-        }
-        alt={`360° view for ${section.subsectionName || "defect"}`}
-        width="100%"
-        height="100%"
-      />
-    </div>
-  )
-) : section.type === "video" && section.video ? (
-  <video
-    src={
-      typeof section.video === "string"
-        ? getProxiedSrc(section.video)
-        : URL.createObjectURL(section.video)
-    }
-    poster={typeof section.thumbnail === 'string' ? getProxiedSrc(section.thumbnail) : (section.thumbnail || "/placeholder-image.jpg")}
-    style={{ maxWidth: "100%", maxHeight: "200px", cursor: "pointer" }}
-    onClick={(e) => {
-      const videoEl = e.currentTarget;
-      videoEl.setAttribute("controls", "true"); // show controls
-      videoEl.play(); // start playing
-    }}
-  />
-) : section.image ? (
-  // Use DefectPhotoGrid if there are additional images, otherwise show single image
-  (section as any).additional_images && (section as any).additional_images.length > 0 ? (
-    <DefectPhotoGrid
-      mainPhoto={
-        typeof section.image === "string"
-          ? getProxiedSrc(section.image)
-          : URL.createObjectURL(section.image)
-      }
-      mainLocation={section.location}
-      mainIsThreeSixty={(section as any).isThreeSixty === true}
-      additionalPhotos={(section as any).additional_images.map((img: any) => ({
-        url: getProxiedSrc(img.url),
-        location: img.location,
-        isThreeSixty: img.isThreeSixty === true
-      }))}
-    />
-  ) : (
-    <img
-      src={
-        typeof section.image === "string"
-          ? getProxiedSrc(section.image)
-          : URL.createObjectURL(section.image)
-      }
-      alt="Inspection media"
-      className={styles.propertyImage}
-      role="button"
-      onClick={() => {
-        openLightbox(
-          typeof section.image === "string"
-            ? getProxiedSrc(section.image)
-            : URL.createObjectURL(section.image)
-        );
-      }}
-      style={{ cursor: "zoom-in" }}
-    />
-  )
-) : (
-  <div className={styles.imagePlaceholder}>
-    <p>No media available</p>
-  </div>
-)}
-
-
-</div>
-
-
-                      
-                      {/* Location moved here */}
-                      <div className={styles.locationSection} style={{
-                          // boxShadow: getSelectedColor(section),
-                          "--shadow-color": getLightColor(section),
-                          // '--light-color': getLightColor(section)
-                        } as React.CSSProperties }>
-                        <h4 className={styles.sectionTitle}>Location</h4>
-                        <p className={styles.sectionContent}>{section.location}</p>
+                    <div className={styles.defectCompactBody}>
+                      <div className={styles.defectCompactMedia}>
+                        {section.isThreeSixty && section.image ? (
+                          <div className={styles.compactPanoramaWrapper}>
+                            <ThreeSixtyViewer
+                              imageUrl={
+                                typeof section.image === 'string'
+                                  ? getProxiedSrc(section.image)
+                                  : URL.createObjectURL(section.image)
+                              }
+                              alt={`360° view for ${section.subsectionName || 'defect'}`}
+                              width="100%"
+                              height="100%"
+                            />
+                            <span className={styles.mediaBadge}>360°</span>
+                          </div>
+                        ) : section.type === 'video' && section.video ? (
+                          <div className={styles.compactVideoWrapper}>
+                            <video
+                              src={
+                                typeof section.video === 'string'
+                                  ? getProxiedSrc(section.video)
+                                  : URL.createObjectURL(section.video)
+                              }
+                              poster={
+                                typeof section.thumbnail === 'string'
+                                  ? getProxiedSrc(section.thumbnail)
+                                  : (section.thumbnail || '/placeholder-image.jpg')
+                              }
+                              className={styles.compactVideo}
+                              onClick={(e) => {
+                                const videoEl = e.currentTarget;
+                                videoEl.setAttribute('controls', 'true');
+                                videoEl.play();
+                              }}
+                            />
+                            <span className={styles.mediaBadge}>Video</span>
+                          </div>
+                        ) : section.image ? (
+                          <img
+                            src={
+                              typeof section.image === 'string'
+                                ? getProxiedSrc(section.image)
+                                : URL.createObjectURL(section.image)
+                            }
+                            alt="Defect thumbnail"
+                            className={styles.defectThumb}
+                            onClick={() => {
+                              openLightbox(
+                                typeof section.image === 'string'
+                                  ? getProxiedSrc(section.image)
+                                  : URL.createObjectURL(section.image)
+                              );
+                            }}
+                            onError={handleImgError}
+                            loading="eager"
+                          />
+                        ) : (
+                          <div className={styles.defectThumbPlaceholder}>No media</div>
+                        )}
                       </div>
-                    </div>
+                      <div className={styles.defectCompactInfo}>
+                        {/* Header line moved to right column (number • section • defect), then divider */}
+                        <div className={styles.defectInlineHeader}>
+                          <span className={styles.defectHeaderText}>
+                            {section.numbering} - {(section.subsectionName || section.sectionName)}{defectTitle ? ` • ${defectTitle}` : ''}
+                          </span>
+                          <span className={styles.importanceBadgeSmall} style={{ background: getSelectedColor(section) }}>
+                            {colorToImportance(section.color)}
+                          </span>
+                        </div>
+                        <div className={styles.defectDivider} />
 
-                    {/* Details */}
-                    <div className={styles.descriptionSection}>
-                      <h3 className={styles.descriptionTitle}>Analysis Details</h3>
-                      <div className="space-y-6">
-                        {/* Defect */}
-                        <div className={styles.section} style={{
-                          // boxShadow: getSelectedColor(section),
-                          "--shadow-color": getLightColor(section),
-                          // '--light-color': getLightColor(section)
-                        } as React.CSSProperties }>
-                          <h4 className={styles.sectionTitle}>Defect</h4>
-                            <div>
-                              {defectTitle ? (
-                                <p
-                                  className={styles.defectHeadline}
-                                  style={{ color: getSelectedColor(section) }}
-                                >
-                                  {defectTitle}
-                                </p>
-                              ) : null}
-                              {defectParagraphs.length > 0 ? (
-                                defectParagraphs.map((paragraph: string, idx: number) => (
-                                  <p key={idx} className={styles.defectBody}>
-                                    {paragraph}
-                                  </p>
-                                ))
-                              ) : !defectTitle && section.defect_description ? (
-                                <p className={styles.defectBody}>{section.defect_description}</p>
-                              ) : null}
-                            </div>
+                        {/* Meta line under header: heading2 • location */}
+                        <div className={styles.defectCompactSummary}>
+                          {[
+                            section.heading2 || '',
+                            section.location || ''
+                          ].filter(Boolean).join(' • ')}
                         </div>
 
-                        {/* Estimated Costs - Hidden when hidePricing is enabled */}
-                        {!inspection?.hidePricing && (
-                          <>
-                            <div className={styles.section} style={{
-                              // boxShadow: getSelectedColor(section),
-                              "--shadow-color": getLightColor(section),
-                              // '--light-color': getLightColor(section)
-                            } as React.CSSProperties }>
-                              <h4 className={styles.sectionTitle}>Estimated Costs</h4>
-                              <div className={styles.sectionContent}>
-                                  <p>
-                                    <strong>Materials:</strong> {section.estimatedCosts.materials} ($
-                                    {section.estimatedCosts.materialsCost})<br/>
-                                    <strong>Labor:</strong> {section.estimatedCosts.labor} at $
-                                    {section.estimatedCosts.laborRate}/hr<br/>
-                                    <strong>Hours:</strong> {section.estimatedCosts.hoursRequired}<br/>
-                                    <strong>Recommendation:</strong> {section.estimatedCosts.recommendation}
-                                  </p>
-                              </div>
-                            </div>
-                            
-                            {/* Cost Highlight */}
-                            <div className={styles.costHighlight} style={{
-                              "--selected-color": getSelectedColor(section),
-                            } as React.CSSProperties }>
-                              <div className={styles.totalCost}>
-                                Total Estimated Cost: ${section.estimatedCosts.totalEstimatedCost}
-                              </div>
-                            </div>
-                          </>
-                        )}
-                        
-                        {/* Show only Recommendation when pricing is hidden */}
-                        {inspection?.hidePricing && section.estimatedCosts?.recommendation && (
-                          <div className={styles.section} style={{
-                            "--shadow-color": getLightColor(section),
-                          } as React.CSSProperties }>
-                            <h4 className={styles.sectionTitle}>Recommendation</h4>
-                            <div className={styles.sectionContent}>
-                              <p>{section.estimatedCosts.recommendation}</p>
-                            </div>
+                        {/* Body paragraph */}
+                        {(defectParagraphs[0] || section.defect_description) && (
+                          <div className={styles.defectParagraph}>
+                            {defectParagraphs[0] || section.defect_description}
                           </div>
+                        )}
+
+                        {/* Costs and recommendation */}
+                        {!inspection?.hidePricing ? (
+                          <>
+                            <div className={styles.defectCostLine}>
+                              Materials: {formatCurrency(section.estimatedCosts?.materialsCost || 0)} • Labor: {formatCurrency(section.estimatedCosts?.laborRate || 0)}/hr • Hours: {section.estimatedCosts?.hoursRequired || 0}
+                            </div>
+                            <div className={`${styles.defectCostLine} ${styles.defectTotalLine}`}>
+                              Total: {formatCurrency(section.estimatedCosts?.totalEstimatedCost || 0)}
+                            </div>
+                            {section.estimatedCosts?.recommendation && (
+                              <div className={styles.defectRecommendation}>
+                                Recommended: {section.estimatedCosts.recommendation}
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          section.estimatedCosts?.recommendation ? (
+                            <div className={styles.defectRecommendation}>
+                              Recommended: {section.estimatedCosts.recommendation}
+                            </div>
+                          ) : null
                         )}
                       </div>
                     </div>
-                  </div>
                   </div>
                   </>
                   )}

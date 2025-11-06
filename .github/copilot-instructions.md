@@ -43,8 +43,55 @@ Dev workflow and env
 - Queueing: set `QSTASH_TOKEN` and `NEXT_PUBLIC_BASE_URL` for the analyze → process flow.
 - Required env (see `env.d.ts`): `OPENAI_API_KEY`, `OPENAI_ASSISTANT_ID`, `MONGODB_URI`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_R2_BUCKET`, `CLOUDFLARE_R2_ACCESS_KEY_ID`, `CLOUDFLARE_R2_SECRET_ACCESS_KEY`, `CLOUDFLARE_R2_ENDPOINT`, `CLOUDFLARE_PUBLIC_URL`.
 
-Conventions and patterns
+## Copilot instructions – Advanced Image Editor / Inspection Reports
 
-- Client components use "use client"; browser-only widgets via `dynamic(() => import(...), { ssr: false })` (see `ThreeSixtyViewer`).
-- Two data layers: direct Mongo driver for inspections/defects (`lib/*`), Mongoose models for sections/templates (`src/models/*`).
-- Start here to extend: `components/InformationSections.tsx`, `src/app/inspection_report/[id]/page.tsx`, `src/app/api/reports/*`, `lib/r2.ts`.
+Big picture architecture
+
+- Next.js App Router (Next 13.4.19) with React 18 + TypeScript. Client UI in `components/*` and `src/app/*`. API handlers live under `src/app/api/**/route.ts`.
+- Data: MongoDB via `lib/mongodb.ts` with helpers in `lib/inspection.ts` and `lib/defect.ts`. Section templates use Mongoose models in `src/models/*`.
+- Binary assets (images, HTML, PDFs) are stored in Cloudflare R2 through `lib/r2.ts`.
+- Principle: do not stream large binaries from APIs. Generate → upload to R2 → return JSON with a proxied URL (`/api/reports/file?key=...` or `/api/proxy-image?url=...`).
+
+Key code paths and flows
+
+- Builder UI: `src/app/inspection_report/[id]/page.tsx` with core logic in `components/InformationSections.tsx`. Image editor: `components/ImageEditor.tsx` + `src/app/image-editor/page.tsx`.
+- Export HTML: `src/app/api/reports/upload-html/route.ts` rewrites/inlines `<img|source|srcset|background-image>` and gallery payloads, copies non-inlined assets to `reports/*`, uploads via `uploadReportToR2`, then updates `htmlReportUrl`.
+- Export PDF: `src/app/api/reports/generate/route.ts` inlines R2 images with `getR2ObjectAsDataURI`, renders via puppeteer-core + `@sparticuz/chromium(-min|shell)`, uploads via `uploadReportToR2`, then updates `pdfReportUrl`. Requires `inspectionId`. Returns `{ success, downloadUrl, filename }`.
+- AI analysis: `src/app/api/llm/analyze-image/route.ts` publishes to Upstash QStash → `src/app/api/process-analysis/route.ts` handles OpenAI Assistants Vision and persists a defect. Secured with `verifySignatureAppRouter`.
+
+Storage, proxying, and uploads
+
+- R2 key layout: `inspections/<id>/...` for captured media, `reports/inspection-<id>/...` for export artifacts.
+- Access: `/api/reports/file?key=<r2-key>` redirects to `CLOUDFLARE_PUBLIC_URL` if set (else streams, limited to `reports/*`). `/api/proxy-image?url=...` has R2 SDK fallbacks for SSL issues.
+- Presigned upload support: `GET /api/r2api?action=presigned&fileName=...&contentType=...` → `{ uploadUrl, publicUrl, key }`; direct uploads: `POST /api/r2api` (200MB limit, HEIC→JPEG conversion).
+
+API route conventions (copy these for heavy routes)
+
+```ts
+export const runtime = "nodejs"; // Puppeteer, AWS SDK, Mongo
+export const dynamic = "force-dynamic"; // disable caching
+export const maxDuration = 60; // PDF, large uploads
+```
+
+Costs and data rules
+
+- Defects store `base_cost = materials_total_cost + labor_rate * hours_required`. Totals in reports may multiply by image count (`1 + additional_images.length`). Tune pricing primarily via the Assistant’s system instructions; optional caps can be enforced in code (`/api/process-analysis`).
+
+Dev workflow, env, and gotchas
+
+- Scripts: `npm run dev | build | start | lint` (optional: `test:360`, `test:360:full` if present). Engines: Node `22.x`.
+- Puppeteer locally: set `PUPPETEER_EXECUTABLE_PATH` or `CHROME_PATH` if auto-detection fails. Serverless uses `@sparticuz/chromium(-min)` with `headless: "shell"` (optionally `CHROMIUM_PACK_URL`).
+- Required env (see `env.d.ts`): `OPENAI_API_KEY`, `OPENAI_ASSISTANT_ID`, `MONGODB_URI`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_R2_BUCKET`, `CLOUDFLARE_R2_ACCESS_KEY_ID`, `CLOUDFLARE_R2_SECRET_ACCESS_KEY`, `CLOUDFLARE_R2_ENDPOINT`, `CLOUDFLARE_PUBLIC_URL`, plus queueing `QSTASH_TOKEN` and `NEXT_PUBLIC_BASE_URL`.
+- Webpack/Next tweaks: `next.config.mjs` externals puppeteer/chromium and increases `chunkLoadTimeout`; creates a separate chunk for `InformationSections`.
+
+Conventions and extension points
+
+- Client-only widgets via `dynamic(() => import(...), { ssr: false })` (e.g., `ThreeSixtyViewer`).
+- Two data layers: direct Mongo driver for inspections/defects; Mongoose for section templates. Keep this split.
+- Start here to extend: `components/InformationSections.tsx`, `src/app/inspection_report/[id]/page.tsx`, `src/app/api/reports/*`, `lib/r2.ts`, `src/app/api/llm/*`.
+
+Examples to follow in this repo
+
+- Proxy-only download pattern: `src/app/api/reports/file/route.ts` safeguards paths and redirects to `CLOUDFLARE_PUBLIC_URL`.
+- R2 URL normalization and SDK fallback: `src/app/api/proxy-image/route.ts`.
+- Presigned uploads and HEIC conversion: `src/app/api/r2api/route.ts` and `lib/r2.ts`.

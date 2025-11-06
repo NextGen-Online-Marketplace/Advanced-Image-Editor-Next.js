@@ -1621,6 +1621,215 @@
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
 
+/* ==============================
+   Compact Defect Card Styles
+   ============================== */
+.defectCompactCard {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin: 10px 0;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.06);
+}
+
+.defectCompactHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.defectCompactHeading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.defectHeaderText {
+  font-weight: 700; /* daha ince görünüm */
+  color: var(--selected-color, #111827);
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.defectInlineHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.defectNumber {
+  font-weight: 800;
+  color: #111827;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 9999px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.defectSubsection {
+  font-weight: 700;
+  color: #111827;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.importanceBadgeSmall {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  border-radius: 9999px;
+  border: 1px solid rgba(255,255,255,0.35);
+}
+
+.defectCompactBody {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 14px;
+}
+
+.defectCompactMedia { position: relative; }
+
+.defectThumb {
+  width: 200px;
+  height: 200px;
+  object-fit: cover;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  cursor: zoom-in;
+}
+
+.defectThumbPlaceholder {
+  width: 200px;
+  height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f3f4f6;
+  color: #6b7280;
+  border: 1px dashed #e5e7eb;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.compactPanoramaWrapper {
+  width: 200px;
+  height: 200px;
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+  background: #000;
+}
+
+.compactVideoWrapper {
+  position: relative;
+  width: 200px;
+  height: 200px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #000;
+}
+
+.compactVideo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mediaBadge {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  background: rgba(17,24,39,0.8);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 9999px;
+}
+
+.defectCompactInfo {
+  min-width: 0;
+}
+
+.defectCompactTitle {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--selected-color, #d63636);
+  margin: 2px 0 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.defectLocationInline {
+  color: #6b7280;
+  font-weight: 600;
+}
+
+.defectCompactSummary {
+  color: #374151;
+  font-size: 13px;
+  line-height: 1.4;
+  display: -webkit-box;
+  line-clamp: 2;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+@media (max-width: 640px) {
+  .defectCompactCard { padding: 10px 12px; }
+  .defectCompactBody { grid-template-columns: 120px 1fr; gap: 10px; }
+  .defectThumb, .compactPanoramaWrapper, .compactVideoWrapper { width: 120px; height: 120px; }
+}
+
+/* Additional text styling for Aaron layout */
+.defectDivider {
+  height: 0;
+  border-top: 2px solid var(--selected-color, #6b7280); /* düz, seçili renkle */
+  border-radius: 0;
+  margin: 10px 0 12px;
+}
+
+.defectParagraph {
+  color: #374151;
+  font-size: 14px;
+  line-height: 1.55;
+  margin-bottom: 6px;
+}
+
+.defectCostLine {
+  color: #111827;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.defectTotalLine {
+  color: var(--selected-color, #d63636);
+  font-weight: 700;
+  margin-top: 4px;
+}
+
+.defectRecommendation {
+  color: #374151;
+  font-size: 13px;
+  margin-top: 6px;
+}
+
 /* ========================================
    INFORMATION SECTION RESPONSIVE STYLES
    ======================================== */
