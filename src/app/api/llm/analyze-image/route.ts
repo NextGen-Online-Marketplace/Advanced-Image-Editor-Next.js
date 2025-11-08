@@ -48,6 +48,7 @@ const decodeBase64Image = (dataString: string) => {
 export async function POST(request: Request) {
   try {
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+    console.log('🌐 NEXT_PUBLIC_BASE_URL:', baseUrl);
     if (!baseUrl) {
       throw new Error("Missing NEXT_PUBLIC_BASE_URL environment variable");
     }
@@ -175,23 +176,30 @@ export async function POST(request: Request) {
   console.log('📦 Job payload:', { analysisId, inspectionId, section, subSection });
 
   // Publish job to QStash -> will call /api/process-analysis
-  await client.publishJSON({
-    url: `${baseUrl}/api/process-analysis`,
-    body: {
-      imageUrl: finalImageUrl,
-      description,
-      location,
-      inspectionId,
-      section,
-      subSection,
-      selectedColor,
-      analysisId,
-      finalVideoUrl,
-      thumbnail: finalThumbnailUrl,
-      type,
-      isThreeSixty
-    },
-  });
+  try {
+    console.log('🚀 About to publish to QStash...');
+    const qstashResponse = await client.publishJSON({
+      url: `${baseUrl}/api/process-analysis`,
+      body: {
+        imageUrl: finalImageUrl,
+        description,
+        location,
+        inspectionId,
+        section,
+        subSection,
+        selectedColor,
+        analysisId,
+        finalVideoUrl,
+        thumbnail: finalThumbnailUrl,
+        type,
+        isThreeSixty
+      },
+    });
+    console.log('✅ QStash publish successful! Response:', qstashResponse);
+  } catch (qstashError) {
+    console.error('❌ QStash publish failed:', qstashError);
+    throw qstashError;
+  }
 
   return NextResponse.json(
     {
