@@ -201,6 +201,18 @@ export async function POST(request: Request) {
     throw qstashError;
   }
 
+  // Secondary lightweight ping to verify QStash can reach our domain
+  try {
+    console.log('🛰️ Publishing QStash ping...');
+    const pingRes = await client.publishJSON({
+      url: `${baseUrl}/api/ping`,
+      body: { analysisId, t: Date.now(), note: 'qstash-connectivity-check' },
+    });
+    console.log('✅ QStash ping publish successful:', pingRes);
+  } catch (err) {
+    console.error('❌ QStash ping publish failed:', err);
+  }
+
   return NextResponse.json(
     {
       message: "Analysis started. Defect will be saved when ready.",
