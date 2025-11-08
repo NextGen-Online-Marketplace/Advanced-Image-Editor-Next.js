@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { uploadToR2 } from "@/lib/r2";
+// Direct-call fallback to avoid external fetch/CORS
+import { POST as processAnalysisPOST } from "../../process-analysis/route";
 import { createDefect } from "@/lib/defect";
 
 const openai = new OpenAI({
@@ -213,28 +215,29 @@ export async function POST(request: Request) {
     console.error('❌ QStash ping publish failed:', err);
   }
 
-  // TEMP FALLBACK: Direct server-side fire-and-forget call to process-analysis
+  // TEMP FALLBACK: Direct in-process call to process-analysis (no network)
   try {
-    fetch(`${baseUrl}/api/process-analysis`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        imageUrl: finalImageUrl,
-        description,
-        location,
-        inspectionId,
-        section,
-        subSection,
-        selectedColor,
-        analysisId,
-        finalVideoUrl,
-        thumbnail: finalThumbnailUrl,
-        type,
-        isThreeSixty
-      })
-    }).then(r => console.log('🚨 Fallback process-analysis response status:', r.status))
-      .catch(e => console.error('❌ Fallback process-analysis fetch error:', e));
-    console.log('🚨 Fallback direct process-analysis call fired');
+    const payload = {
+      imageUrl: finalImageUrl,
+      description,
+      location,
+      inspectionId,
+      section,
+      subSection,
+      selectedColor,
+      analysisId,
+      finalVideoUrl,
+      thumbnail: finalThumbnailUrl,
+      type,
+      isThreeSixty
+    };
+    const req = new Request("http://internal/api/process-analysis", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const res = await processAnalysisPOST(req as any);
+    console.log('🚨 Fallback in-process response status:', (res as any)?.status);
   } catch (fallbackErr) {
     console.error('❌ Fallback dispatch exception:', fallbackErr);
   }
