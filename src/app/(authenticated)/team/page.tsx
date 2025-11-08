@@ -365,7 +365,7 @@ export default function TeamPage() {
     return (
       <Card key={member._id} className="mb-3">
         <CardContent className="p-4">
-          <div className="flex items-start justify-between">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex items-start gap-3 flex-1">
               <div className="w-12 h-12 flex-shrink-0 overflow-hidden rounded-full bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center text-white font-semibold">
                 {member.profileImageUrl ? (
@@ -411,7 +411,7 @@ export default function TeamPage() {
                 {renderPermissionsList(member)}
               </div>
             </div>
-            <div className="flex gap-2 ml-4">
+            <div className="flex gap-2 sm:ml-4 sm:self-start">
               <Button
                 variant="ghost"
                 size="icon"
