@@ -1,5 +1,7 @@
 // /app/api/process-analysis/route.ts
 import { NextResponse } from "next/server";
+// Debug: file loaded (helps confirm the route is deployed and bundle evaluated)
+console.log("🧩 process-analysis route module loaded at", new Date().toISOString());
 import { verifySignature } from "@upstash/qstash/nextjs";
 import OpenAI from 'openai';
 import { uploadToR2 } from "@/lib/r2";
