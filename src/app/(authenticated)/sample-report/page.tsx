@@ -55,6 +55,7 @@ type SampleReport = {
   inspectionId?: string;
   createdAt?: string;
   updatedAt?: string;
+  headerImage?: string;
 };
 
 export default function SampleReportPage() {
@@ -455,6 +456,7 @@ function SortableReportCard({
   };
 
   const isDeleting = deletingId === report._id;
+  const hasHeaderImage = Boolean(report.headerImage && report.headerImage.trim());
 
   const handleCopyUrl = () => {
     if (!report.url) return;
@@ -470,40 +472,68 @@ function SortableReportCard({
       className={`flex flex-col ${isDragging ? "z-50" : ""}`}
     >
       <Card
-        className={`flex h-full flex-col justify-between ${
-          isDragging ? "shadow-xl ring-2 ring-primary" : ""
+        className={`group flex h-full flex-col overflow-hidden ${
+          isDragging ? "shadow-xl ring-2 ring-primary" : "shadow-sm"
         }`}
       >
-        <CardHeader className="space-y-3">
-          <div className="flex items-start justify-between gap-2">
-            <CardTitle className="text-xl">{report.title}</CardTitle>
-            <button
-              type="button"
-              className="rounded-md p-1 text-muted-foreground transition hover:bg-muted hover:text-foreground active:cursor-grabbing"
-              aria-label="Drag to reorder"
-              {...attributes}
-              {...listeners}
-            >
-              <GripVertical className="h-4 w-4" />
-            </button>
+        <CardHeader className="relative w-full p-0">
+          <div className="relative aspect-[3/2] w-full overflow-hidden bg-muted">
+            {hasHeaderImage ? (
+              <img
+                src={report.headerImage}
+                alt={report.title ? `${report.title} header image` : "Sample report preview"}
+                className="h-full w-full object-cover transition duration-500 ease-out group-hover:scale-110"
+                loading="lazy"
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-slate-800 via-slate-700 to-slate-900 text-slate-100">
+                <span className="text-sm font-medium">No header image</span>
+              </div>
+            )}
+            <div
+              className={`absolute inset-0 transition duration-500 ${
+                hasHeaderImage
+                  ? "bg-gradient-to-t from-black/80 via-black/25 to-black/10 group-hover:from-black/90 group-hover:via-black/70 group-hover:to-black/30"
+                  : "bg-gradient-to-t from-slate-900/90 via-slate-900/50 to-slate-900/20"
+              }`}
+            />
+            <div className="absolute inset-0 flex flex-col justify-between p-3">
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white shadow-sm transition hover:bg-black/60 focus:outline-none focus:ring-2 focus:ring-white/70 active:cursor-grabbing"
+                  aria-label="Drag to reorder"
+                  {...attributes}
+                  {...listeners}
+                >
+                  <GripVertical className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="flex flex-col gap-1 pr-10 text-white drop-shadow-md transition-transform duration-500 group-hover:-translate-y-2">
+                <CardTitle className="line-clamp-2 text-lg font-semibold">{report.title}</CardTitle>
+                {report.description && (
+                  <p className="line-clamp-3 text-xs text-white/90 max-h-0 overflow-hidden opacity-0 transition-all duration-500 group-hover:max-h-24 group-hover:opacity-100">
+                    {report.description}
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
-          {report.description && (
-            <p className="text-sm text-muted-foreground">{report.description}</p>
-          )}
         </CardHeader>
-        <CardFooter className="flex flex-col gap-3">
+        <div className="flex-1" />
+        <CardFooter className="mt-auto flex flex-col gap-3 border-t border-border/50 bg-muted/30 p-4">
           <div className="flex w-full items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <Button
                 asChild
-                variant="ghost"
-                size="icon"
-                className="h-9 w-9 rounded-full text-muted-foreground hover:text-primary"
+                variant="secondary"
+                size="sm"
+                className="gap-2 rounded-full px-3 py-2 text-sm font-medium"
                 title="View report"
                 disabled={reorderBusy}
               >
                 <Link href={report.url} target="_blank" rel="noopener noreferrer">
-                  <span className="sr-only">View report</span>
+                  <span>View</span>
                   <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none">
                     <path
                       d="M12 5c-7 0-10 7-10 7s3 7 10 7 10-7 10-7-3-7-10-7Zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8Z"
@@ -520,7 +550,7 @@ function SortableReportCard({
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 rounded-full text-muted-foreground hover:text-primary"
+                className="h-9 w-9 rounded-full text-muted-foreground transition hover:bg-primary/10 hover:text-primary"
                 onClick={handleCopyUrl}
                 title="Copy URL"
                 disabled={reorderBusy}
@@ -532,7 +562,7 @@ function SortableReportCard({
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 rounded-full text-muted-foreground hover:text-primary"
+                className="h-9 w-9 rounded-full text-muted-foreground transition hover:bg-primary/10 hover:text-primary"
                 onClick={() => onEdit(report)}
                 title="Edit"
                 disabled={reorderBusy}
@@ -540,12 +570,11 @@ function SortableReportCard({
                 <span className="sr-only">Edit</span>
                 <FileEdit className="h-4 w-4" />
               </Button>
-            </div>
             <Button
               type="button"
               variant="ghost"
               size="icon"
-              className="h-9 w-9 rounded-full text-muted-foreground hover:text-destructive"
+              className="h-9 w-9 rounded-full text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive"
               disabled={isDeleting || reorderBusy}
               onClick={() => onDelete(report)}
               title="Delete"
@@ -553,6 +582,7 @@ function SortableReportCard({
               <span className="sr-only">Delete</span>
               <Trash2 className="h-4 w-4" />
             </Button>
+            </div>
           </div>
         </CardFooter>
       </Card>

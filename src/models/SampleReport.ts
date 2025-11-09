@@ -7,6 +7,7 @@ export interface ISampleReport extends Document {
   order: number;
   description?: string;
   inspectionId?: string;
+  headerImage?: string;
   createdBy?: mongoose.Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
@@ -40,6 +41,11 @@ const SampleReportSchema = new Schema<ISampleReport>(
     inspectionId: {
       type: String,
       trim: true,
+    },
+    headerImage: {
+      type: String,
+      trim: true,
+      maxlength: 2000,
     },
     order: {
       type: Number,

@@ -1,7 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { ObjectId } from 'mongodb';
 import dbConnect from '../../../../lib/db';
 import { getCurrentUser } from '../../../../lib/auth-helpers';
 import SampleReport from '../../../../src/models/SampleReport';
+import clientPromise from '../../../../lib/mongodb';
+
+const INSPECTION_DB_NAME = process.env.INSPECTIONS_DB_NAME ?? 'agi_inspections_db';
+
+const fetchHeaderImagesForInspections = async (inspectionIds: string[]) => {
+  const validInspectionObjectIds = inspectionIds.filter((id) => ObjectId.isValid(id));
+
+  if (validInspectionObjectIds.length === 0) {
+    return new Map<string, string>();
+  }
+
+  const client = await clientPromise;
+  const db = client.db(INSPECTION_DB_NAME);
+
+  const inspectionDocs = await db
+    .collection('inspections')
+    .find(
+      { _id: { $in: validInspectionObjectIds.map((id) => new ObjectId(id)) } },
+      { projection: { headerImage: 1 } }
+    )
+    .toArray();
+
+  const headerMap = new Map<string, string>();
+  inspectionDocs.forEach((doc) => {
+    const headerImage =
+      typeof doc.headerImage === 'string' && doc.headerImage.trim() ? doc.headerImage.trim() : undefined;
+    if (headerImage) {
+      headerMap.set(doc._id.toString(), headerImage);
+    }
+  });
+
+  return headerMap;
+};
 
 export async function GET(request: NextRequest) {
   try {
@@ -20,7 +54,34 @@ export async function GET(request: NextRequest) {
       .sort({ order: 1, createdAt: 1 })
       .lean();
 
-    return NextResponse.json({ sampleReports });
+    const inspectionIdSet = new Set(
+      sampleReports
+        .map((report) =>
+          typeof report.inspectionId === 'string' ? report.inspectionId.trim() : ''
+        )
+        .filter((id): id is string => id.length > 0)
+    );
+
+    let sampleReportsWithHeader = sampleReports;
+
+    if (inspectionIdSet.size > 0) {
+      const headerMap = await fetchHeaderImagesForInspections(Array.from(inspectionIdSet));
+
+      if (headerMap.size > 0) {
+        sampleReportsWithHeader = sampleReports.map((report) => {
+          const inspectionId =
+            typeof report.inspectionId === 'string' ? report.inspectionId.trim() : '';
+
+          if (!inspectionId) {
+            return report;
+          }
+          const headerImage = headerMap.get(inspectionId) ?? report.headerImage;
+          return headerImage ? { ...report, headerImage } : report;
+        });
+      }
+    }
+
+    return NextResponse.json({ sampleReports: sampleReportsWithHeader });
   } catch (error: any) {
     console.error('Get sample reports error:', error);
     return NextResponse.json(
@@ -69,6 +130,12 @@ export async function POST(request: NextRequest) {
 
     const nextOrder = typeof maxOrderDoc?.order === 'number' ? maxOrderDoc.order + 1 : 1;
 
+    let headerImage: string | undefined;
+    if (inspectionId && ObjectId.isValid(inspectionId)) {
+      const headerMap = await fetchHeaderImagesForInspections([inspectionId]);
+      headerImage = headerMap.get(inspectionId);
+    }
+
     const sampleReport = await SampleReport.create({
       company: currentUser.company,
       createdBy: currentUser._id,
@@ -76,6 +143,7 @@ export async function POST(request: NextRequest) {
       url,
       description: description || undefined,
       inspectionId: inspectionId || undefined,
+      headerImage: headerImage || undefined,
       order: nextOrder,
     });
 

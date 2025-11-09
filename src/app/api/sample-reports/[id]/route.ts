@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { ObjectId } from 'mongodb';
 import dbConnect from '../../../../../lib/db';
 import { getCurrentUser } from '../../../../../lib/auth-helpers';
 import SampleReport from '../../../../../src/models/SampleReport';
+import clientPromise from '../../../../../lib/mongodb';
 
 type RouteParams = {
   params: Promise<{ id: string }>;
@@ -51,13 +53,43 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       updates.description = body.description.trim() || undefined;
     }
 
+    let inspectionIdForHeader: string | undefined;
+
     if (typeof body.inspectionId === 'string') {
       const trimmed = body.inspectionId.trim();
       updates.inspectionId = trimmed || undefined;
+      inspectionIdForHeader = trimmed || undefined;
+    }
+
+    if (typeof body.headerImage === 'string') {
+      const headerImage = body.headerImage.trim();
+      updates.headerImage = headerImage || undefined;
     }
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: 'No updates provided' }, { status: 400 });
+    }
+
+    if (inspectionIdForHeader !== undefined) {
+      if (inspectionIdForHeader && ObjectId.isValid(inspectionIdForHeader)) {
+        const client = await clientPromise;
+        const db = client.db(process.env.INSPECTIONS_DB_NAME ?? 'agi_inspections_db');
+        const inspectionDoc = await db
+          .collection('inspections')
+          .findOne(
+            { _id: new ObjectId(inspectionIdForHeader) },
+            { projection: { headerImage: 1 } }
+          );
+
+        const headerImage =
+          typeof inspectionDoc?.headerImage === 'string' && inspectionDoc.headerImage.trim()
+            ? inspectionDoc.headerImage.trim()
+            : undefined;
+
+        updates.headerImage = headerImage;
+      } else {
+        updates.headerImage = undefined;
+      }
     }
 
     const sampleReport = await SampleReport.findOneAndUpdate(
