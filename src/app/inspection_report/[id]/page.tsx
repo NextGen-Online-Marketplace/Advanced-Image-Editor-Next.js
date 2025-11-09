@@ -3526,7 +3526,9 @@ export default function Page() {
                         {/* Header line moved to right column (number • section • defect), then divider */}
                         <div className={styles.defectInlineHeader}>
                           <span className={styles.defectHeaderText}>
-                            {section.numbering} - {(section.subsectionName || section.sectionName)}{defectTitle ? ` • ${defectTitle}` : ''}
+                            <span className={styles.defectNumberPrefix}>{section.numbering} - </span>
+                            <span className={styles.defectSectionPart}>{(section.subsectionName || section.sectionName)}</span>
+                            {defectTitle && <span className={styles.defectTitlePart}>{defectTitle}</span>}
                           </span>
                           <span className={styles.importanceBadgeSmall} style={{ background: getSelectedColor(section) }}>
                             {colorToImportance(section.color)}
@@ -3620,7 +3622,8 @@ export default function Page() {
                       </tbody>
                       <tfoot>
                         <tr>
-                          <td colSpan={3}>Total</td>
+                          <td colSpan={2} className={styles.totalLabel}>Total</td>
+                          <td className={styles.hiddenOnMobile}></td>
                           <td style={{ textAlign: 'right' }}>
                             ${defectSections.reduce((total, section) => total + (section.estimatedCosts?.totalEstimatedCost || 0), 0)}
                           </td>
