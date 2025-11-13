@@ -1,12 +1,13 @@
 "use client";
 
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import ImageEditor from '../../../../components/ImageEditor';
 import { useState, useRef, useEffect, Suspense } from 'react';
 import { useAnalysisStore } from '@/lib/store';
 
 function ImageEditorPageContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const selectedInspectionId = searchParams.get('inspectionId') || '';
   const preloadImageUrl = searchParams.get('imageUrl') || searchParams.get('src'); // Get existing image URL (support both 'imageUrl' and 'src')
   const returnTo = searchParams.get('returnTo'); // Where to return after editing
