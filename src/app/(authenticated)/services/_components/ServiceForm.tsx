@@ -1570,7 +1570,7 @@ function AddOnCard({
           </div>
         </div>
 
-        <div className="space-y-2">
+        <div className="mt-4 space-y-2">
           <Label className="flex items-center gap-1">
             Default Inspection Events
             <Tooltip>
@@ -1588,7 +1588,7 @@ function AddOnCard({
           />
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
             <Label className="flex items-center gap-1">
               Organization Service ID
@@ -1639,7 +1639,7 @@ function AddOnCard({
           </div>
         </div>
 
-        <div className="space-y-2">
+        <div className="mt-4 space-y-2">
           <div className="flex items-center gap-1">
             <Label>Allow upsell</Label>
             <Tooltip>
@@ -1671,7 +1671,7 @@ function AddOnCard({
           </div>
         </div>
 
-        <div className="space-y-3 rounded-lg border p-4">
+        <div className="mt-4 space-y-3 rounded-lg border p-4">
           <div className="flex items-start justify-between">
             <div>
               <h4 className="text-sm font-semibold">Modifiers</h4>
