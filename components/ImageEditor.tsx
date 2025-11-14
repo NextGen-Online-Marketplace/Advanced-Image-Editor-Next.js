@@ -1885,6 +1885,197 @@ const captureImage = () => {
       }
     }
 
+    // UNIVERSAL SHAPE INTERACTIONS - Handle these globally regardless of active mode
+    // This allows dragging/resizing any shape type in any mode
+
+    // Handle arrow dragging with smooth movement (when isDraggingArrow is set)
+    if (isDraggingArrow && selectedArrowId !== null) {
+      const selectedArrow = lines.find(line => line.id === selectedArrowId);
+      if (selectedArrow) {
+        const center = getArrowCenter(selectedArrow);
+        if (interactionMode === 'move') {
+          const newCenter = { x: mouseX - dragArrowOffset.x, y: mouseY - dragArrowOffset.y };
+          const oldCenter = getArrowCenter(selectedArrow);
+          const deltaX = newCenter.x - oldCenter.x;
+          const deltaY = newCenter.y - oldCenter.y;
+          // Use ultra-smooth movement with requestAnimationFrame
+          pendingMovementRef.current = {
+            id: selectedArrowId,
+            deltaX,
+            deltaY
+          };
+          if (!isMovingRef.current) {
+            isMovingRef.current = true;
+          }
+        } else if (interactionMode === 'rotate') {
+          // Faster rotation with less easing for more responsive feel
+          const angle = Math.atan2(mouseY - center.y, mouseX - center.x);
+          const currentRotation = selectedArrow.rotation || 0;
+          const rotationDelta = angle - currentRotation;
+
+          // Reduced easing for faster rotation (from 0.3 to 0.5)
+          const easedRotation = currentRotation + rotationDelta * 0.5;
+
+          setLines(prev => prev.map(line =>
+              line.id === selectedArrowId
+                ? {
+                    ...line,
+                    rotation: easedRotation,
+                    points: line.points.map(point => rotatePoint(point, center, easedRotation - currentRotation))
+                  }
+                : line
+          ));
+        }
+      }
+      return;
+    }
+
+    // Handle shape moving (circles, squares, and arrows when using isMovingShape)
+    if (isMovingShape && selectedArrowId !== null) {
+      const newCenterX = mouseX - moveOffset.x;
+      const newCenterY = mouseY - moveOffset.y;
+
+      setLines(prev => {
+        const updatedLines = prev.map(line => {
+          if (line.id === selectedArrowId) {
+            if (line.type === 'circle') {
+              return {
+                ...line,
+                center: { x: newCenterX, y: newCenterY },
+                points: [
+                  { x: newCenterX - line.width! / 2, y: newCenterY - line.height! / 2 },
+                  { x: newCenterX + line.width! / 2, y: newCenterY + line.height! / 2 }
+                ]
+              };
+            } else if (line.type === 'square') {
+              return {
+                ...line,
+                center: { x: newCenterX, y: newCenterY },
+                points: [
+                  { x: newCenterX - line.width! / 2, y: newCenterY - line.height! / 2 },
+                  { x: newCenterX + line.width! / 2, y: newCenterY + line.height! / 2 }
+                ]
+              };
+            } else if (line.type === 'arrow') {
+              // For arrows, update the points array with the new positions
+              const oldCenter = getArrowCenter(line);
+              const deltaX = newCenterX - oldCenter.x;
+              const deltaY = newCenterY - oldCenter.y;
+
+              return {
+                ...line,
+                points: line.points.map(point => ({
+                  x: point.x + deltaX,
+                  y: point.y + deltaY
+                }))
+              };
+            }
+          }
+          return line;
+        });
+
+        return updatedLines;
+      });
+      return;
+    }
+
+    // Handle shape resizing (circles and squares)
+    if (isResizingShape && selectedArrowId !== null && initialShapeData) {
+      const center = initialShapeData.center;
+
+      // Find the shape to determine its type
+      const shape = lines.find(line => line.id === initialShapeData.id);
+
+      if (shape?.type === 'circle' && initialShapeData.width !== undefined && initialShapeData.height !== undefined) {
+        // Circle resizing
+        let newWidth = initialShapeData.width;
+        let newHeight = initialShapeData.height;
+
+        // Calculate the distance from center to mouse
+        const deltaX = mouseX - center.x;
+        const deltaY = mouseY - center.y;
+
+        switch (resizeHandle) {
+          case 'top':
+            // Only resize height
+            newHeight = Math.max(20, 2 * Math.abs(deltaY));
+            newWidth = initialShapeData.width; // Keep original width
+            break;
+          case 'right':
+            // Only resize width
+            newWidth = Math.max(20, 2 * Math.abs(deltaX));
+            newHeight = initialShapeData.height; // Keep original height
+            break;
+          case 'bottom':
+            // Only resize height
+            newHeight = Math.max(20, 2 * Math.abs(deltaY));
+            newWidth = initialShapeData.width; // Keep original width
+            break;
+          case 'left':
+            // Only resize width
+            newWidth = Math.max(20, 2 * Math.abs(deltaX));
+            newHeight = initialShapeData.height; // Keep original height
+            break;
+        }
+
+        setLines(prev => {
+          const updatedLines = prev.map(line =>
+            line.id === initialShapeData.id
+              ? { ...line, width: newWidth, height: newHeight }
+              : line
+          );
+
+          return updatedLines;
+        });
+      } else if (shape?.type === 'square' && initialShapeData.width !== undefined && initialShapeData.height !== undefined) {
+        // Square resizing
+        let newWidth = initialShapeData.width;
+        let newHeight = initialShapeData.height;
+
+        switch (resizeHandle) {
+          case 'top-left':
+            newWidth = Math.max(20, center.x - mouseX + initialShapeData.width / 2);
+            newHeight = Math.max(20, center.y - mouseY + initialShapeData.height / 2);
+            break;
+          case 'top-right':
+            newWidth = Math.max(20, mouseX - center.x + initialShapeData.width / 2);
+            newHeight = Math.max(20, center.y - mouseY + initialShapeData.height / 2);
+            break;
+          case 'bottom-right':
+            newWidth = Math.max(20, mouseX - center.x + initialShapeData.width / 2);
+            newHeight = Math.max(20, mouseY - center.y + initialShapeData.height / 2);
+            break;
+          case 'bottom-left':
+            newWidth = Math.max(20, center.x - mouseX + initialShapeData.width / 2);
+            newHeight = Math.max(20, mouseY - center.y + initialShapeData.height / 2);
+            break;
+          case 'top':
+            newHeight = Math.max(20, center.y - mouseY + initialShapeData.height / 2);
+            break;
+          case 'right':
+            newWidth = Math.max(20, mouseX - center.x + initialShapeData.width / 2);
+            break;
+          case 'bottom':
+            newHeight = Math.max(20, mouseY - center.y + initialShapeData.height / 2);
+            break;
+          case 'left':
+            newWidth = Math.max(20, center.x - mouseX + initialShapeData.width / 2);
+            break;
+        }
+
+        setLines(prev => {
+          const updatedLines = prev.map(line =>
+            line.id === initialShapeData.id
+              ? { ...line, width: newWidth, height: newHeight }
+              : line
+          );
+
+          return updatedLines;
+        });
+      }
+      return;
+    }
+
     if (activeMode === 'crop' && cropFrame) {
       if (resizingCropHandle) {
         setCropFrame(prev => resizeObj(prev!, resizingCropHandle, mouseX, mouseY));
@@ -1907,182 +2098,54 @@ const captureImage = () => {
         return;
       }
     } else if (activeMode === 'none') {
-      // Handle shape interactions in none mode
-      if (isDraggingArrow && selectedArrowId !== null) {
-        const selectedArrow = lines.find(line => line.id === selectedArrowId);
-        if (selectedArrow) {
-          const center = getArrowCenter(selectedArrow);
-          if (interactionMode === 'move') {
-            const newCenter = { x: mouseX - dragArrowOffset.x, y: mouseY - dragArrowOffset.y };
-            const oldCenter = getArrowCenter(selectedArrow);
-            const deltaX = newCenter.x - oldCenter.x;
-            const deltaY = newCenter.y - oldCenter.y;
-            // Use ultra-smooth movement with requestAnimationFrame
-            pendingMovementRef.current = {
-              id: selectedArrowId,
-              deltaX,
-              deltaY
-            };
-            if (!isMovingRef.current) {
-              isMovingRef.current = true;
-            }
-          } else if (interactionMode === 'rotate') {
-            // Faster rotation with less easing for more responsive feel
-            const angle = Math.atan2(mouseY - center.y, mouseX - center.x);
-            const currentRotation = selectedArrow.rotation || 0;
-            const rotationDelta = angle - currentRotation;
-            
-            // Reduced easing for faster rotation (from 0.3 to 0.5)
-            const easedRotation = currentRotation + rotationDelta * 0.5;
-            
-            setLines(prev => prev.map(line => 
-                line.id === selectedArrowId 
-                  ? {
-                      ...line,
-                      rotation: easedRotation,
-                      points: line.points.map(point => rotatePoint(point, center, easedRotation - currentRotation))
-                    }
-                  : line
-            ));
+      // Hover effects for shapes in none mode (drag/move handled globally above)
+      // Check for hover effects on shapes in none mode
+      // 1) Prefer corner handles of selected arrow (so cursor becomes pointer on blue dots)
+      if (selectedArrowId !== null) {
+        const sel = lines.find(l => l.id === selectedArrowId && l.type === 'arrow' && l.points.length >= 2);
+        if (sel) {
+          const from = sel.points[0];
+          const to = sel.points[sel.points.length - 1];
+          const minX = Math.min(from.x, to.x);
+          const maxX = Math.max(from.x, to.x);
+          const minY = Math.min(from.y, to.y);
+          const maxY = Math.max(from.y, to.y);
+          const padding = 10;
+          const tolerance = 20;
+          const corners = [
+            { x: minX - padding, y: minY - padding },
+            { x: maxX + padding, y: minY - padding },
+            { x: maxX + padding, y: maxY + padding },
+            { x: minX - padding, y: maxY + padding },
+          ];
+          const overCorner = corners.some(c => Math.hypot(mouseX - c.x, mouseY - c.y) <= tolerance);
+          if (overCorner) {
+            setHoveredArrowId(sel.id);
+            return;
           }
         }
-        return;
-      } else if (isMovingShape && selectedArrowId !== null) {
-        // Handle shape moving in none mode
-        const newCenterX = mouseX - moveOffset.x;
-        const newCenterY = mouseY - moveOffset.y;
-        
-        setLines(prev => {
-          const updatedLines = prev.map(line => {
-            if (line.id === selectedArrowId) {
-              if (line.type === 'circle') {
-                return {
-                  ...line,
-                  center: { x: newCenterX, y: newCenterY },
-                  points: [
-                    { x: newCenterX - line.width! / 2, y: newCenterY - line.height! / 2 },
-                    { x: newCenterX + line.width! / 2, y: newCenterY + line.height! / 2 }
-                  ]
-                };
-              } else if (line.type === 'square') {
-                return {
-                  ...line,
-                  center: { x: newCenterX, y: newCenterY },
-                  points: [
-                    { x: newCenterX - line.width! / 2, y: newCenterY - line.height! / 2 },
-                    { x: newCenterX + line.width! / 2, y: newCenterY + line.height! / 2 }
-                  ]
-                };
-              } else if (line.type === 'arrow') {
-                // For arrows, update the points array with the new positions
-                const oldCenter = getArrowCenter(line);
-                const deltaX = newCenterX - oldCenter.x;
-                const deltaY = newCenterY - oldCenter.y;
-                
-                return {
-                  ...line,
-                  points: line.points.map(point => ({
-                    x: point.x + deltaX,
-                    y: point.y + deltaY
-                  }))
-                };
-              }
-            }
-            return line;
-          });
-          
-          return updatedLines;
-        });
-        return;
-      } else {
-        // Check for hover effects on shapes in none mode
-        // 1) Prefer corner handles of selected arrow (so cursor becomes pointer on blue dots)
-        if (selectedArrowId !== null) {
-          const sel = lines.find(l => l.id === selectedArrowId && l.type === 'arrow' && l.points.length >= 2);
-          if (sel) {
-            const from = sel.points[0];
-            const to = sel.points[sel.points.length - 1];
-            const minX = Math.min(from.x, to.x);
-            const maxX = Math.max(from.x, to.x);
-            const minY = Math.min(from.y, to.y);
-            const maxY = Math.max(from.y, to.y);
-            const padding = 10;
-            const tolerance = 20;
-            const corners = [
-              { x: minX - padding, y: minY - padding },
-              { x: maxX + padding, y: minY - padding },
-              { x: maxX + padding, y: maxY + padding },
-              { x: minX - padding, y: maxY + padding },
-            ];
-            const overCorner = corners.some(c => Math.hypot(mouseX - c.x, mouseY - c.y) <= tolerance);
-            if (overCorner) {
-              setHoveredArrowId(sel.id);
-              return;
-            }
-          }
-        }
-        // 2) Otherwise, hover detection on shapes
-        const hoveredShape = lines.find(line => {
-          if (line.type === 'arrow') {
-            return isPointInArrow(line, { x: mouseX, y: mouseY }, 25);
-          } else if (line.type === 'circle' && line.center && line.width !== undefined && line.height !== undefined) {
-            const dx = (mouseX - line.center.x) / (line.width / 2);
-            const dy = (mouseY - line.center.y) / (line.height / 2);
-            const distance = dx * dx + dy * dy;
-            return distance <= 1.2;
-          } else if (line.type === 'square' && line.center && line.width !== undefined && line.height !== undefined) {
-            const left = line.center.x - line.width / 2;
-            const right = line.center.x + line.width / 2;
-            const top = line.center.y - line.height / 2;
-            const bottom = line.center.y + line.height / 2;
-            return mouseX >= left && mouseX <= right && mouseY >= top && mouseY <= bottom;
-          }
-          return false;
-        });
-        setHoveredArrowId(hoveredShape ? hoveredShape.id : null);
       }
+      // 2) Otherwise, hover detection on shapes
+      const hoveredShape = lines.find(line => {
+        if (line.type === 'arrow') {
+          return isPointInArrow(line, { x: mouseX, y: mouseY }, 25);
+        } else if (line.type === 'circle' && line.center && line.width !== undefined && line.height !== undefined) {
+          const dx = (mouseX - line.center.x) / (line.width / 2);
+          const dy = (mouseY - line.center.y) / (line.height / 2);
+          const distance = dx * dx + dy * dy;
+          return distance <= 1.2;
+        } else if (line.type === 'square' && line.center && line.width !== undefined && line.height !== undefined) {
+          const left = line.center.x - line.width / 2;
+          const right = line.center.x + line.width / 2;
+          const top = line.center.y - line.height / 2;
+          const bottom = line.center.y + line.height / 2;
+          return mouseX >= left && mouseX <= right && mouseY >= top && mouseY <= bottom;
+        }
+        return false;
+      });
+      setHoveredArrowId(hoveredShape ? hoveredShape.id : null);
     } else if (activeMode === 'arrow') {
-      if (isDraggingArrow && selectedArrowId !== null) {
-        const selectedArrow = lines.find(line => line.id === selectedArrowId);
-        if (selectedArrow) {
-          const center = getArrowCenter(selectedArrow);
-          if (interactionMode === 'move') {
-            const newCenter = { x: mouseX - dragArrowOffset.x, y: mouseY - dragArrowOffset.y };
-            const oldCenter = getArrowCenter(selectedArrow);
-            const deltaX = newCenter.x - oldCenter.x;
-            const deltaY = newCenter.y - oldCenter.y;
-            // Use ultra-smooth movement with requestAnimationFrame
-            pendingMovementRef.current = {
-              id: selectedArrowId,
-              deltaX,
-              deltaY
-            };
-            if (!isMovingRef.current) {
-              isMovingRef.current = true;
-            }
-          } else if (interactionMode === 'rotate') {
-            // Faster rotation with less easing for more responsive feel
-            const angle = Math.atan2(mouseY - center.y, mouseX - center.x);
-            const currentRotation = selectedArrow.rotation || 0;
-            const rotationDelta = angle - currentRotation;
-            
-            // Reduced easing for faster rotation (from 0.3 to 0.5)
-            const easedRotation = currentRotation + rotationDelta * 0.5;
-            
-            setLines(prev => prev.map(line => 
-                line.id === selectedArrowId 
-                  ? {
-                      ...line,
-                      rotation: easedRotation,
-                      points: line.points.map(point => rotatePoint(point, center, easedRotation - currentRotation))
-                    }
-                  : line
-            ));
-          }
-        }
-        return;
-      }
-      
+      // Arrow dragging/moving handled globally above
       if (isDrawing) {
         setCurrentLine(prev => [...prev!, { x: mouseX, y: mouseY }]);
 
@@ -2133,151 +2196,6 @@ const captureImage = () => {
         });
         setHoveredArrowId(hoveredShape ? hoveredShape.id : null);
       }
-    } else if (isResizingShape && selectedArrowId !== null && initialShapeData) {
-      // Handle shape resizing
-      const center = initialShapeData.center;
-      
-      // Find the shape to determine its type
-      const shape = lines.find(line => line.id === initialShapeData.id);
-      
-      if (shape?.type === 'circle' && initialShapeData.width !== undefined && initialShapeData.height !== undefined) {
-        // Circle resizing
-        let newWidth = initialShapeData.width;
-        let newHeight = initialShapeData.height;
-        
-        // Calculate the distance from center to mouse
-        const deltaX = mouseX - center.x;
-        const deltaY = mouseY - center.y;
-        
-        switch (resizeHandle) {
-          case 'top':
-            // Only resize height
-            newHeight = Math.max(20, 2 * Math.abs(deltaY));
-            newWidth = initialShapeData.width; // Keep original width
-            break;
-          case 'right':
-            // Only resize width
-            newWidth = Math.max(20, 2 * Math.abs(deltaX));
-            newHeight = initialShapeData.height; // Keep original height
-            break;
-          case 'bottom':
-            // Only resize height
-            newHeight = Math.max(20, 2 * Math.abs(deltaY));
-            newWidth = initialShapeData.width; // Keep original width
-            break;
-          case 'left':
-            // Only resize width
-            newWidth = Math.max(20, 2 * Math.abs(deltaX));
-            newHeight = initialShapeData.height; // Keep original height
-            break;
-        }
-        
-        setLines(prev => {
-          const updatedLines = prev.map(line => 
-            line.id === initialShapeData.id 
-              ? { ...line, width: newWidth, height: newHeight }
-              : line
-          );
-          
-          
-          return updatedLines;
-        });
-      } else if (shape?.type === 'square' && initialShapeData.width !== undefined && initialShapeData.height !== undefined) {
-        // Square resizing
-        let newWidth = initialShapeData.width;
-        let newHeight = initialShapeData.height;
-        
-        switch (resizeHandle) {
-          case 'top-left':
-            newWidth = Math.max(20, center.x - mouseX + initialShapeData.width / 2);
-            newHeight = Math.max(20, center.y - mouseY + initialShapeData.height / 2);
-            break;
-          case 'top-right':
-            newWidth = Math.max(20, mouseX - center.x + initialShapeData.width / 2);
-            newHeight = Math.max(20, center.y - mouseY + initialShapeData.height / 2);
-            break;
-          case 'bottom-right':
-            newWidth = Math.max(20, mouseX - center.x + initialShapeData.width / 2);
-            newHeight = Math.max(20, mouseY - center.y + initialShapeData.height / 2);
-            break;
-          case 'bottom-left':
-            newWidth = Math.max(20, center.x - mouseX + initialShapeData.width / 2);
-            newHeight = Math.max(20, mouseY - center.y + initialShapeData.height / 2);
-            break;
-          case 'top':
-            newHeight = Math.max(20, center.y - mouseY + initialShapeData.height / 2);
-            break;
-          case 'right':
-            newWidth = Math.max(20, mouseX - center.x + initialShapeData.width / 2);
-            break;
-          case 'bottom':
-            newHeight = Math.max(20, mouseY - center.y + initialShapeData.height / 2);
-            break;
-          case 'left':
-            newWidth = Math.max(20, center.x - mouseX + initialShapeData.width / 2);
-            break;
-        }
-        
-        setLines(prev => {
-          const updatedLines = prev.map(line => 
-            line.id === initialShapeData.id 
-              ? { ...line, width: newWidth, height: newHeight }
-              : line
-          );
-          
-          
-          return updatedLines;
-        });
-      }
-      return;
-    } else if (isMovingShape && selectedArrowId !== null) {
-      // Handle shape moving
-      const newCenterX = mouseX - moveOffset.x;
-      const newCenterY = mouseY - moveOffset.y;
-      
-      setLines(prev => {
-        const updatedLines = prev.map(line => {
-          if (line.id === selectedArrowId) {
-            if (line.type === 'circle') {
-              return {
-                ...line,
-                center: { x: newCenterX, y: newCenterY },
-                points: [
-                  { x: newCenterX - line.width! / 2, y: newCenterY - line.height! / 2 },
-                  { x: newCenterX + line.width! / 2, y: newCenterY + line.height! / 2 }
-                ]
-              };
-            } else if (line.type === 'square') {
-              return {
-                ...line,
-                center: { x: newCenterX, y: newCenterY },
-                points: [
-                  { x: newCenterX - line.width! / 2, y: newCenterY - line.height! / 2 },
-                  { x: newCenterX + line.width! / 2, y: newCenterY + line.height! / 2 }
-                ]
-              };
-            } else if (line.type === 'arrow') {
-              // For arrows, update the points array with the new positions
-              const oldCenter = getArrowCenter(line);
-              const deltaX = newCenterX - oldCenter.x;
-              const deltaY = newCenterY - oldCenter.y;
-              
-              return {
-                ...line,
-                points: line.points.map(point => ({
-                  x: point.x + deltaX,
-                  y: point.y + deltaY
-                }))
-              };
-            }
-          }
-          return line;
-        });
-        
-        
-        return updatedLines;
-      });
-      return;
     } else if ((activeMode === 'circle' || activeMode === 'square') && isDrawing && currentLine && hasDragged) {
       // Update the current line with the new mouse position for real-time preview
       if (currentLine.length >= 1) {

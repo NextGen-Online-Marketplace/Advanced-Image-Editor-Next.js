@@ -542,19 +542,31 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
       return;
     }
 
+    console.log('🎨 handleAnnotateMainImage called for defect:', defect._id);
+    console.log('📊 Defect data:', {
+      hasAnnotations: !!defect.annotations,
+      annotationsCount: defect.annotations?.length || 0,
+      hasOriginalImage: !!defect.originalImage,
+      originalImage: defect.originalImage,
+      currentImage: defect.image
+    });
+
     localStorage.setItem('editorMode', 'defect-main');
     localStorage.setItem('editingDefectId', defect._id);
     localStorage.setItem('editingInspectionId', inspectionId);
 
     // Pass annotations and original image for re-editing
     if (defect.annotations && defect.annotations.length > 0) {
+      console.log('✅ Saving annotations to localStorage:', defect.annotations);
       localStorage.setItem('defectAnnotations', JSON.stringify(defect.annotations));
     } else {
+      console.log('⚠️ No annotations found in defect, removing from localStorage');
       localStorage.removeItem('defectAnnotations');
     }
 
     // Use original image if available, otherwise use current image
     const imageToEdit = defect.originalImage || defect.image;
+    console.log('🖼️ Image to edit:', imageToEdit);
     localStorage.setItem('defectOriginalImage', imageToEdit);
 
     window.open(

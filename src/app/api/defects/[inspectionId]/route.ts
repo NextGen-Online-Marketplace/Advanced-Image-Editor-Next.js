@@ -110,6 +110,7 @@ export async function PATCH(
 
     const {
       inspection_id,
+      image,
       defect_description,
       materials,
       material_total_cost,
@@ -121,6 +122,8 @@ export async function PATCH(
       isThreeSixty,
       additional_images,
       base_cost,
+      annotations,
+      originalImage,
     } = body;
 
     const normalizedInspectionId = normalizeObjectId(inspection_id);
@@ -133,6 +136,7 @@ export async function PATCH(
     }
 
     const updates = {
+      image,
       defect_description,
       materials,
       material_total_cost,
@@ -144,6 +148,8 @@ export async function PATCH(
       isThreeSixty,
       additional_images,
       base_cost,
+      annotations,
+      originalImage,
     };
 
     // remove undefined keys to avoid overwriting fields accidentally
