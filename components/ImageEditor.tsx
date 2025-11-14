@@ -1519,55 +1519,136 @@ const captureImage = () => {
           }
         }
       }
-      // Check if clicking on an existing arrow with increased selection area
-      const clickedArrow = lines.find(line => 
-        line.type === 'arrow' && isPointInArrow(line, { x: mouseX, y: mouseY }, 25)
-      );
-      
-      if (clickedArrow) {
-        setSelectedArrowId(clickedArrow.id);
-        // Rotation handle removed; skip rotate detection
-        const center = getArrowCenter(clickedArrow);
-        
-        // Check for corner handle resize (4 corners like circle/square)
-        const from = clickedArrow.points[0];
-        const to = clickedArrow.points[clickedArrow.points.length - 1];
-        const minX = Math.min(from.x, to.x);
-        const maxX = Math.max(from.x, to.x);
-        const minY = Math.min(from.y, to.y);
-        const maxY = Math.max(from.y, to.y);
-        const padding = 10;
-        
-        const cornerHandles = [
-          { x: minX - padding, y: minY - padding, name: 'top-left' },
-          { x: maxX + padding, y: minY - padding, name: 'top-right' },
-          { x: maxX + padding, y: maxY + padding, name: 'bottom-right' },
-          { x: minX - padding, y: maxY + padding, name: 'bottom-left' }
-        ];
-        
-        const tolerance = 20;
-        const clickedHandle = cornerHandles.find(h => 
-          Math.hypot(mouseX - h.x, mouseY - h.y) <= tolerance
-        );
-        
-        if (clickedHandle) {
-          setIsResizingArrow(true);
-          setInteractionMode('resize');
-          setArrowResizeEnd(clickedHandle.name as 'start' | 'end');
-          setInitialShapeData({
-            from: { ...from },
-            to: { ...to },
-            center: { ...center }
+      // Check if clicking on any existing shape (universal selection)
+      const clickedShape = lines.find(line => {
+        if (line.type === 'arrow') {
+          return isPointInArrow(line, { x: mouseX, y: mouseY }, 25);
+        } else if (line.type === 'circle' && line.center && line.width !== undefined && line.height !== undefined) {
+          const dx = (mouseX - line.center.x) / (line.width / 2);
+          const dy = (mouseY - line.center.y) / (line.height / 2);
+          return (dx * dx + dy * dy) <= 1.2;
+        } else if (line.type === 'square' && line.center && line.width !== undefined && line.height !== undefined) {
+          const left = line.center.x - line.width / 2;
+          const right = line.center.x + line.width / 2;
+          const top = line.center.y - line.height / 2;
+          const bottom = line.center.y + line.height / 2;
+          return mouseX >= left && mouseX <= right && mouseY >= top && mouseY <= bottom;
+        }
+        return false;
+      });
+
+      if (clickedShape) {
+        setSelectedArrowId(clickedShape.id);
+
+        if (clickedShape.type === 'arrow') {
+          // Rotation handle removed; skip rotate detection
+          const center = getArrowCenter(clickedShape);
+
+          // Check for corner handle resize (4 corners like circle/square)
+          const from = clickedShape.points[0];
+          const to = clickedShape.points[clickedShape.points.length - 1];
+          const minX = Math.min(from.x, to.x);
+          const maxX = Math.max(from.x, to.x);
+          const minY = Math.min(from.y, to.y);
+          const maxY = Math.max(from.y, to.y);
+          const padding = 10;
+
+          const cornerHandles = [
+            { x: minX - padding, y: minY - padding, name: 'top-left' },
+            { x: maxX + padding, y: minY - padding, name: 'top-right' },
+            { x: maxX + padding, y: maxY + padding, name: 'bottom-right' },
+            { x: minX - padding, y: maxY + padding, name: 'bottom-left' }
+          ];
+
+          const tolerance = 20;
+          const clickedHandle = cornerHandles.find(h =>
+            Math.hypot(mouseX - h.x, mouseY - h.y) <= tolerance
+          );
+
+          if (clickedHandle) {
+            setIsResizingArrow(true);
+            setInteractionMode('resize');
+            setArrowResizeEnd(clickedHandle.name as 'start' | 'end');
+            setInitialShapeData({
+              from: { ...from },
+              to: { ...to },
+              center: { ...center }
+            });
+            return;
+          }
+
+          // Otherwise move by dragging anywhere on the arrow
+          setIsDraggingArrow(true);
+          const c = getArrowCenter(clickedShape);
+          setDragArrowOffset({ x: mouseX - c.x, y: mouseY - c.y });
+          setInteractionMode('move');
+          return;
+        } else if (clickedShape.type === 'circle' || clickedShape.type === 'square') {
+          // For circles and squares, check for resize handles
+          const center = clickedShape.center || clickedShape.points[0];
+          const handleSize = 4;
+          const tolerance = 20;
+
+          if (clickedShape.type === 'circle' && clickedShape.width !== undefined && clickedShape.height !== undefined) {
+            const handles = [
+              { x: center.x, y: center.y - clickedShape.height/2 - 5, name: 'top' },
+              { x: center.x + clickedShape.width/2 + 5, y: center.y, name: 'right' },
+              { x: center.x, y: center.y + clickedShape.height/2 + 5, name: 'bottom' },
+              { x: center.x - clickedShape.width/2 - 5, y: center.y, name: 'left' }
+            ];
+
+            const clickedHandle = handles.find(handle =>
+              Math.abs(mouseX - handle.x) < tolerance && Math.abs(mouseY - handle.y) < tolerance
+            );
+
+            if (clickedHandle) {
+              setIsResizingShape(true);
+              setResizeHandle(clickedHandle.name);
+              setInitialShapeData({
+                center: center,
+                width: clickedShape.width,
+                height: clickedShape.height,
+                id: clickedShape.id
+              });
+              return;
+            }
+          } else if (clickedShape.type === 'square' && clickedShape.width !== undefined && clickedShape.height !== undefined) {
+            const handles = [
+              { x: center.x - clickedShape.width/2 - 5, y: center.y - clickedShape.height/2 - 5, name: 'top-left' },
+              { x: center.x + clickedShape.width/2 + 5, y: center.y - clickedShape.height/2 - 5, name: 'top-right' },
+              { x: center.x + clickedShape.width/2 + 5, y: center.y + clickedShape.height/2 + 5, name: 'bottom-right' },
+              { x: center.x - clickedShape.width/2 - 5, y: center.y + clickedShape.height/2 + 5, name: 'bottom-left' },
+              { x: center.x, y: center.y - clickedShape.height/2 - 5, name: 'top' },
+              { x: center.x + clickedShape.width/2 + 5, y: center.y, name: 'right' },
+              { x: center.x, y: center.y + clickedShape.height/2 + 5, name: 'bottom' },
+              { x: center.x - clickedShape.width/2 - 5, y: center.y, name: 'left' }
+            ];
+
+            const clickedHandle = handles.find(handle =>
+              Math.abs(mouseX - handle.x) < tolerance && Math.abs(mouseY - handle.y) < tolerance
+            );
+
+            if (clickedHandle) {
+              setIsResizingShape(true);
+              setResizeHandle(clickedHandle.name);
+              setInitialShapeData({
+                center: center,
+                width: clickedShape.width,
+                height: clickedShape.height,
+                id: clickedShape.id
+              });
+              return;
+            }
+          }
+
+          // If no resize handle was clicked, start moving the shape
+          setIsMovingShape(true);
+          setMoveOffset({
+            x: mouseX - center.x,
+            y: mouseY - center.y
           });
           return;
         }
-        
-        // Otherwise move by dragging anywhere on the arrow
-        setIsDraggingArrow(true);
-        const c = getArrowCenter(clickedArrow);
-        setDragArrowOffset({ x: mouseX - c.x, y: mouseY - c.y });
-        setInteractionMode('move');
-        return;
       } else {
         // Clicked on empty area - deselect any currently selected arrow and start drawing new one
         setSelectedArrowId(null);
@@ -1577,14 +1658,16 @@ const captureImage = () => {
         setCurrentArrowSize(3); // Reset arrow size when starting to draw
       }
     } else if (activeMode === 'circle' || activeMode === 'square') {
-      // Check if clicking on an existing shape
+      // Check if clicking on any existing shape (universal selection)
       const clickedShape = lines.find(line => {
-        if (line.type === 'circle' && line.center && line.width !== undefined && line.height !== undefined) {
+        if (line.type === 'arrow') {
+          return isPointInArrow(line, { x: mouseX, y: mouseY }, 25);
+        } else if (line.type === 'circle' && line.center && line.width !== undefined && line.height !== undefined) {
           // Check if point is inside ellipse or within resize handle area
           const dx = (mouseX - line.center.x) / (line.width / 2);
           const dy = (mouseY - line.center.y) / (line.height / 2);
           const distance = dx * dx + dy * dy;
-          
+
           // Include resize handle area (extend the selection area)
           const handleArea = 15; // Extra area around the shape for handles
           const extendedWidth = line.width + handleArea;
@@ -1592,7 +1675,7 @@ const captureImage = () => {
           const extendedDx = (mouseX - line.center.x) / (extendedWidth / 2);
           const extendedDy = (mouseY - line.center.y) / (extendedHeight / 2);
           const extendedDistance = extendedDx * extendedDx + extendedDy * extendedDy;
-          
+
           return distance <= 1.2 || extendedDistance <= 1.0; // Original shape or extended area
         } else if (line.type === 'square' && line.center && line.width !== undefined && line.height !== undefined) {
           const left = line.center.x - line.width / 2;
@@ -1603,74 +1686,119 @@ const captureImage = () => {
         }
         return false;
       });
-      
+
       if (clickedShape) {
         setSelectedArrowId(clickedShape.id);
-        
-        // Check if clicking on a resize handle
-        const center = clickedShape.center || clickedShape.points[0];
-        const handleSize = 4; // Smaller for less intrusive mobile experience
-        const tolerance = 20; // Wider tolerance for easier clicking on smaller handles
-        
-        if (clickedShape.type === 'circle' && clickedShape.width !== undefined && clickedShape.height !== undefined) {
-          const handles = [
-            { x: center.x, y: center.y - clickedShape.height/2 - 5, name: 'top' },
-            { x: center.x + clickedShape.width/2 + 5, y: center.y, name: 'right' },
-            { x: center.x, y: center.y + clickedShape.height/2 + 5, name: 'bottom' },
-            { x: center.x - clickedShape.width/2 - 5, y: center.y, name: 'left' }
+
+        if (clickedShape.type === 'arrow') {
+          // Handle arrow selection in circle/square mode
+          const center = getArrowCenter(clickedShape);
+
+          // Check for corner handle resize (4 corners like circle/square)
+          const from = clickedShape.points[0];
+          const to = clickedShape.points[clickedShape.points.length - 1];
+          const minX = Math.min(from.x, to.x);
+          const maxX = Math.max(from.x, to.x);
+          const minY = Math.min(from.y, to.y);
+          const maxY = Math.max(from.y, to.y);
+          const padding = 10;
+
+          const cornerHandles = [
+            { x: minX - padding, y: minY - padding, name: 'top-left' },
+            { x: maxX + padding, y: minY - padding, name: 'top-right' },
+            { x: maxX + padding, y: maxY + padding, name: 'bottom-right' },
+            { x: minX - padding, y: maxY + padding, name: 'bottom-left' }
           ];
-          
-          const clickedHandle = handles.find(handle => 
-            Math.abs(mouseX - handle.x) < tolerance && Math.abs(mouseY - handle.y) < tolerance
+
+          const tolerance = 20;
+          const clickedHandle = cornerHandles.find(h =>
+            Math.hypot(mouseX - h.x, mouseY - h.y) <= tolerance
           );
-          
+
           if (clickedHandle) {
-            setIsResizingShape(true);
-            setResizeHandle(clickedHandle.name);
+            setIsResizingArrow(true);
+            setInteractionMode('resize');
+            setArrowResizeEnd(clickedHandle.name as 'start' | 'end');
             setInitialShapeData({
-              center: center,
-              width: clickedShape.width,
-              height: clickedShape.height,
-              id: clickedShape.id
+              from: { ...from },
+              to: { ...to },
+              center: { ...center }
             });
             return;
           }
-        } else if (clickedShape.type === 'square' && clickedShape.width !== undefined && clickedShape.height !== undefined) {
-          const handles = [
-            { x: center.x - clickedShape.width/2 - 5, y: center.y - clickedShape.height/2 - 5, name: 'top-left' },
-            { x: center.x + clickedShape.width/2 + 5, y: center.y - clickedShape.height/2 - 5, name: 'top-right' },
-            { x: center.x + clickedShape.width/2 + 5, y: center.y + clickedShape.height/2 + 5, name: 'bottom-right' },
-            { x: center.x - clickedShape.width/2 - 5, y: center.y + clickedShape.height/2 + 5, name: 'bottom-left' },
-            { x: center.x, y: center.y - clickedShape.height/2 - 5, name: 'top' },
-            { x: center.x + clickedShape.width/2 + 5, y: center.y, name: 'right' },
-            { x: center.x, y: center.y + clickedShape.height/2 + 5, name: 'bottom' },
-            { x: center.x - clickedShape.width/2 - 5, y: center.y, name: 'left' }
-          ];
-          
-          const clickedHandle = handles.find(handle => 
-            Math.abs(mouseX - handle.x) < tolerance && Math.abs(mouseY - handle.y) < tolerance
-          );
-          
-          if (clickedHandle) {
-            setIsResizingShape(true);
-            setResizeHandle(clickedHandle.name);
-            setInitialShapeData({
-              center: center,
-              width: clickedShape.width,
-              height: clickedShape.height,
-              id: clickedShape.id
-            });
-            return;
+
+          // Otherwise move by dragging anywhere on the arrow
+          setIsDraggingArrow(true);
+          const c = getArrowCenter(clickedShape);
+          setDragArrowOffset({ x: mouseX - c.x, y: mouseY - c.y });
+          setInteractionMode('move');
+          return;
+        } else {
+          // Check if clicking on a resize handle for circles/squares
+          const center = clickedShape.center || clickedShape.points[0];
+          const handleSize = 4; // Smaller for less intrusive mobile experience
+          const tolerance = 20; // Wider tolerance for easier clicking on smaller handles
+
+          if (clickedShape.type === 'circle' && clickedShape.width !== undefined && clickedShape.height !== undefined) {
+            const handles = [
+              { x: center.x, y: center.y - clickedShape.height/2 - 5, name: 'top' },
+              { x: center.x + clickedShape.width/2 + 5, y: center.y, name: 'right' },
+              { x: center.x, y: center.y + clickedShape.height/2 + 5, name: 'bottom' },
+              { x: center.x - clickedShape.width/2 - 5, y: center.y, name: 'left' }
+            ];
+
+            const clickedHandle = handles.find(handle =>
+              Math.abs(mouseX - handle.x) < tolerance && Math.abs(mouseY - handle.y) < tolerance
+            );
+
+            if (clickedHandle) {
+              setIsResizingShape(true);
+              setResizeHandle(clickedHandle.name);
+              setInitialShapeData({
+                center: center,
+                width: clickedShape.width,
+                height: clickedShape.height,
+                id: clickedShape.id
+              });
+              return;
+            }
+          } else if (clickedShape.type === 'square' && clickedShape.width !== undefined && clickedShape.height !== undefined) {
+            const handles = [
+              { x: center.x - clickedShape.width/2 - 5, y: center.y - clickedShape.height/2 - 5, name: 'top-left' },
+              { x: center.x + clickedShape.width/2 + 5, y: center.y - clickedShape.height/2 - 5, name: 'top-right' },
+              { x: center.x + clickedShape.width/2 + 5, y: center.y + clickedShape.height/2 + 5, name: 'bottom-right' },
+              { x: center.x - clickedShape.width/2 - 5, y: center.y + clickedShape.height/2 + 5, name: 'bottom-left' },
+              { x: center.x, y: center.y - clickedShape.height/2 - 5, name: 'top' },
+              { x: center.x + clickedShape.width/2 + 5, y: center.y, name: 'right' },
+              { x: center.x, y: center.y + clickedShape.height/2 + 5, name: 'bottom' },
+              { x: center.x - clickedShape.width/2 - 5, y: center.y, name: 'left' }
+            ];
+
+            const clickedHandle = handles.find(handle =>
+              Math.abs(mouseX - handle.x) < tolerance && Math.abs(mouseY - handle.y) < tolerance
+            );
+
+            if (clickedHandle) {
+              setIsResizingShape(true);
+              setResizeHandle(clickedHandle.name);
+              setInitialShapeData({
+                center: center,
+                width: clickedShape.width,
+                height: clickedShape.height,
+                id: clickedShape.id
+              });
+              return;
+            }
           }
+
+          // If no resize handle was clicked, start moving the shape
+          setIsMovingShape(true);
+          setMoveOffset({
+            x: mouseX - center.x,
+            y: mouseY - center.y
+          });
+          return;
         }
-        
-        // If no resize handle was clicked, start moving the shape
-        setIsMovingShape(true);
-        setMoveOffset({
-          x: mouseX - center.x,
-          y: mouseY - center.y
-        });
-        return;
       }
       
       // Deselect any currently selected shape when clicking on empty space
@@ -1985,11 +2113,25 @@ const captureImage = () => {
             }
           }
         }
-        // 2) Fallback: hover when over arrow body/head
-        const hoveredArrow = lines.find(line => 
-          line.type === 'arrow' && isPointInArrow(line, { x: mouseX, y: mouseY }, 25)
-        );
-        setHoveredArrowId(hoveredArrow ? hoveredArrow.id : null);
+        // 2) Fallback: hover when over any shape (universal hover)
+        const hoveredShape = lines.find(line => {
+          if (line.type === 'arrow') {
+            return isPointInArrow(line, { x: mouseX, y: mouseY }, 25);
+          } else if (line.type === 'circle' && line.center && line.width !== undefined && line.height !== undefined) {
+            const dx = (mouseX - line.center.x) / (line.width / 2);
+            const dy = (mouseY - line.center.y) / (line.height / 2);
+            const distance = dx * dx + dy * dy;
+            return distance <= 1.2;
+          } else if (line.type === 'square' && line.center && line.width !== undefined && line.height !== undefined) {
+            const left = line.center.x - line.width / 2;
+            const right = line.center.x + line.width / 2;
+            const top = line.center.y - line.height / 2;
+            const bottom = line.center.y + line.height / 2;
+            return mouseX >= left && mouseX <= right && mouseY >= top && mouseY <= bottom;
+          }
+          return false;
+        });
+        setHoveredArrowId(hoveredShape ? hoveredShape.id : null);
       }
     } else if (isResizingShape && selectedArrowId !== null && initialShapeData) {
       // Handle shape resizing
@@ -2143,14 +2285,16 @@ const captureImage = () => {
       }
       return;
     } else if (activeMode === 'circle' || activeMode === 'square') {
-      // Check for hover effects on shapes
+      // Check for hover effects on any shape (universal hover)
       const hoveredShape = lines.find(line => {
-        if (line.type === 'circle' && line.center && line.width !== undefined && line.height !== undefined) {
+        if (line.type === 'arrow') {
+          return isPointInArrow(line, { x: mouseX, y: mouseY }, 25);
+        } else if (line.type === 'circle' && line.center && line.width !== undefined && line.height !== undefined) {
           // Check if point is inside ellipse or within resize handle area
           const dx = (mouseX - line.center.x) / (line.width / 2);
           const dy = (mouseY - line.center.y) / (line.height / 2);
           const distance = dx * dx + dy * dy;
-          
+
           // Include resize handle area (extend the selection area)
           const handleArea = 15; // Extra area around the shape for handles
           const extendedWidth = line.width + handleArea;
@@ -2158,7 +2302,7 @@ const captureImage = () => {
           const extendedDx = (mouseX - line.center.x) / (extendedWidth / 2);
           const extendedDy = (mouseY - line.center.y) / (extendedHeight / 2);
           const extendedDistance = extendedDx * extendedDx + extendedDy * extendedDy;
-          
+
           return distance <= 1.2 || extendedDistance <= 1.0; // Original shape or extended area
         } else if (line.type === 'square' && line.center && line.width !== undefined && line.height !== undefined) {
           const left = line.center.x - line.width / 2;
