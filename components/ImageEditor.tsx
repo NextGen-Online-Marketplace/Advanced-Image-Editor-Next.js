@@ -244,8 +244,15 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
 
   // Load preloaded annotations if provided
   useEffect(() => {
+    console.log('🔍 preloadedAnnotations useEffect triggered');
+    console.log('  - preloadedAnnotations:', preloadedAnnotations);
+    console.log('  - is array:', Array.isArray(preloadedAnnotations));
+    console.log('  - length:', preloadedAnnotations?.length || 0);
+    console.log('  - current lines.length:', lines.length);
+
     if (preloadedAnnotations && preloadedAnnotations.length > 0) {
       console.log('📥 Loading preloaded annotations:', preloadedAnnotations.length);
+      console.log('  - Sample annotation:', JSON.stringify(preloadedAnnotations[0]));
       setLines(preloadedAnnotations);
 
       // Find max ID to continue from
@@ -253,15 +260,33 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
       setLineIdCounter(maxId + 1);
 
       console.log('✅ Annotations loaded, next ID will be:', maxId + 1);
+
+      // Verify lines were set
+      setTimeout(() => {
+        console.log('🔍 Verification: lines.length after setLines:', lines.length);
+      }, 100);
+    } else {
+      console.log('⚠️ NOT loading annotations - empty or undefined');
     }
   }, [preloadedAnnotations]);
 
+  // DEBUG: Track lines state changes
+  useEffect(() => {
+    console.log('🎯 lines state changed, new length:', lines.length);
+    if (lines.length === 0) {
+      console.log('⚠️ lines is now EMPTY');
+      console.trace('Stack trace for lines becoming empty:');
+    }
+  }, [lines]);
+
   // Notify parent when annotations change (for auto-save)
+  // Note: onAnnotationsChange (setCurrentAnnotations) is a stable setState setter,
+  // so we don't need it in dependencies. This prevents infinite loops during rapid updates.
   useEffect(() => {
     if (onAnnotationsChange) {
       onAnnotationsChange(lines);
     }
-  }, [lines, onAnnotationsChange]);
+  }, [lines]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
 
