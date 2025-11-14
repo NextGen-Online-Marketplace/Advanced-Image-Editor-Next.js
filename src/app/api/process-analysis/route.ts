@@ -46,7 +46,9 @@ async function handler(request: Request) {
       thumbnail,
       type,
       videoSrc,
-      isThreeSixty
+      isThreeSixty,
+      annotations,
+      originalImage
     } = body;
 
 
@@ -182,6 +184,8 @@ async function handler(request: Request) {
       isThreeSixty: isThreeSixty || false,
       base_cost: totalCost, // Save base cost for future multiplication
       additional_images: [], // Initialize empty array for additional location photos
+      annotations: annotations || [], // Save editable annotations
+      originalImage: originalImage || finalImageUrl!, // Save original unannotated image
     };
 
   await createDefect(defectData);

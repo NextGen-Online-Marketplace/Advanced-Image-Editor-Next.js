@@ -72,6 +72,8 @@ export async function POST(request: Request) {
     let type: string | undefined;
     let videoSrc: string | null = null;
     let isThreeSixty = false;
+    let annotations: any[] | undefined;
+    let originalImage: string | undefined;
   
     const contentType = request.headers.get("content-type") || "";
   
@@ -89,6 +91,8 @@ export async function POST(request: Request) {
       // Optional: video/thumbnail urls already uploaded to R2
       videoUrlJson = body.videoUrl;
       thumbnailUrlJson = body.thumbnailUrl;
+      annotations = body.annotations; // Editable annotations
+      originalImage = body.originalImage; // Original unannotated image
     }
     else if (contentType.includes("multipart/form-data")) {
       const form = await request.formData();
@@ -189,7 +193,9 @@ export async function POST(request: Request) {
         finalVideoUrl,
         thumbnail: finalThumbnailUrl,
         type,
-        isThreeSixty
+        isThreeSixty,
+        annotations, // Pass annotations for saving
+        originalImage // Pass original image URL
       },
     });
   } catch (qstashError) {

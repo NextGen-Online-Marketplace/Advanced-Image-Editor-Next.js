@@ -950,6 +950,7 @@ function ImageEditorPageContent() {
 
       // 2) Send only JSON metadata and URLs to the analysis endpoint
       console.log('🚀 Sending to analyze-image API...');
+      console.log('📝 Sending annotations:', currentAnnotations.length);
       const response = await fetch('/api/llm/analyze-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -965,6 +966,8 @@ function ImageEditorPageContent() {
           type: finalType,
           videoUrl: videoPublicUrl,
           thumbnailUrl: thumbnailPublicUrl,
+          annotations: currentAnnotations, // Include annotations for saving
+          originalImage: imagePublicUrl, // Save original (unannotated) image URL
         }),
       });
       
