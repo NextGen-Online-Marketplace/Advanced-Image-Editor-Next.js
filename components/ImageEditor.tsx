@@ -273,6 +273,9 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
   }, [preloadedAnnotations]);
 
   // DEBUG: Track lines state changes
+  // DISABLED: This causes "Maximum update depth exceeded" for same reason as parent notification:
+  // Every setLines during drag triggers this useEffect 60+ times/second
+  /*
   useEffect(() => {
     console.log('🎯 lines state changed, new length:', lines.length);
     if (lines.length === 0) {
@@ -280,6 +283,7 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
       console.trace('Stack trace for lines becoming empty:');
     }
   }, [lines]);
+  */
 
   // Notify parent when annotations change (for auto-save)
   // DISABLED: This useEffect was causing "Maximum update depth exceeded" errors because:
@@ -2034,15 +2038,18 @@ const captureImage = () => {
           const oldCenter = getArrowCenter(selectedArrow);
           const deltaX = newCenter.x - oldCenter.x;
           const deltaY = newCenter.y - oldCenter.y;
-          // Use ultra-smooth movement with requestAnimationFrame
-          pendingMovementRef.current = {
-            id: selectedArrowId,
-            deltaX,
-            deltaY
-          };
-          if (!isMovingRef.current) {
-            isMovingRef.current = true;
-          }
+
+          // Direct setLines update (ultra-smooth movement disabled to prevent infinite loops)
+          setLines(prev => prev.map(line => {
+            if (line.id !== selectedArrowId) return line;
+            return {
+              ...line,
+              points: line.points.map(point => ({
+                x: point.x + deltaX,
+                y: point.y + deltaY
+              }))
+            };
+          }))
         } else if (interactionMode === 'rotate') {
           // Faster rotation with less easing for more responsive feel
           const angle = Math.atan2(mouseY - center.y, mouseX - center.x);
