@@ -35,8 +35,8 @@ const discountCodeSchema = z.object({
     }),
   description: z.string().optional(),
   notes: z.string().optional(),
-  appliesToServices: z.array(z.string()).default([]),
-  appliesToAddOns: z.array(z.string()).default([]),
+  appliesToServices: z.array(z.string()),
+  appliesToAddOns: z.array(z.string()),
   maxUses: z
     .string()
     .optional()
@@ -50,7 +50,7 @@ const discountCodeSchema = z.object({
       }
     ),
   expirationDate: z.date().optional().nullable(),
-  active: z.boolean().default(true),
+  active: z.boolean(),
 });
 
 export type DiscountCodeFormValues = z.infer<typeof discountCodeSchema>;

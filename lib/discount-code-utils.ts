@@ -49,6 +49,16 @@ type ServiceForValidation = Pick<IService, '_id' | 'name'> & {
   addOns?: Pick<IServiceAddOn, 'name' | 'orderIndex'>[];
 };
 
+export type DiscountCodeLean = {
+  _id: mongoose.Types.ObjectId;
+  appliesToServices?: mongoose.Types.ObjectId[];
+  appliesToAddOns?: Array<{
+    service: mongoose.Types.ObjectId;
+    addOnName: string;
+    addOnOrderIndex?: number | null;
+  }>;
+} & Partial<IDiscountCode>;
+
 function toNonEmptyString(value: unknown) {
   return typeof value === 'string' ? value.trim() : undefined;
 }
@@ -176,7 +186,15 @@ export async function sanitizeDiscountCodePayload(
     })
       .select('_id name addOns')
       .lean<ServiceForValidation[]>();
-    serviceMap = new Map(services.map((service) => [service._id.toString(), service]));
+
+    serviceMap = new Map(
+      services
+        .filter(
+          (service): service is ServiceForValidation & { _id: mongoose.Types.ObjectId } =>
+            Boolean(service?._id) && service._id instanceof mongoose.Types.ObjectId,
+        )
+        .map((service) => [service._id.toString(), service]),
+    );
   }
 
   if (payload.appliesToServices !== undefined) {
@@ -265,13 +283,13 @@ export interface DiscountCodeAddOnDetail extends DiscountCodeServiceDetail {
   addOnOrderIndex: number | null;
 }
 
-export type DiscountCodeWithRelations = mongoose.LeanDocument<IDiscountCode> & {
+export type DiscountCodeWithRelations = DiscountCodeLean & {
   appliesToServicesDetails: DiscountCodeServiceDetail[];
   appliesToAddOnsDetails: DiscountCodeAddOnDetail[];
 };
 
 export async function withDiscountCodeRelations(
-  codes: mongoose.LeanDocument<IDiscountCode>[]
+  codes: DiscountCodeLean[]
 ): Promise<DiscountCodeWithRelations[]> {
   if (codes.length === 0) {
     return [];
@@ -279,8 +297,12 @@ export async function withDiscountCodeRelations(
 
   const serviceIds = new Set<string>();
   codes.forEach((code) => {
-    (code.appliesToServices ?? []).forEach((serviceId) => serviceIds.add(serviceId.toString()));
-    (code.appliesToAddOns ?? []).forEach((entry) => serviceIds.add(entry.service.toString()));
+    (code.appliesToServices ?? []).forEach((serviceId: mongoose.Types.ObjectId) =>
+      serviceIds.add(serviceId.toString()),
+    );
+    (code.appliesToAddOns ?? []).forEach((entry: { service: mongoose.Types.ObjectId }) =>
+      serviceIds.add(entry.service.toString()),
+    );
   });
 
   let serviceNameMap = new Map<string, string>();
@@ -299,16 +321,18 @@ export async function withDiscountCodeRelations(
 
   return codes.map((code) => ({
     ...code,
-    appliesToServicesDetails: (code.appliesToServices ?? []).map((serviceId) => ({
+    appliesToServicesDetails: (code.appliesToServices ?? []).map((serviceId: mongoose.Types.ObjectId) => ({
       serviceId: serviceId.toString(),
       serviceName: serviceNameMap.get(serviceId.toString()) ?? null,
     })),
-    appliesToAddOnsDetails: (code.appliesToAddOns ?? []).map((entry) => ({
+    appliesToAddOnsDetails: (code.appliesToAddOns ?? []).map(
+      (entry: { service: mongoose.Types.ObjectId; addOnName: string; addOnOrderIndex?: number | null }) => ({
       serviceId: entry.service.toString(),
       serviceName: serviceNameMap.get(entry.service.toString()) ?? null,
       addOnName: entry.addOnName,
       addOnOrderIndex: entry.addOnOrderIndex ?? null,
-    })),
+      }),
+    ),
   }));
 }
 

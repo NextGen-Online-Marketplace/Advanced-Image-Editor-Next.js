@@ -27,6 +27,7 @@ interface ServiceResponse {
     baseDurationHours: number;
     defaultInspectionEvents: string[];
     organizationServiceId?: string;
+    agreementIds?: string[];
     modifiers: Array<{
       field: string;
       type?: string;
@@ -45,6 +46,7 @@ interface ServiceResponse {
       baseDurationHours?: number;
       defaultInspectionEvents?: string[];
       organizationServiceId?: string;
+      agreementIds?: string[];
       modifiers?: Array<{
         field: string;
         type?: string;
@@ -123,6 +125,9 @@ export default function EditServicePage() {
             service.baseDurationHours !== undefined ? service.baseDurationHours.toString() : "",
           defaultInspectionEvents: service.defaultInspectionEvents.join(", "),
           organizationServiceId: service.organizationServiceId || "",
+          agreementIds: Array.isArray(service.agreementIds)
+            ? service.agreementIds.map((id) => id.toString())
+            : [],
           modifiers: service.modifiers?.map(mapModifierToForm) || [],
           addOns:
             service.addOns
@@ -145,6 +150,9 @@ export default function EditServicePage() {
                 modifiers: addOn.modifiers?.map(mapModifierToForm) || [],
                 allowUpsell: Boolean(addOn.allowUpsell),
                 orderIndex: addOn.orderIndex ?? 0,
+                agreementIds: Array.isArray(addOn.agreementIds)
+                  ? addOn.agreementIds.map((id) => id.toString())
+                  : [],
               })) || [],
           taxes:
             service.taxes

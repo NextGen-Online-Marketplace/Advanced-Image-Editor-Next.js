@@ -7,10 +7,13 @@ import Service from '@/src/models/Service';
 
 const isValidObjectId = (value: string) => mongoose.Types.ObjectId.isValid(value);
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { modifierId: string } }
-) {
+interface RouteParams {
+  params: Promise<{
+    modifierId: string;
+  }>;
+}
+
+export async function DELETE(request: NextRequest, context: RouteParams) {
   try {
     await dbConnect();
 
@@ -23,7 +26,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'No company associated with current user' }, { status: 400 });
     }
 
-    const modifierId = params?.modifierId;
+    const { modifierId } = await context.params;
     if (!modifierId || !isValidObjectId(modifierId)) {
       return NextResponse.json({ error: 'Invalid modifier identifier' }, { status: 400 });
     }

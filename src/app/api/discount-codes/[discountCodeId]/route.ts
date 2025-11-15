@@ -4,7 +4,11 @@ import mongoose from 'mongoose';
 import dbConnect from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth-helpers';
 import DiscountCode from '@/src/models/DiscountCode';
-import { sanitizeDiscountCodePayload, withDiscountCodeRelations } from '@/lib/discount-code-utils';
+import {
+  sanitizeDiscountCodePayload,
+  withDiscountCodeRelations,
+  type DiscountCodeLean,
+} from '@/lib/discount-code-utils';
 
 interface RouteParams {
   params: Promise<{
@@ -40,7 +44,9 @@ export async function GET(request: NextRequest, context: RouteParams) {
       return NextResponse.json({ error: 'Discount code not found' }, { status: 404 });
     }
 
-    const [hydrated] = await withDiscountCodeRelations([discountCode.toObject()]);
+    const [hydrated] = await withDiscountCodeRelations([
+      discountCode.toObject<DiscountCodeLean>(),
+    ]);
 
     return NextResponse.json({ discountCode: hydrated ?? discountCode.toObject() });
   } catch (error: any) {

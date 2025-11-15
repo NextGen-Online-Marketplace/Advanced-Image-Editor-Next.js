@@ -3,7 +3,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth-helpers';
 import DiscountCode from '@/src/models/DiscountCode';
-import { sanitizeDiscountCodePayload, withDiscountCodeRelations } from '@/lib/discount-code-utils';
+import {
+  sanitizeDiscountCodePayload,
+  withDiscountCodeRelations,
+  type DiscountCodeLean,
+} from '@/lib/discount-code-utils';
 
 export async function GET(request: NextRequest) {
   try {
@@ -20,7 +24,7 @@ export async function GET(request: NextRequest) {
 
     const discountCodes = await DiscountCode.find({ company: currentUser.company })
       .sort({ createdAt: -1 })
-      .lean();
+      .lean<DiscountCodeLean[]>();
 
     const hydrated = await withDiscountCodeRelations(discountCodes);
 

@@ -86,7 +86,7 @@ export async function PUT(request: NextRequest, context: RouteParams) {
       agreement.content = content;
     }
 
-    agreement.updatedBy = currentUser._id;
+    agreement.updatedBy = currentUser._id as mongoose.Types.ObjectId;
 
     const updated = await agreement.save();
 
