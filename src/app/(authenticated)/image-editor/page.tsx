@@ -1690,7 +1690,7 @@ function ImageEditorPageContent() {
                          value={newLocationInput}
                          onChange={(e) => setNewLocationInput(e.target.value)}
                          onKeyDown={(e) => {
-                           if (e.key === 'Enter') handleAddLocation();
+                           if (e.key === 'Enter') handleAddLocation(false);
                            if (e.key === 'Escape') {
                              setShowAddLocation(false);
                              setNewLocationInput('');
@@ -1700,66 +1700,70 @@ function ImageEditorPageContent() {
                          className="location-search-input"
                          style={{ marginBottom: '8px' }}
                        />
-                       <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                         <div style={{ display: 'flex', gap: '5px' }}>
-                           <button
-                             onClick={() => handleAddLocation(false)}
-                             style={{
-                               flex: 1,
-                               padding: '5px 6px',
-                               background: '#3b82f6',
-                               color: 'white',
-                               border: 'none',
-                               borderRadius: '4px',
-                               cursor: 'pointer',
-                               fontSize: '10px',
-                               fontWeight: '500',
-                               whiteSpace: 'nowrap'
-                             }}
-                             title="Add only to this inspection"
-                           >
-                             This Insp.
-                           </button>
-                           <button
-                             onClick={() => handleAddLocation(true)}
-                             style={{
-                               flex: 1,
-                               padding: '5px 6px',
-                               background: '#6a11cb',
-                               color: 'white',
-                               border: 'none',
-                               borderRadius: '4px',
-                               cursor: 'pointer',
-                               fontSize: '10px',
-                               fontWeight: '500',
-                               whiteSpace: 'nowrap'
-                             }}
-                             title="Save to template (all inspections)"
-                           >
-                             Template
-                           </button>
-                         </div>
-                         <button
-                           onClick={() => {
-                             setShowAddLocation(false);
-                             setNewLocationInput('');
-                           }}
-                           style={{
-                             padding: '4px 8px',
-                             background: '#e5e7eb',
-                             color: '#374151',
-                             border: 'none',
-                             borderRadius: '4px',
-                             cursor: 'pointer',
-                             fontSize: '10px'
-                           }}
-                         >
-                           Cancel
-                         </button>
-                         <div style={{ fontSize: '9px', color: '#6b7280', padding: '2px 0', lineHeight: '1.2' }}>
-                           💡 Insp. = Only here • Template = All
-                         </div>
-                       </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                        <button
+                          onClick={() => handleAddLocation(false)}
+                          style={{
+                            width: '100%',
+                            padding: '5px 8px',
+                            background: '#3b82f6',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '5px',
+                            cursor: 'pointer',
+                            fontSize: '10px',
+                            fontWeight: 600,
+                            lineHeight: 1.25,
+                            textAlign: 'center',
+                            whiteSpace: 'normal'
+                          }}
+                          title="Add only to this inspection"
+                        >
+                          Add To This Inspection
+                        </button>
+                        <button
+                          onClick={() => handleAddLocation(true)}
+                          style={{
+                            width: '100%',
+                            padding: '5px 8px',
+                            background: '#6a11cb',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '5px',
+                            cursor: 'pointer',
+                            fontSize: '10px',
+                            fontWeight: 600,
+                            lineHeight: 1.25,
+                            textAlign: 'center',
+                            whiteSpace: 'normal'
+                          }}
+                          title="Save to template (all inspections)"
+                        >
+                          Save to Template
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowAddLocation(false);
+                            setNewLocationInput('');
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: '4px 8px',
+                            background: '#e5e7eb',
+                            color: '#374151',
+                            border: 'none',
+                            borderRadius: '5px',
+                            cursor: 'pointer',
+                            fontSize: '10px',
+                            fontWeight: 500
+                          }}
+                        >
+                          Cancel
+                        </button>
+                        <div style={{ fontSize: '9px', color: '#6b7280', padding: '2px 0', lineHeight: '1.2' }}>
+                          💡 Add = only this inspection • Save = all inspections
+                        </div>
+                      </div>
                      </div>
                    )}
 
@@ -1891,7 +1895,7 @@ function ImageEditorPageContent() {
                          value={newSectionInput}
                          onChange={(e) => setNewSectionInput(e.target.value)}
                          onKeyDown={(e) => {
-                           if (e.key === 'Enter') handleAddSection();
+                           if (e.key === 'Enter') handleAddSection(false);
                            if (e.key === 'Escape') {
                              setShowAddSection(false);
                              setNewSectionInput('');
@@ -1901,66 +1905,70 @@ function ImageEditorPageContent() {
                          className="location-search-input"
                          style={{ marginBottom: '8px' }}
                        />
-                       <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                         <div style={{ display: 'flex', gap: '5px' }}>
-                           <button
-                             onClick={() => handleAddSection(false)}
-                             style={{
-                               flex: 1,
-                               padding: '5px 6px',
-                               background: '#3b82f6',
-                               color: 'white',
-                               border: 'none',
-                               borderRadius: '4px',
-                               cursor: 'pointer',
-                               fontSize: '10px',
-                               fontWeight: '500',
-                               whiteSpace: 'nowrap'
-                             }}
-                             title="Add only to this inspection"
-                           >
-                             This Insp.
-                           </button>
-                           <button
-                             onClick={() => handleAddSection(true)}
-                             style={{
-                               flex: 1,
-                               padding: '5px 6px',
-                               background: '#6a11cb',
-                               color: 'white',
-                               border: 'none',
-                               borderRadius: '4px',
-                               cursor: 'pointer',
-                               fontSize: '10px',
-                               fontWeight: '500',
-                               whiteSpace: 'nowrap'
-                             }}
-                             title="Save to template (all inspections)"
-                           >
-                             Template
-                           </button>
-                         </div>
-                         <button
-                           onClick={() => {
-                             setShowAddSection(false);
-                             setNewSectionInput('');
-                           }}
-                           style={{
-                             padding: '4px 8px',
-                             background: '#e5e7eb',
-                             color: '#374151',
-                             border: 'none',
-                             borderRadius: '4px',
-                             cursor: 'pointer',
-                             fontSize: '10px'
-                           }}
-                         >
-                           Cancel
-                         </button>
-                         <div style={{ fontSize: '9px', color: '#6b7280', padding: '2px 0', lineHeight: '1.2' }}>
-                           💡 Insp. = Only here • Template = All
-                         </div>
-                       </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                        <button
+                          onClick={() => handleAddSection(false)}
+                          style={{
+                            width: '100%',
+                            padding: '5px 8px',
+                            background: '#3b82f6',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '5px',
+                            cursor: 'pointer',
+                            fontSize: '10px',
+                            fontWeight: 600,
+                            lineHeight: 1.25,
+                            textAlign: 'center',
+                            whiteSpace: 'normal'
+                          }}
+                          title="Add only to this inspection"
+                        >
+                          Add To This Inspection
+                        </button>
+                        <button
+                          onClick={() => handleAddSection(true)}
+                          style={{
+                            width: '100%',
+                            padding: '5px 8px',
+                            background: '#6a11cb',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '5px',
+                            cursor: 'pointer',
+                            fontSize: '10px',
+                            fontWeight: 600,
+                            lineHeight: 1.25,
+                            textAlign: 'center',
+                            whiteSpace: 'normal'
+                          }}
+                          title="Save to template (all inspections)"
+                        >
+                          Save to Template
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowLocationDropdown(false);
+                            setLocationSearch('');
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: '4px 8px',
+                            background: '#e5e7eb',
+                            color: '#374151',
+                            border: 'none',
+                            borderRadius: '5px',
+                            cursor: 'pointer',
+                            fontSize: '10px',
+                            fontWeight: 500
+                          }}
+                        >
+                          Cancel
+                        </button>
+                        <div style={{ fontSize: '9px', color: '#6b7280', padding: '2px 0', lineHeight: '1.2' }}>
+                          💡 Add = only this inspection • Save = all inspections
+                        </div>
+                      </div>
                      </div>
                    )}
 
@@ -2093,7 +2101,7 @@ function ImageEditorPageContent() {
                          value={newSubSectionInput}
                          onChange={(e) => setNewSubSectionInput(e.target.value)}
                          onKeyDown={(e) => {
-                           if (e.key === 'Enter') handleAddSubSection();
+                           if (e.key === 'Enter') handleAddSubSection(false);
                            if (e.key === 'Escape') {
                              setShowAddSubSection(false);
                              setNewSubSectionInput('');
@@ -2103,66 +2111,70 @@ function ImageEditorPageContent() {
                          className="location-search-input"
                          style={{ marginBottom: '8px' }}
                        />
-                       <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                         <div style={{ display: 'flex', gap: '5px' }}>
-                           <button
-                             onClick={() => handleAddSubSection(false)}
-                             style={{
-                               flex: 1,
-                               padding: '5px 6px',
-                               background: '#3b82f6',
-                               color: 'white',
-                               border: 'none',
-                               borderRadius: '4px',
-                               cursor: 'pointer',
-                               fontSize: '10px',
-                               fontWeight: '500',
-                               whiteSpace: 'nowrap'
-                             }}
-                             title="Add only to this inspection"
-                           >
-                             This Insp.
-                           </button>
-                           <button
-                             onClick={() => handleAddSubSection(true)}
-                             style={{
-                               flex: 1,
-                               padding: '5px 6px',
-                               background: '#6a11cb',
-                               color: 'white',
-                               border: 'none',
-                               borderRadius: '4px',
-                               cursor: 'pointer',
-                               fontSize: '10px',
-                               fontWeight: '500',
-                               whiteSpace: 'nowrap'
-                             }}
-                             title="Save to template (all inspections)"
-                           >
-                             Template
-                           </button>
-                         </div>
-                         <button
-                           onClick={() => {
-                             setShowAddSubSection(false);
-                             setNewSubSectionInput('');
-                           }}
-                           style={{
-                             padding: '4px 8px',
-                             background: '#e5e7eb',
-                             color: '#374151',
-                             border: 'none',
-                             borderRadius: '4px',
-                             cursor: 'pointer',
-                             fontSize: '10px'
-                           }}
-                         >
-                           Cancel
-                         </button>
-                         <div style={{ fontSize: '9px', color: '#6b7280', padding: '2px 0', lineHeight: '1.2' }}>
-                           💡 Insp. = Only here • Template = All
-                         </div>
-                       </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                        <button
+                          onClick={() => handleAddSubSection(false)}
+                          style={{
+                            width: '100%',
+                            padding: '5px 8px',
+                            background: '#3b82f6',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '5px',
+                            cursor: 'pointer',
+                            fontSize: '10px',
+                            fontWeight: 600,
+                            lineHeight: 1.25,
+                            textAlign: 'center',
+                            whiteSpace: 'normal'
+                          }}
+                          title="Add only to this inspection"
+                        >
+                          Add To This Inspection
+                        </button>
+                        <button
+                          onClick={() => handleAddSubSection(true)}
+                          style={{
+                            width: '100%',
+                            padding: '5px 8px',
+                            background: '#6a11cb',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '5px',
+                            cursor: 'pointer',
+                            fontSize: '10px',
+                            fontWeight: 600,
+                            lineHeight: 1.25,
+                            textAlign: 'center',
+                            whiteSpace: 'normal'
+                          }}
+                          title="Save to template (all inspections)"
+                        >
+                          Save to Template
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowAddSubSection(false);
+                            setNewSubSectionInput('');
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: '4px 8px',
+                            background: '#e5e7eb',
+                            color: '#374151',
+                            border: 'none',
+                            borderRadius: '5px',
+                            cursor: 'pointer',
+                            fontSize: '10px',
+                            fontWeight: 500
+                          }}
+                        >
+                          Cancel
+                        </button>
+                        <div style={{ fontSize: '9px', color: '#6b7280', padding: '2px 0', lineHeight: '1.2' }}>
+                          💡 Add = only this inspection • Save = all inspections
+                        </div>
+                      </div>
                      </div>
                    )}
 
