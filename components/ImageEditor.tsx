@@ -2510,19 +2510,20 @@ const captureImage = () => {
       };
 
       setLineIdCounter(prev => prev + 1);
-      setLines(prev => {
-        const newLines = [...prev, newLine];
-        // Notify parent immediately with updated state
-        if (onAnnotationsChange) {
-          onAnnotationsChange(newLines);
-        }
-        return newLines;
-      });
+      const newLines = [...lines, newLine];
+      setLines(newLines);
       setSelectedArrowId(newLine.id);
       saveAction(newLine);
       setCurrentLine(null);
       const file = exportEditedFile();
       onEditedFile?.(file);
+
+      // Notify parent after render cycle completes to avoid "setState in render" error
+      queueMicrotask(() => {
+        if (onAnnotationsChange) {
+          onAnnotationsChange(newLines);
+        }
+      });
     } else if ((activeMode === 'circle' || activeMode === 'square') && isDrawing && currentLine && currentLine.length >= 2 && hasDragged) {
       const startPoint = currentLine[0];
       const endPoint = currentLine[1];
@@ -2562,21 +2563,22 @@ const captureImage = () => {
       }
 
       setLineIdCounter(prev => prev + 1);
-      setLines(prev => {
-        const newLines = [...prev, newLine];
-        // Notify parent immediately with updated state
-        if (onAnnotationsChange) {
-          onAnnotationsChange(newLines);
-        }
-        return newLines;
-      });
+      const newLines = [...lines, newLine];
+      setLines(newLines);
       setSelectedArrowId(newLine.id);
       saveAction(newLine);
       setCurrentLine(null);
       const file = exportEditedFile();
       onEditedFile?.(file);
+
+      // Notify parent after render cycle completes to avoid "setState in render" error
+      queueMicrotask(() => {
+        if (onAnnotationsChange) {
+          onAnnotationsChange(newLines);
+        }
+      });
     }
-    
+
     if (isResizingShape) {
       setIsResizingShape(false);
       setResizeHandle(null);
