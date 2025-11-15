@@ -284,6 +284,8 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
   // so we don't need it in dependencies. This prevents infinite loops during rapid updates.
   // IMPORTANT: Don't notify during active interactions (drag/resize) to avoid triggering
   // too many updates per second (60+ fps), which React interprets as infinite loop.
+  // We read interaction states directly instead of adding them to dependencies to minimize
+  // how often this effect runs (only when lines actually changes, not when interaction states change).
   useEffect(() => {
     // Only notify parent when user is NOT actively interacting with shapes
     const isInteracting = isDraggingArrow || isMovingShape || isResizingShape || isResizingArrow || isDrawing;
@@ -291,7 +293,7 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
     if (!isInteracting && onAnnotationsChange) {
       onAnnotationsChange(lines);
     }
-  }, [lines, isDraggingArrow, isMovingShape, isResizingShape, isResizingArrow, isDrawing]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [lines]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
 
