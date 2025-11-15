@@ -2012,52 +2012,59 @@ export default function Page() {
 
   useEffect(() => {
     if (defects?.length && sections?.length) {
+      const normalizeSectionName = (value: string) =>
+        (value || '')
+          .replace(/^[0-9]+\s*-\s*/, '')
+          .replace(/[&/]/g, ' and ')
+          .replace(/[^a-z0-9]+/gi, ' ')
+          .replace(/\band\b/gi, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .toLowerCase();
+
       // Create a mapping from section name to order_index
-      const sectionNameToOrderIndex = new Map<string, number>();
+      const sectionMetadataMap = new Map<string, { orderIndex?: number; actualName: string }>();
       
       // Store both exact matches and cleaned names
       sections.forEach((section: any) => {
-        // Clean section name (remove leading "N - " if exists)
-        const cleanName = section.name.replace(/^\d+\s*-\s*/, '').trim();
-        sectionNameToOrderIndex.set(cleanName.toLowerCase(), section.order_index);
-        // Also store original name for exact match
-        sectionNameToOrderIndex.set(section.name.toLowerCase(), section.order_index);
+        const actualName = (section.name || '').replace(/^\d+\s*-\s*/, '').trim() || section.name || '';
+        const normalized = normalizeSectionName(section.name || actualName);
+        sectionMetadataMap.set(normalized, {
+          orderIndex:
+            typeof section.order_index === 'number'
+              ? section.order_index
+              : Number(section.order_index) || undefined,
+          actualName,
+        });
       });
       
       // Helper function to get section number and actual section name from defect
       const getSectionInfo = (defect: any): { orderIndex: number; actualSectionName: string } => {
         const sectionName = defect.section || '';
-        const cleanName = sectionName.replace(/^\d+\s*-\s*/, '').trim().toLowerCase();
-        
-        // Try exact match first
-        let orderIndex = sectionNameToOrderIndex.get(cleanName) || sectionNameToOrderIndex.get(sectionName.toLowerCase());
-        let actualSectionName = sectionName; // Default to defect's section name
-        
-        // If no exact match, try partial matching (e.g., "Interior" should match "Doors, Windows & Interior")
+        const normalized = normalizeSectionName(sectionName);
+        const explicitNumberMatch = sectionName.match(/^(\d{1,3})/);
+        const explicitSectionNumber = explicitNumberMatch ? Number(explicitNumberMatch[1]) : undefined;
+
+        let matchedMeta = normalized ? sectionMetadataMap.get(normalized) : undefined;
+
+        if (!matchedMeta && normalized) {
+          sectionMetadataMap.forEach((value, key) => {
+            if (matchedMeta) return;
+            if (key.includes(normalized) || normalized.includes(key)) {
+              matchedMeta = value;
+            }
+          });
+        }
+
+        let orderIndex = matchedMeta?.orderIndex ?? explicitSectionNumber;
+        let actualSectionName =
+          matchedMeta?.actualName || sectionName.replace(/^\d+\s*-\s*/, '').trim() || sectionName || 'General';
+
         if (!orderIndex) {
-          for (const section of sections) {
-            const dbSectionName = section.name.replace(/^\d+\s*-\s*/, '').trim();
-            const dbSectionNameLower = dbSectionName.toLowerCase();
-            // Check if defect section name is contained in database section name
-            // or if they share significant keywords
-            if (dbSectionNameLower.includes(cleanName) || cleanName.includes(dbSectionNameLower)) {
-              orderIndex = section.order_index;
-              actualSectionName = dbSectionName; // Use the actual section name from database
-              break;
-            }
-          }
-        } else {
-          // Find the actual section name from database for exact matches too
-          for (const section of sections) {
-            const dbSectionName = section.name.replace(/^\d+\s*-\s*/, '').trim();
-            if (dbSectionName.toLowerCase() === cleanName || section.name.toLowerCase() === sectionName.toLowerCase()) {
-              actualSectionName = dbSectionName;
-              break;
-            }
-          }
+          orderIndex = 999;
         }
         
-        return { orderIndex: orderIndex || 999, actualSectionName };
+        return { orderIndex, actualSectionName };
       };
 
       // Sort defects by section order_index, then by subsection alphabetically
@@ -2127,9 +2134,17 @@ export default function Page() {
 
         const anchorId = `defect-${defect._id || numbering.replace(/\./g, '-')}`;
 
-        // Calculate total cost with photo multiplier if base_cost is available
-        // Fallback: if base_cost doesn't exist (legacy defects), calculate it from material + labor
-        const baseCost = defect.base_cost || (defect.material_total_cost + defect.labor_rate * defect.hours_required);
+        // Calculate total cost (materials + labor) and apply photo multiplier
+        const toNumber = (value: unknown) => {
+          const parsed = Number(value);
+          return Number.isFinite(parsed) ? parsed : 0;
+        };
+
+        const materialCost = toNumber(defect.base_cost ?? defect.material_total_cost);
+        const laborRate = toNumber(defect.labor_rate);
+        const hoursRequired = toNumber(defect.hours_required);
+        const laborCost = laborRate * hoursRequired;
+        const baseCost = materialCost + laborCost;
         const photoCount = 1 + (defect.additional_images?.length || 0);
         const totalEstimatedCost = baseCost * photoCount;
 

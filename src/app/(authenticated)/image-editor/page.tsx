@@ -399,6 +399,11 @@ function ImageEditorPageContent() {
     window.dispatchEvent(event);
   };
 
+  const handleDeleteAnnotation = () => {
+    const event = new CustomEvent('deleteSelectedAnnotation');
+    window.dispatchEvent(event);
+  };
+
   const handleCropStateChange = (hasFrame: boolean) => {
     setHasCropFrame(hasFrame);
   };
@@ -1324,6 +1329,14 @@ function ImageEditorPageContent() {
             </div>
           )}
         </div>
+
+        <button
+          className="action-btn delete-btn"
+          onClick={handleDeleteAnnotation}
+          title="Delete selected annotation"
+        >
+          <i className="fas fa-trash"></i>
+        </button>
       </div>
 
       {/* Image Upload Area */}

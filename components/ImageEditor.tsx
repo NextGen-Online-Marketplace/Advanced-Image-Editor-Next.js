@@ -38,7 +38,13 @@ interface RotateAction {
   id: number;
 }
 
-type Action = Line | CropAction | RotateAction;
+interface DeleteAction {
+  type: 'delete';
+  line: Line;
+  id: number;
+}
+
+type Action = Line | CropAction | RotateAction | DeleteAction;
 
 interface CropFrame {
   x: number;
@@ -1071,6 +1077,16 @@ const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
       setActionHistory(lastAction.previousActionHistory);
       onCropStateChange(false);
       if (onImageChange) onImageChange(lastAction.previousImage);
+    } else if (lastAction.type === 'delete') {
+      setLines(prev => {
+        // Avoid duplicate insertions if undo triggered repeatedly
+        const alreadyExists = prev.some(line => line.id === lastAction.line.id);
+        if (alreadyExists) {
+          return prev;
+        }
+        return [...prev, lastAction.line];
+      });
+      setSelectedArrowId(lastAction.line.id);
     } else {
       // Handle undo for drawing actions (arrow, circle, square)
       setLines(prev => prev.filter(line => line.id !== lastAction.id));
@@ -1139,6 +1155,9 @@ const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
         };
         croppedImage.src = canvas.toDataURL("image/jpeg", 0.98);
       }
+    } else if (lastRedoAction.type === 'delete') {
+      setLines(prev => prev.filter(line => line.id !== lastRedoAction.line.id));
+      setSelectedArrowId(null);
     } else if (lastRedoAction.type !== 'rotate') {
       // Handle redo for drawing actions (arrow, circle, square) only
       // Skip rotation actions (they should never be in redoHistory anymore)
@@ -1147,6 +1166,42 @@ const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     
     setActionHistory(prev => [...prev, lastRedoAction]);
     setRedoHistory(prev => prev.slice(0, -1));
+  };
+
+  const deleteSelectedAnnotation = () => {
+    if (selectedArrowId === null) {
+      return;
+    }
+
+    const targetLine = lines.find(line => line.id === selectedArrowId);
+    if (!targetLine) {
+      return;
+    }
+
+    const updatedLines = lines.filter(line => line.id !== targetLine.id);
+    setLines(updatedLines);
+    setSelectedArrowId(null);
+    setHoveredArrowId(null);
+
+    const deleteAction: DeleteAction = {
+      type: 'delete',
+      id: targetLine.id,
+      line: targetLine,
+    };
+    saveAction(deleteAction);
+
+    if (onAnnotationsChange) {
+      onAnnotationsChange(updatedLines);
+    }
+
+    if (typeof window !== 'undefined') {
+      window.requestAnimationFrame(() => {
+        const file = exportEditedFile();
+        if (file && onEditedFile) {
+          onEditedFile(file);
+        }
+      });
+    }
   };
 
   const applyCrop = () => {
@@ -1381,18 +1436,24 @@ const captureImage = () => {
       rotateImage();
     };
 
+    const handleDeleteAnnotation = () => {
+      deleteSelectedAnnotation();
+    };
+
     window.addEventListener('undoAction', handleUndoAction);
     window.addEventListener('redoAction', handleRedoAction);
     window.addEventListener('applyCrop', handleApplyCrop);
     window.addEventListener('rotateImage', handleRotateImage);
+    window.addEventListener('deleteSelectedAnnotation', handleDeleteAnnotation);
 
     return () => {
       window.removeEventListener('undoAction', handleUndoAction);
       window.removeEventListener('redoAction', handleRedoAction);
       window.removeEventListener('applyCrop', handleApplyCrop);
       window.removeEventListener('rotateImage', handleRotateImage);
+      window.removeEventListener('deleteSelectedAnnotation', handleDeleteAnnotation);
     };
-  }, [actionHistory, redoHistory, cropFrame, rotateImage]);
+  }, [actionHistory, redoHistory, cropFrame, rotateImage, deleteSelectedAnnotation]);
 
   const handleColorChange = (newColor: string) => {
     setDrawingColor(newColor);

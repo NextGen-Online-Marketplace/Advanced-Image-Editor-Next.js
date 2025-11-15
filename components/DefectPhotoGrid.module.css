@@ -53,10 +53,12 @@
 
 /* .photoWrapperLarge inherits base wrapper styles; first item naturally renders on top */
 
+/* Thumbnail images: show full image without aggressive cropping */
 .photo {
   width: 100%;
   display: block;
-  object-fit: cover;
+  object-fit: contain;
+  background-color: #f5f5f5; /* subtle letterbox background */
 }
 
 /* Safari/iOS fix: Only non-img containers (e.g., 360° viewer wrappers) should stretch to fill */
