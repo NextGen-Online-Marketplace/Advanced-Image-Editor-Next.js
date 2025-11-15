@@ -220,12 +220,14 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
   }, [image, videoSrc]);
 
   // Load preloaded image if provided
+  // Note: onImageChange and onEditedFile are stable setState setters from parent,
+  // so we don't include them in dependencies to prevent infinite loops.
   useEffect(() => {
     console.log('🔍 preloadedImage useEffect triggered');
     console.log('  - preloadedImage exists:', !!preloadedImage);
     console.log('  - preloadedFile exists:', !!preloadedFile);
     console.log('  - current image state exists:', !!image);
-    
+
     if (preloadedImage && preloadedFile) {
       console.log('📥 Setting preloaded image in ImageEditor');
       setImage(preloadedImage);
@@ -240,7 +242,7 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
       console.log('⚠️ preloadedImage became null/undefined but image state still exists - NOT clearing');
       // DON'T clear the image if preloadedImage becomes null
     }
-  }, [preloadedImage, preloadedFile, onImageChange, onEditedFile]);
+  }, [preloadedImage, preloadedFile]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load preloaded annotations if provided
   useEffect(() => {
