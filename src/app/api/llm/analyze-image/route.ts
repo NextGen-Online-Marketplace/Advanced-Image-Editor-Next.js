@@ -50,11 +50,12 @@ const decodeBase64Image = (dataString: string) => {
 
 export async function POST(request: Request) {
   try {
-    // Check if we're running on localhost
-    const host = request.headers.get('host') || '';
-    const isLocalhost = host.includes('localhost') || host.includes('127.0.0.1');
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+    if (!baseUrl) {
+      throw new Error("Missing NEXT_PUBLIC_BASE_URL environment variable");
+    }
 
-    console.log(`🔍 Environment detection: ${isLocalhost ? 'Development (localhost)' : 'Production'}`);
+    const client = getQstashClient();
 
   let imageUrl: string | undefined;
   let videoUrlJson: string | undefined;
@@ -182,75 +183,37 @@ export async function POST(request: Request) {
   // Unique ID for job
   const analysisId = `${inspectionId}-${Date.now()}`;
 
-  const requestBody = {
-    imageUrl: finalImageUrl,
-    description,
-    location,
-    inspectionId,
-    section,
-    subSection,
-    selectedColor,
-    analysisId,
-    finalVideoUrl,
-    thumbnail: finalThumbnailUrl,
-    type,
-    isThreeSixty,
-    annotations, // Pass annotations for saving
-    originalImage // Pass original image URL
-  };
+  // Publish job to QStash -> will call /api/process-analysis
+  try {
+    console.log('📤 About to publish to QStash:');
+    console.log('  - annotations:', annotations);
+    console.log('  - annotations length:', annotations?.length || 0);
+    console.log('  - originalImage:', originalImage);
 
-  console.log('📤 Processing analysis request:');
-  console.log('  - annotations:', annotations);
-  console.log('  - annotations length:', annotations?.length || 0);
-  console.log('  - originalImage:', originalImage);
+    const qstashResponse = await client.publishJSON({
+      url: `${baseUrl}/api/process-analysis`,
+      body: {
+        imageUrl: finalImageUrl,
+        description,
+        location,
+        inspectionId,
+        section,
+        subSection,
+        selectedColor,
+        analysisId,
+        finalVideoUrl,
+        thumbnail: finalThumbnailUrl,
+        type,
+        isThreeSixty,
+        annotations, // Pass annotations for saving
+        originalImage // Pass original image URL
+      },
+    });
 
-  // Development: Call process-analysis directly (QStash doesn't work with localhost)
-  // Production: Use QStash for background processing
-  if (isLocalhost) {
-    console.log('🏠 Development mode: Calling process-analysis directly');
-
-    try {
-      // Call process-analysis endpoint directly without QStash
-      const processResponse = await fetch(`http://${host}/api/process-analysis`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-      });
-
-      if (!processResponse.ok) {
-        const errorText = await processResponse.text();
-        console.error('❌ process-analysis failed:', errorText);
-        throw new Error(`process-analysis failed: ${errorText}`);
-      }
-
-      console.log('✅ process-analysis completed successfully');
-    } catch (processError) {
-      console.error('❌ Direct process-analysis call failed:', processError);
-      throw processError;
-    }
-  } else {
-    console.log('🌐 Production mode: Using QStash for background processing');
-
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
-    if (!baseUrl) {
-      throw new Error("Missing NEXT_PUBLIC_BASE_URL environment variable");
-    }
-
-    const client = getQstashClient();
-
-    try {
-      const qstashResponse = await client.publishJSON({
-        url: `${baseUrl}/api/process-analysis`,
-        body: requestBody,
-      });
-
-      console.log('✅ QStash publish successful');
-    } catch (qstashError) {
-      console.error('❌ QStash publish failed:', qstashError);
-      throw qstashError;
-    }
+    console.log('✅ QStash publish successful');
+  } catch (qstashError) {
+    console.error('❌ QStash publish failed:', qstashError);
+    throw qstashError;
   }
 
   return NextResponse.json(
