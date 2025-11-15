@@ -2508,9 +2508,16 @@ const captureImage = () => {
         scale: 1,
         center: getArrowCenter({ points: currentLine, color: drawingColor, size: Math.max(2, shapeThickness), type: 'arrow', id: lineIdCounter })
       };
-      
+
       setLineIdCounter(prev => prev + 1);
-      setLines(prev => [...prev, newLine]);
+      setLines(prev => {
+        const newLines = [...prev, newLine];
+        // Notify parent immediately with updated state
+        if (onAnnotationsChange) {
+          onAnnotationsChange(newLines);
+        }
+        return newLines;
+      });
       setSelectedArrowId(newLine.id);
       saveAction(newLine);
       setCurrentLine(null);
@@ -2523,9 +2530,9 @@ const captureImage = () => {
         x: (startPoint.x + endPoint.x) / 2,
         y: (startPoint.y + endPoint.y) / 2
       };
-      
+
       let newLine: Line;
-      
+
       if (activeMode === 'circle') {
         const width = Math.abs(endPoint.x - startPoint.x);
         const height = Math.abs(endPoint.y - startPoint.y);
@@ -2553,9 +2560,16 @@ const captureImage = () => {
           height: height
         };
       }
-      
+
       setLineIdCounter(prev => prev + 1);
-      setLines(prev => [...prev, newLine]);
+      setLines(prev => {
+        const newLines = [...prev, newLine];
+        // Notify parent immediately with updated state
+        if (onAnnotationsChange) {
+          onAnnotationsChange(newLines);
+        }
+        return newLines;
+      });
       setSelectedArrowId(newLine.id);
       saveAction(newLine);
       setCurrentLine(null);
@@ -2614,11 +2628,8 @@ const captureImage = () => {
       movementFrameRef.current = null;
     }
 
-    // Notify parent of final state after interaction completes
-    // This is called ONCE per interaction (on mouse up), not 60+ times/second during drag
-    if (onAnnotationsChange) {
-      onAnnotationsChange(lines);
-    }
+    // Note: Parent notification for new annotations is now handled inside setLines callbacks
+    // to ensure the most up-to-date state is sent (React setState is async)
   };
 
   const getHandles = (obj: CropFrame) => {
