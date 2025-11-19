@@ -22,6 +22,7 @@ import {
 	FileSignature,
 	Share2,
 	CalendarCheck,
+	Contact,
 } from "lucide-react";
 
 import {
@@ -77,6 +78,11 @@ const data = {
 					title: "Agreements",
 					url: "/agreements",
 					icon: FileSignature,
+				},
+				{
+					title: "Contacts",
+					url: "/contacts",
+					icon: Contact,
 				},
 				{
 					title: "Modifiers",
