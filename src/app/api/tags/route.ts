@@ -14,14 +14,40 @@ export async function GET(request: NextRequest) {
     }
 
     if (!currentUser.company) {
-      return NextResponse.json({ tags: [] });
+      return NextResponse.json({ 
+        tags: [],
+        pagination: {
+          page: 1,
+          limit: 10,
+          total: 0,
+          totalPages: 0,
+        }
+      });
     }
+
+    const { searchParams } = new URL(request.url);
+    const page = parseInt(searchParams.get('page') || '1', 10);
+    const limit = parseInt(searchParams.get('limit') || '10', 10);
+    const skip = (page - 1) * limit;
+
+    const total = await Tag.countDocuments({ company: currentUser.company });
+    const totalPages = Math.ceil(total / limit);
 
     const tags = await Tag.find({ company: currentUser.company })
       .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
       .lean();
 
-    return NextResponse.json({ tags });
+    return NextResponse.json({ 
+      tags,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+      }
+    });
   } catch (error: any) {
     console.error('Get tags error:', error);
     return NextResponse.json(

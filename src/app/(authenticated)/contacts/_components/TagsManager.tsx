@@ -49,6 +49,7 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command';
+import { DataTable, Column } from '@/components/ui/data-table';
 import { cn } from '@/lib/utils';
 
 const ruleTypeOptions = [
@@ -198,6 +199,12 @@ export default function TagsManager() {
   const [tagToDelete, setTagToDelete] = useState<Tag | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    limit: 10,
+    total: 0,
+    totalPages: 0,
+  });
 
   const form = useForm<TagFormValues>({
     resolver: zodResolver(tagSchema),
@@ -228,13 +235,13 @@ export default function TagsManager() {
   });
 
   useEffect(() => {
-    loadTags();
-  }, []);
+    loadTags(pagination.page, pagination.limit);
+  }, [pagination.page, pagination.limit]);
 
-  const loadTags = async () => {
+  const loadTags = async (page: number = 1, limit: number = 10) => {
     try {
       setLoading(true);
-      const response = await fetch('/api/tags', {
+      const response = await fetch(`/api/tags?page=${page}&limit=${limit}`, {
         credentials: 'include',
       });
 
@@ -244,6 +251,9 @@ export default function TagsManager() {
 
       const data = await response.json();
       setTags(data.tags || []);
+      if (data.pagination) {
+        setPagination(data.pagination);
+      }
     } catch (error: any) {
       console.error(error);
       toast.error(error.message || 'Unable to load tags');
@@ -251,6 +261,82 @@ export default function TagsManager() {
       setLoading(false);
     }
   };
+
+  const handlePageChange = (page: number) => {
+    setPagination((prev) => ({ ...prev, page }));
+  };
+
+  const columns: Column<Tag>[] = [
+    {
+      id: 'name',
+      header: 'Name',
+      cell: (row) => <span className="font-medium">{row.name}</span>,
+    },
+    {
+      id: 'color',
+      header: 'Color',
+      cell: (row) => (
+        <div className="flex items-center gap-2">
+          <div
+            className="w-6 h-6 rounded border"
+            style={{ backgroundColor: row.color }}
+          />
+          <span className="text-xs text-muted-foreground">{row.color}</span>
+        </div>
+      ),
+    },
+    {
+      id: 'autoTagging',
+      header: 'Auto Tagging',
+      cell: (row) => (
+        <span className="text-xs">
+          {row.autoTagging ? (
+            <span>
+              {row.autoTagPerson} ({row.rules?.length || 0} rule{row.rules?.length !== 1 ? 's' : ''})
+            </span>
+          ) : (
+            <span className="text-muted-foreground">No</span>
+          )}
+        </span>
+      ),
+    },
+    {
+      id: 'rules',
+      header: 'Rules',
+      cell: (row) => (
+        <span className="text-xs">
+          {row.rules && row.rules.length > 0 ? (
+            <span>{row.rules.length} rule{row.rules.length !== 1 ? 's' : ''}</span>
+          ) : (
+            <span className="text-muted-foreground">-</span>
+          )}
+        </span>
+      ),
+    },
+    {
+      id: 'actions',
+      header: 'Actions',
+      className: 'text-right',
+      cell: (row) => (
+        <div className="flex justify-end gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleEdit(row)}
+          >
+            <Edit2 className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleDeleteClick(row)}
+          >
+            <Trash2 className="h-4 w-4 text-destructive" />
+          </Button>
+        </div>
+      ),
+    },
+  ];
 
   const handleCreate = () => {
     setEditingTag(null);
@@ -297,7 +383,7 @@ export default function TagsManager() {
       }
 
       toast.success('Tag deleted successfully');
-      await loadTags();
+      await loadTags(pagination.page, pagination.limit);
       setTagToDelete(null);
     } catch (error: any) {
       console.error(error);
@@ -332,7 +418,7 @@ export default function TagsManager() {
       }
 
       toast.success(`Tag ${editingTag ? 'updated' : 'created'} successfully`);
-      await loadTags();
+      await loadTags(pagination.page, pagination.limit);
       setDialogOpen(false);
       setEditingTag(null);
     } catch (error: any) {
@@ -365,92 +451,31 @@ export default function TagsManager() {
         </Button>
       </div>
 
-      {loading ? (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            <Loader2 className="h-5 w-5 animate-spin mx-auto mb-2" />
-            Loading tags...
-          </CardContent>
-        </Card>
-      ) : tags.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            <p>No tags found. Click "Create" to add your first tag.</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle>Existing Tags</CardTitle>
-            <CardDescription>Manage your tags</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-muted text-sm">
-                <thead className="bg-muted/50 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  <tr>
-                    <th className="px-4 py-3">Name</th>
-                    <th className="px-4 py-3">Color</th>
-                    <th className="px-4 py-3">Auto Tagging</th>
-                    <th className="px-4 py-3">Rules</th>
-                    <th className="px-4 py-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-muted">
-                  {tags.map((tag) => (
-                    <tr key={tag._id} className="hover:bg-muted/30">
-                      <td className="px-4 py-3 font-medium">{tag.name}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <div
-                            className="w-6 h-6 rounded border"
-                            style={{ backgroundColor: tag.color }}
-                          />
-                          <span className="text-xs text-muted-foreground">{tag.color}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        {tag.autoTagging ? (
-                          <span className="text-xs">
-                            {tag.autoTagPerson} ({tag.rules?.length || 0} rule{tag.rules?.length !== 1 ? 's' : ''})
-                          </span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">No</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        {tag.rules && tag.rules.length > 0 ? (
-                          <span className="text-xs">{tag.rules.length} rule{tag.rules.length !== 1 ? 's' : ''}</span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">-</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleEdit(tag)}
-                          >
-                            <Edit2 className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDeleteClick(tag)}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      <Card>
+        <CardHeader>
+          <CardTitle>Existing Tags</CardTitle>
+          <CardDescription>Manage your tags</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            columns={columns}
+            data={tags}
+            loading={loading}
+            pagination={
+              pagination.totalPages > 0
+                ? {
+                    page: pagination.page,
+                    limit: pagination.limit,
+                    total: pagination.total,
+                    totalPages: pagination.totalPages,
+                    onPageChange: handlePageChange,
+                  }
+                : undefined
+            }
+            emptyMessage='No tags found. Click "Create" to add your first tag.'
+          />
+        </CardContent>
+      </Card>
 
       {/* Create/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
