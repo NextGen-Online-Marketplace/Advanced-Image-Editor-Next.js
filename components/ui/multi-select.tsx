@@ -121,11 +121,19 @@ export function MultiSelect({
                         >
                           <Check className="h-3 w-3" />
                         </span>
-                        <div className="flex flex-col">
-                          <span>{option.label}</span>
-                          {option.description && (
-                            <span className="text-xs text-muted-foreground">{option.description}</span>
+                        <div className="flex items-center gap-2">
+                          {option.description && option.description.startsWith('#') && (
+                            <div
+                              className="w-3 h-3 rounded border shrink-0"
+                              style={{ backgroundColor: option.description }}
+                            />
                           )}
+                          <div className="flex flex-col">
+                            <span>{option.label}</span>
+                            {option.description && !option.description.startsWith('#') && (
+                              <span className="text-xs text-muted-foreground">{option.description}</span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </CommandItem>
@@ -141,6 +149,12 @@ export function MultiSelect({
         <div className="flex flex-wrap gap-2">
           {displayedBadges.map((option) => (
             <Badge key={option.value} variant="secondary" className="flex items-center gap-1">
+              {option.description && option.description.startsWith('#') && (
+                <div
+                  className="w-2 h-2 rounded border shrink-0"
+                  style={{ backgroundColor: option.description }}
+                />
+              )}
               <span className="max-w-[180px] truncate">{option.label}</span>
               <button
                 type="button"

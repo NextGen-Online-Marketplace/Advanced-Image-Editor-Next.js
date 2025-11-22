@@ -21,6 +21,8 @@ import {
 	BadgePercent,
 	FileSignature,
 	Share2,
+	CalendarCheck,
+	Contact,
 } from "lucide-react";
 
 import {
@@ -78,6 +80,11 @@ const data = {
 					icon: FileSignature,
 				},
 				{
+					title: "Contacts",
+					url: "/contacts",
+					icon: Contact,
+				},
+				{
 					title: "Modifiers",
 					url: "/modifiers",
 					icon: SlidersHorizontal,
@@ -126,6 +133,16 @@ const data = {
 					title: "Social Links",
 					url: "/social-links",
 					icon: Share2,
+				},
+				{
+					title: "Online Scheduler",
+					url: "/online-scheduler",
+					icon: CalendarCheck,
+				},
+				{
+					title: "Scheduling Options",
+					url: "/scheduling-options",
+					icon: Settings,
 				},
 			],
 		},
