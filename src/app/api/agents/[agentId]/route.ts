@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import dbConnect from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth-helpers';
-import Agency from '@/src/models/Agency';
 import Agent from '@/src/models/Agent';
+import AgentTeam from '@/src/models/AgentTeam';
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ agencyId: string }> }
+  { params }: { params: Promise<{ agentId: string }> }
 ) {
   try {
     await dbConnect();
@@ -21,41 +21,41 @@ export async function DELETE(
       return NextResponse.json({ error: 'No company associated with user' }, { status: 400 });
     }
 
-    const { agencyId } = await params;
+    const { agentId } = await params;
 
-    // Check if agency exists before deleting
-    const agency = await Agency.findOne({
-      _id: agencyId,
+    // Check if agent exists
+    const agent = await Agent.findOne({
+      _id: agentId,
       company: currentUser.company,
     });
 
-    if (!agency) {
-      return NextResponse.json({ error: 'Agency not found' }, { status: 404 });
+    if (!agent) {
+      return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
     }
 
-    // Remove agency reference from all agents that reference this agency
-    await Agent.updateMany(
+    // Remove agent from all agent teams
+    await AgentTeam.updateMany(
       {
         company: currentUser.company,
-        agency: agencyId,
+        agents: agentId,
       },
       {
-        $unset: { agency: '', agencyPhone: '' },
-        $set: { updatedBy: currentUser._id },
+        $pull: { agents: agentId },
+        updatedBy: currentUser._id,
       }
     );
 
-    // Now delete the agency
-    await Agency.findOneAndDelete({
-      _id: agencyId,
+    // Delete the agent
+    await Agent.deleteOne({
+      _id: agentId,
       company: currentUser.company,
     });
 
-    return NextResponse.json({ message: 'Agency deleted successfully' });
+    return NextResponse.json({ message: 'Agent deleted successfully' });
   } catch (error: any) {
-    console.error('Delete agency error:', error);
+    console.error('Delete agent error:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to delete agency' },
+      { error: error.message || 'Failed to delete agent' },
       { status: 500 }
     );
   }

@@ -5,6 +5,8 @@ import TagsManager from "./_components/TagsManager";
 import PeopleManager from "./_components/PeopleManager";
 import ClientManager from "./_components/ClientManager";
 import AgencyManager from "./_components/AgencyManager";
+import AgentManager from "./_components/AgentManager";
+import AgentTeamManager from "./_components/AgentTeamManager";
 
 export default function ContactsPage() {
   return (
@@ -25,17 +27,11 @@ export default function ContactsPage() {
         </TabsList>
         
         <TabsContent value="agents" className="mt-6">
-          <div className="rounded-lg border p-6">
-            <h3 className="text-lg font-semibold mb-2">Agents</h3>
-            <p className="text-muted-foreground">Manage your agents here.</p>
-          </div>
+          <AgentManager />
         </TabsContent>
         
         <TabsContent value="agent-teams" className="mt-6">
-          <div className="rounded-lg border p-6">
-            <h3 className="text-lg font-semibold mb-2">Agent Teams</h3>
-            <p className="text-muted-foreground">Manage your agent teams here.</p>
-          </div>
+          <AgentTeamManager />
         </TabsContent>
         
         <TabsContent value="agencies" className="mt-6">

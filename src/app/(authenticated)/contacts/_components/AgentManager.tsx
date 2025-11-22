@@ -1,0 +1,1606 @@
+"use client";
+
+import { useEffect, useState, useMemo } from 'react';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
+import { Plus, Edit2, Trash2, Loader2, ChevronsUpDown, X, Search } from 'lucide-react';
+import { toast } from 'sonner';
+
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
+import { DataTable, Column } from '@/components/ui/data-table';
+import { MultiSelect, MultiSelectOption } from '@/components/ui/multi-select';
+import { ImageUpload } from '@/components/ui/image-upload';
+
+const months = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
+const days = Array.from({ length: 31 }, (_, i) => i + 1);
+
+const agentSchema = z.object({
+  firstName: z.string().min(1, 'First name is required'),
+  lastName: z.string().optional(),
+  email: z.string().email('Invalid email format').min(1, 'Email is required'),
+  ccEmail: z.string().email('Invalid CC email format').optional().or(z.literal('')),
+  phone: z.string().optional(),
+  secondPhone: z.string().optional(),
+  address: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  zip: z.string().optional(),
+  birthdayMonth: z.enum(['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']).optional(),
+  birthdayDay: z.number().min(1).max(31).optional().or(z.null()),
+  photoUrl: z.string().optional().nullable(),
+  facebookUrl: z.string().url('Invalid URL format').optional().or(z.literal('')),
+  linkedinUrl: z.string().url('Invalid URL format').optional().or(z.literal('')),
+  twitterUrl: z.string().url('Invalid URL format').optional().or(z.literal('')),
+  instagramUrl: z.string().url('Invalid URL format').optional().or(z.literal('')),
+  tiktokUrl: z.string().url('Invalid URL format').optional().or(z.literal('')),
+  websiteUrl: z.string().url('Invalid URL format').optional().or(z.literal('')),
+  tags: z.array(z.string()).optional(),
+  agency: z.string().optional(),
+  agencyPhone: z.string().optional(),
+  agentTeam: z.string().optional(),
+  internalNotes: z.string().optional(),
+  internalAdminNotes: z.string().optional(),
+  excludeFromMassEmail: z.boolean(),
+  unsubscribedFromMassEmails: z.boolean(),
+}).refine((data) => {
+  if (data.ccEmail && data.ccEmail.trim()) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(data.ccEmail.trim());
+  }
+  return true;
+}, {
+  message: 'Invalid CC email format',
+  path: ['ccEmail'],
+});
+
+type AgentFormValues = z.infer<typeof agentSchema>;
+
+interface Tag {
+  _id: string;
+  name: string;
+  color: string;
+}
+
+interface Agency {
+  _id: string;
+  name: string;
+}
+
+interface AgentTeam {
+  _id: string;
+  name: string;
+}
+
+interface Agent {
+  _id: string;
+  firstName: string;
+  lastName?: string;
+  email: string;
+  ccEmail?: string;
+  phone?: string;
+  secondPhone?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  birthdayMonth?: string;
+  birthdayDay?: number;
+  photoUrl?: string;
+  facebookUrl?: string;
+  linkedinUrl?: string;
+  twitterUrl?: string;
+  instagramUrl?: string;
+  tiktokUrl?: string;
+  websiteUrl?: string;
+  tags?: Tag[];
+  agency?: Agency | string;
+  agencyPhone?: string;
+  agentTeam?: AgentTeam | string;
+  internalNotes?: string;
+  internalAdminNotes?: string;
+  excludeFromMassEmail: boolean;
+  unsubscribedFromMassEmails: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Agency Search Select Component
+function AgencySearchSelect({
+  value,
+  onChange,
+  disabled = false,
+  selectedName,
+}: {
+  value?: string;
+  onChange: (value: string | undefined) => void;
+  disabled?: boolean;
+  selectedName?: string;
+}) {
+  const [currentSelectedName, setCurrentSelectedName] = useState<string | undefined>(selectedName);
+
+  // Update current selected name when prop changes
+  useEffect(() => {
+    setCurrentSelectedName(selectedName);
+  }, [selectedName]);
+  const [open, setOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [agencies, setAgencies] = useState<Agency[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // Debounce search query
+  useEffect(() => {
+    if (!open) {
+      setSearchQuery('');
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      searchAgencies(searchQuery);
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery, open]);
+
+  // Load initial agencies when popover opens
+  useEffect(() => {
+    if (open && !searchQuery.trim()) {
+      searchAgencies('');
+    }
+  }, [open]);
+
+  const searchAgencies = async (search: string) => {
+    try {
+      setLoading(true);
+      const params = new URLSearchParams();
+      if (search.trim()) {
+        params.append('search', search.trim());
+      }
+      params.append('limit', '50');
+
+      const response = await fetch(`/api/agencies/search?${params.toString()}`, {
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to search agencies');
+      }
+
+      const data = await response.json();
+      let filteredAgencies = data.agencies || [];
+      
+      // Include selected agency if it exists and isn't already in results
+      if (value && currentSelectedName) {
+        const hasSelected = filteredAgencies.some((a: Agency) => a._id === value);
+        if (!hasSelected) {
+          // Add the selected agency to the top of the list
+          filteredAgencies = [{ _id: value, name: currentSelectedName }, ...filteredAgencies];
+        }
+      }
+      
+      setAgencies(filteredAgencies);
+    } catch (error: any) {
+      console.error('Error searching agencies:', error);
+      toast.error('Failed to search agencies');
+      setAgencies([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSelectAgency = (agency: Agency) => {
+    onChange(agency._id);
+    setCurrentSelectedName(agency.name);
+    setSearchQuery('');
+    setOpen(false);
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="w-full justify-between"
+          disabled={disabled}
+        >
+          <span className={value ? 'text-foreground' : 'text-muted-foreground'}>
+            {currentSelectedName || (value ? 'Loading...' : 'Search and select agency...')}
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+        <Command shouldFilter={false}>
+          <CommandInput
+            placeholder="Search agencies by name..."
+            value={searchQuery}
+            onValueChange={setSearchQuery}
+          />
+          <CommandList>
+            {loading ? (
+              <div className="p-4 text-center text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin mx-auto" />
+                Searching...
+              </div>
+            ) : agencies.length > 0 ? (
+              <CommandGroup>
+                <CommandItem
+                  value=""
+                  onSelect={() => {
+                    onChange(undefined);
+                    setCurrentSelectedName(undefined);
+                    setSearchQuery('');
+                    setOpen(false);
+                  }}
+                >
+                  <span className="text-muted-foreground">Clear selection</span>
+                </CommandItem>
+                {agencies.map((agency) => (
+                  <CommandItem
+                    key={agency._id}
+                    value={agency._id}
+                    onSelect={() => handleSelectAgency(agency)}
+                  >
+                    <span>{agency.name}</span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            ) : (
+              <CommandEmpty>
+                {searchQuery.trim() ? 'No agencies found' : 'Start typing to search agencies'}
+              </CommandEmpty>
+            )}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+// Agent Team Search Select Component
+function AgentTeamSearchSelect({
+  value,
+  onChange,
+  disabled = false,
+  selectedName,
+}: {
+  value?: string;
+  onChange: (value: string | undefined) => void;
+  disabled?: boolean;
+  selectedName?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [agentTeams, setAgentTeams] = useState<AgentTeam[]>([]);
+  const [currentSelectedName, setCurrentSelectedName] = useState<string | undefined>(selectedName);
+  const [loading, setLoading] = useState(false);
+
+  // Update current selected name when prop changes
+  useEffect(() => {
+    setCurrentSelectedName(selectedName);
+  }, [selectedName]);
+
+  // Debounce search query
+  useEffect(() => {
+    if (!open) {
+      setSearchQuery('');
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      searchAgentTeams(searchQuery);
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery, open]);
+
+  // Load initial agent teams when popover opens
+  useEffect(() => {
+    if (open && !searchQuery.trim()) {
+      searchAgentTeams('');
+    }
+  }, [open]);
+
+  const searchAgentTeams = async (search: string) => {
+    try {
+      setLoading(true);
+      const params = new URLSearchParams();
+      if (search.trim()) {
+        params.append('search', search.trim());
+      }
+      params.append('limit', '50');
+
+      const response = await fetch(`/api/agent-teams/search?${params.toString()}`, {
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to search agent teams');
+      }
+
+      const data = await response.json();
+      let filteredTeams = data.agentTeams || [];
+      
+      // Include selected team if it exists and isn't already in results
+      if (value && currentSelectedName) {
+        const hasSelected = filteredTeams.some((t: AgentTeam) => t._id === value);
+        if (!hasSelected) {
+          // Add the selected team to the top of the list
+          filteredTeams = [{ _id: value, name: currentSelectedName }, ...filteredTeams];
+        }
+      }
+      
+      setAgentTeams(filteredTeams);
+    } catch (error: any) {
+      console.error('Error searching agent teams:', error);
+      toast.error('Failed to search agent teams');
+      setAgentTeams([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSelectAgentTeam = (team: AgentTeam) => {
+    onChange(team._id);
+    setCurrentSelectedName(team.name);
+    setSearchQuery('');
+    setOpen(false);
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="w-full justify-between"
+          disabled={disabled}
+        >
+          <span className={value ? 'text-foreground' : 'text-muted-foreground'}>
+            {currentSelectedName || (value ? 'Loading...' : 'Search and select agent team...')}
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+        <Command shouldFilter={false}>
+          <CommandInput
+            placeholder="Search agent teams by name..."
+            value={searchQuery}
+            onValueChange={setSearchQuery}
+          />
+          <CommandList>
+            {loading ? (
+              <div className="p-4 text-center text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin mx-auto" />
+                Searching...
+              </div>
+            ) : agentTeams.length > 0 ? (
+              <CommandGroup>
+                <CommandItem
+                  value=""
+                  onSelect={() => {
+                    onChange(undefined);
+                    setCurrentSelectedName(undefined);
+                    setSearchQuery('');
+                    setOpen(false);
+                  }}
+                >
+                  <span className="text-muted-foreground">Clear selection</span>
+                </CommandItem>
+                {agentTeams.map((team) => (
+                  <CommandItem
+                    key={team._id}
+                    value={team._id}
+                    onSelect={() => handleSelectAgentTeam(team)}
+                  >
+                    <span>{team.name}</span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            ) : (
+              <CommandEmpty>
+                {searchQuery.trim() ? 'No agent teams found' : 'Start typing to search agent teams'}
+              </CommandEmpty>
+            )}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+// Tag Search Component
+function TagSearchInput({
+  selectedTags,
+  onAddTag,
+  onRemoveTag,
+  allTags,
+  disabled = false,
+}: {
+  selectedTags: Tag[];
+  onAddTag: (tag: Tag) => void;
+  onRemoveTag: (tagId: string) => void;
+  allTags: Tag[];
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Filter tags client-side based on search query
+  const filteredTags = useMemo(() => {
+    // Filter out already selected tags
+    const availableTags = allTags.filter(
+      (tag) => !selectedTags.some((st) => st._id === tag._id)
+    );
+
+    if (!searchQuery.trim()) {
+      return availableTags;
+    }
+
+    // Filter tags by name (case-insensitive)
+    const query = searchQuery.trim().toLowerCase();
+    return availableTags.filter((tag) =>
+      tag.name.toLowerCase().includes(query)
+    );
+  }, [searchQuery, allTags, selectedTags]);
+
+  const handleSelectTag = (tag: Tag) => {
+    onAddTag(tag);
+    setSearchQuery('');
+    setOpen(false);
+  };
+
+  return (
+    <div className="space-y-2">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            className="w-full justify-between"
+            disabled={disabled}
+          >
+            <span className="text-muted-foreground">Search and select tags...</span>
+            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+          <Command shouldFilter={false}>
+            <CommandInput
+              placeholder="Search tags..."
+              value={searchQuery}
+              onValueChange={setSearchQuery}
+            />
+            <CommandList>
+              {filteredTags.length > 0 ? (
+                <CommandGroup>
+                  {filteredTags.map((tag) => (
+                    <CommandItem
+                      key={tag._id}
+                      value={tag.name}
+                      onSelect={() => handleSelectTag(tag)}
+                    >
+                      <div className="flex items-center gap-2 w-full">
+                        <div
+                          className="w-3 h-3 rounded border shrink-0"
+                          style={{ backgroundColor: tag.color }}
+                        />
+                        <span>{tag.name}</span>
+                      </div>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              ) : (
+                <CommandEmpty>
+                  {searchQuery.trim() ? 'No tags found' : 'No tags available'}
+                </CommandEmpty>
+              )}
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+
+      {selectedTags.length > 0 && (
+        <div className="flex flex-wrap gap-2 mt-2">
+          {selectedTags.map((tag) => (
+            <div
+              key={tag._id}
+              className="flex items-center gap-1 px-2 py-1 bg-muted rounded text-sm"
+            >
+              <div
+                className="w-3 h-3 rounded border"
+                style={{ backgroundColor: tag.color }}
+              />
+              <span>{tag.name}</span>
+              <button
+                type="button"
+                onClick={() => onRemoveTag(tag._id)}
+                className="text-destructive hover:text-destructive/80 ml-1"
+                disabled={disabled}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function AgentManager() {
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
+  const [agentToDelete, setAgentToDelete] = useState<Agent | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [selectedTags, setSelectedTags] = useState<Tag[]>([]);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    limit: 10,
+    total: 0,
+    totalPages: 0,
+  });
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [selectedFilterTags, setSelectedFilterTags] = useState<string[]>([]);
+  const [availableTags, setAvailableTags] = useState<Tag[]>([]);
+  const [loadingTags, setLoadingTags] = useState(false);
+  const [allTagsForInput, setAllTagsForInput] = useState<Tag[]>([]);
+  const [loadingAllTags, setLoadingAllTags] = useState(false);
+
+  const form = useForm<AgentFormValues>({
+    resolver: zodResolver(agentSchema),
+    defaultValues: {
+      firstName: '',
+      lastName: '',
+      email: '',
+      ccEmail: '',
+      phone: '',
+      secondPhone: '',
+      address: '',
+      city: '',
+      state: '',
+      zip: '',
+      birthdayMonth: undefined,
+      birthdayDay: undefined,
+      photoUrl: null,
+      facebookUrl: '',
+      linkedinUrl: '',
+      twitterUrl: '',
+      instagramUrl: '',
+      tiktokUrl: '',
+      websiteUrl: '',
+      tags: [],
+      agency: undefined,
+      agencyPhone: '',
+      agentTeam: undefined,
+      internalNotes: '',
+      internalAdminNotes: '',
+      excludeFromMassEmail: false,
+      unsubscribedFromMassEmails: false,
+    },
+  });
+
+  const {
+    control,
+    handleSubmit,
+    reset,
+    watch,
+    formState: { errors },
+  } = form;
+
+  useEffect(() => {
+    loadAgents(pagination.page, pagination.limit, searchQuery, selectedFilterTags);
+  }, [pagination.page, pagination.limit, searchQuery, selectedFilterTags]);
+
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchQuery(searchInput);
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  useEffect(() => {
+    loadAvailableTags();
+  }, []);
+
+  const loadAllTags = async () => {
+    try {
+      setLoadingAllTags(true);
+      const response = await fetch('/api/tags?limit=1000', {
+        credentials: 'include',
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setAllTagsForInput(data.tags || []);
+      }
+    } catch (error: any) {
+      console.error('Error loading all tags:', error);
+    } finally {
+      setLoadingAllTags(false);
+    }
+  };
+
+  const loadAvailableTags = async () => {
+    try {
+      setLoadingTags(true);
+      const response = await fetch('/api/tags?limit=1000', {
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to load tags');
+      }
+
+      const data = await response.json();
+      setAvailableTags(data.tags || []);
+    } catch (error: any) {
+      console.error(error);
+      toast.error(error.message || 'Unable to load tags');
+    } finally {
+      setLoadingTags(false);
+    }
+  };
+
+  const loadAgents = async (
+    page: number = 1,
+    limit: number = 10,
+    search: string = '',
+    tags: string[] = []
+  ) => {
+    try {
+      setLoading(true);
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: limit.toString(),
+      });
+
+      if (search.trim()) {
+        params.append('search', search.trim());
+      }
+
+      if (tags.length > 0) {
+        params.append('tags', tags.join(','));
+      }
+
+      const response = await fetch(`/api/agents?${params.toString()}`, {
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to load agents');
+      }
+
+      const data = await response.json();
+      setAgents(data.agents || []);
+      if (data.pagination) {
+        setPagination(data.pagination);
+      }
+    } catch (error: any) {
+      console.error(error);
+      toast.error(error.message || 'Unable to load agents');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSearchInputChange = (value: string) => {
+    setSearchInput(value);
+    setPagination((prev) => ({ ...prev, page: 1 })); // Reset to page 1 on search
+  };
+
+  const handleTagsChange = (tags: string[]) => {
+    setSelectedFilterTags(tags);
+    setPagination((prev) => ({ ...prev, page: 1 })); // Reset to page 1 on filter change
+  };
+
+  const handlePageChange = (page: number) => {
+    setPagination((prev) => ({ ...prev, page }));
+  };
+
+  const getAgentDisplayName = (agent: Agent) => {
+    return `${agent.firstName || ''} ${agent.lastName || ''}`.trim() || 'Unnamed Agent';
+  };
+
+  const columns: Column<Agent>[] = [
+    {
+      id: 'name',
+      header: 'Name',
+      cell: (row) => <span className="font-medium">{getAgentDisplayName(row)}</span>,
+    },
+    {
+      id: 'email',
+      header: 'Email',
+      cell: (row) => <span>{row.email || '-'}</span>,
+    },
+    {
+      id: 'phone',
+      header: 'Phone',
+      cell: (row) => <span>{row.phone || '-'}</span>,
+    },
+    {
+      id: 'tags',
+      header: 'Tags',
+      cell: (row) => (
+        <div>
+          {row.tags && row.tags.length > 0 ? (
+            <div className="flex flex-wrap gap-1">
+              {row.tags.slice(0, 3).map((tag) => (
+                <div
+                  key={tag._id}
+                  className="flex items-center gap-1 px-2 py-0.5 bg-muted rounded text-xs"
+                >
+                  <div
+                    className="w-2 h-2 rounded border"
+                    style={{ backgroundColor: tag.color }}
+                  />
+                  <span>{tag.name}</span>
+                </div>
+              ))}
+              {row.tags.length > 3 && (
+                <span className="text-xs text-muted-foreground">
+                  +{row.tags.length - 3}
+                </span>
+              )}
+            </div>
+          ) : (
+            <span className="text-xs text-muted-foreground">-</span>
+          )}
+        </div>
+      ),
+    },
+    {
+      id: 'actions',
+      header: 'Actions',
+      className: 'text-right',
+      cell: (row) => (
+        <div className="flex justify-end gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleEdit(row)}
+          >
+            <Edit2 className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleDeleteClick(row)}
+          >
+            <Trash2 className="h-4 w-4 text-destructive" />
+          </Button>
+        </div>
+      ),
+    },
+  ];
+
+  const handleCreate = () => {
+    setEditingAgent(null);
+    setSelectedTags([]);
+    loadAllTags();
+    reset({
+      firstName: '',
+      lastName: '',
+      email: '',
+      ccEmail: '',
+      phone: '',
+      secondPhone: '',
+      address: '',
+      city: '',
+      state: '',
+      zip: '',
+      birthdayMonth: undefined,
+      birthdayDay: undefined,
+      photoUrl: null,
+      facebookUrl: '',
+      linkedinUrl: '',
+      twitterUrl: '',
+      instagramUrl: '',
+      tiktokUrl: '',
+      websiteUrl: '',
+      tags: [],
+      agency: undefined,
+      agencyPhone: '',
+      agentTeam: undefined,
+      internalNotes: '',
+      internalAdminNotes: '',
+      excludeFromMassEmail: false,
+      unsubscribedFromMassEmails: false,
+    });
+    setDialogOpen(true);
+  };
+
+  const handleEdit = (agent: Agent) => {
+    setEditingAgent(agent);
+    setSelectedTags(agent.tags || []);
+    loadAllTags();
+    reset({
+      firstName: agent.firstName || '',
+      lastName: agent.lastName || '',
+      email: agent.email || '',
+      ccEmail: agent.ccEmail || '',
+      phone: agent.phone || '',
+      secondPhone: agent.secondPhone || '',
+      address: agent.address || '',
+      city: agent.city || '',
+      state: agent.state || '',
+      zip: agent.zip || '',
+      birthdayMonth: agent.birthdayMonth as any || undefined,
+      birthdayDay: agent.birthdayDay || undefined,
+      photoUrl: agent.photoUrl || null,
+      facebookUrl: agent.facebookUrl || '',
+      linkedinUrl: agent.linkedinUrl || '',
+      twitterUrl: agent.twitterUrl || '',
+      instagramUrl: agent.instagramUrl || '',
+      tiktokUrl: agent.tiktokUrl || '',
+      websiteUrl: agent.websiteUrl || '',
+      tags: (agent.tags || []).map((t) => t._id),
+      agency: agent.agency && typeof agent.agency === 'object' ? agent.agency._id : agent.agency || undefined,
+      agencyPhone: agent.agencyPhone || '',
+      agentTeam: agent.agentTeam && typeof agent.agentTeam === 'object' ? agent.agentTeam._id : agent.agentTeam || undefined,
+      internalNotes: agent.internalNotes || '',
+      internalAdminNotes: agent.internalAdminNotes || '',
+      excludeFromMassEmail: agent.excludeFromMassEmail || false,
+      unsubscribedFromMassEmails: agent.unsubscribedFromMassEmails || false,
+    });
+    setDialogOpen(true);
+  };
+
+  const handleDeleteClick = (agent: Agent) => {
+    setAgentToDelete(agent);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!agentToDelete) return;
+
+    setIsDeleting(true);
+    try {
+      const response = await fetch(`/api/agents/${agentToDelete._id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete agent');
+      }
+
+      toast.success('Agent deleted successfully');
+      await loadAgents(pagination.page, pagination.limit, searchQuery, selectedFilterTags);
+      await loadAvailableTags();
+      setAgentToDelete(null);
+    } catch (error: any) {
+      console.error(error);
+      toast.error(error.message || 'Unable to delete agent');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleAddTag = (tag: Tag) => {
+    if (!selectedTags.some((t) => t._id === tag._id)) {
+      setSelectedTags([...selectedTags, tag]);
+      const currentTags = form.getValues('tags') || [];
+      form.setValue('tags', [...currentTags, tag._id]);
+    }
+  };
+
+  const handleRemoveTag = (tagId: string) => {
+    setSelectedTags(selectedTags.filter((t) => t._id !== tagId));
+    const currentTags = form.getValues('tags') || [];
+    form.setValue('tags', currentTags.filter((id) => id !== tagId));
+  };
+
+  const onSubmit = async (values: AgentFormValues) => {
+    try {
+      setSaving(true);
+
+      // Get all tag IDs from selectedTags
+      const tagIds: string[] = selectedTags.map((tag) => tag._id);
+
+      // Also check form values.tags for any additional tag IDs
+      if (values.tags && Array.isArray(values.tags)) {
+        for (const tagId of values.tags) {
+          if (typeof tagId === 'string' && !tagIds.includes(tagId)) {
+            if (tagId.match(/^[0-9a-fA-F]{24}$/)) {
+              tagIds.push(tagId);
+            }
+          }
+        }
+      }
+
+      const url = editingAgent ? '/api/agents' : '/api/agents';
+      const method = editingAgent ? 'PUT' : 'POST';
+
+      // Prepare payload - handle empty strings and null values
+      const payload: any = {
+        ...values,
+        tags: tagIds,
+        photoUrl: values.photoUrl || undefined,
+        ccEmail: values.ccEmail?.trim() || undefined,
+        facebookUrl: values.facebookUrl?.trim() || undefined,
+        linkedinUrl: values.linkedinUrl?.trim() || undefined,
+        twitterUrl: values.twitterUrl?.trim() || undefined,
+        instagramUrl: values.instagramUrl?.trim() || undefined,
+        tiktokUrl: values.tiktokUrl?.trim() || undefined,
+        websiteUrl: values.websiteUrl?.trim() || undefined,
+      };
+
+      if (editingAgent) {
+        payload._id = editingAgent._id;
+      }
+
+      const response = await fetch(url, {
+        method,
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to save agent');
+      }
+
+      toast.success(`Agent ${editingAgent ? 'updated' : 'created'} successfully`);
+      await loadAgents(pagination.page, pagination.limit, searchQuery, selectedFilterTags);
+      await loadAvailableTags();
+      await loadAllTags();
+      setDialogOpen(false);
+      setEditingAgent(null);
+      setSelectedTags([]);
+    } catch (error: any) {
+      console.error(error);
+      toast.error(error.message || 'Unable to save agent');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const tagOptions: MultiSelectOption[] = availableTags.map((tag) => ({
+    value: tag._id,
+    label: tag.name,
+    description: tag.color,
+  }));
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold">Agents</h3>
+          <p className="text-sm text-muted-foreground">Manage your agents</p>
+        </div>
+        <Button onClick={handleCreate}>
+          <Plus className="h-4 w-4 mr-2" />
+          Create
+        </Button>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-4 md:flex-row md:items-end">
+            <div className="flex-1 space-y-2">
+              <Label htmlFor="search">Search by Name</Label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="search"
+                  placeholder="Search by first name, last name, or email..."
+                  value={searchInput}
+                  onChange={(e) => handleSearchInputChange(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+            </div>
+            <div className="flex-1 space-y-2">
+              <Label>Filter by Tags</Label>
+              <MultiSelect
+                value={selectedFilterTags}
+                onChange={handleTagsChange}
+                options={tagOptions}
+                placeholder="Select tags..."
+                emptyText="No tags found"
+                disabled={loadingTags}
+                maxBadges={3}
+              />
+            </div>
+          </div>
+        </CardHeader>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Existing Agents</CardTitle>
+          <CardDescription>Manage your agents</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            columns={columns}
+            data={agents}
+            loading={loading}
+            pagination={
+              pagination.totalPages > 0
+                ? {
+                    page: pagination.page,
+                    limit: pagination.limit,
+                    total: pagination.total,
+                    totalPages: pagination.totalPages,
+                    onPageChange: handlePageChange,
+                  }
+                : undefined
+            }
+            emptyMessage="No agents found. Click 'Create' to add your first agent."
+          />
+        </CardContent>
+      </Card>
+
+      {/* Create/Edit Dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingAgent ? 'Edit Agent' : 'Create Agent'}</DialogTitle>
+            <DialogDescription>
+              {editingAgent ? 'Update agent details' : 'Create a new agent'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+            {/* Photo Upload */}
+            <div className="space-y-2">
+              <Label>Photo</Label>
+              <Controller
+                name="photoUrl"
+                control={control}
+                render={({ field }) => (
+                  <ImageUpload
+                    value={field.value || null}
+                    onChange={field.onChange}
+                    shape="circle"
+                    disabled={saving}
+                  />
+                )}
+              />
+            </div>
+
+            {/* Name Fields */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="firstName">First Name *</Label>
+                <Controller
+                  name="firstName"
+                  control={control}
+                  render={({ field }) => (
+                    <Input id="firstName" {...field} />
+                  )}
+                />
+                {errors.firstName && (
+                  <p className="text-sm text-destructive">{errors.firstName.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="lastName">Last Name</Label>
+                <Controller
+                  name="lastName"
+                  control={control}
+                  render={({ field }) => (
+                    <Input id="lastName" {...field} />
+                  )}
+                />
+              </div>
+            </div>
+
+            {/* Email Fields */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="email">Email *</Label>
+                <Controller
+                  name="email"
+                  control={control}
+                  render={({ field }) => (
+                    <Input id="email" type="email" {...field} />
+                  )}
+                />
+                {errors.email && (
+                  <p className="text-sm text-destructive">{errors.email.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="ccEmail">CC Email</Label>
+                <Controller
+                  name="ccEmail"
+                  control={control}
+                  render={({ field }) => (
+                    <Input id="ccEmail" type="email" {...field} />
+                  )}
+                />
+                {errors.ccEmail && (
+                  <p className="text-sm text-destructive">{errors.ccEmail.message}</p>
+                )}
+              </div>
+            </div>
+
+            {/* Phone Fields */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="phone">Phone</Label>
+                <Controller
+                  name="phone"
+                  control={control}
+                  render={({ field }) => (
+                    <Input id="phone" type="tel" {...field} />
+                  )}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="secondPhone">Second Phone</Label>
+                <Controller
+                  name="secondPhone"
+                  control={control}
+                  render={({ field }) => (
+                    <Input id="secondPhone" type="tel" {...field} />
+                  )}
+                />
+              </div>
+            </div>
+
+            {/* Address Fields */}
+            <div className="space-y-2">
+              <Label htmlFor="address">Address</Label>
+              <Controller
+                name="address"
+                control={control}
+                render={({ field }) => (
+                  <Input id="address" {...field} />
+                )}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="city">City</Label>
+                <Controller
+                  name="city"
+                  control={control}
+                  render={({ field }) => (
+                    <Input id="city" {...field} />
+                  )}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="state">State</Label>
+                <Controller
+                  name="state"
+                  control={control}
+                  render={({ field }) => (
+                    <Input id="state" {...field} />
+                  )}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="zip">ZIP</Label>
+                <Controller
+                  name="zip"
+                  control={control}
+                  render={({ field }) => (
+                    <Input id="zip" {...field} />
+                  )}
+                />
+              </div>
+            </div>
+
+            {/* Birthday Fields */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="birthdayMonth">Birthday Month</Label>
+                <Controller
+                  name="birthdayMonth"
+                  control={control}
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger id="birthdayMonth">
+                        <SelectValue placeholder="Select month" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {months.map((month) => (
+                          <SelectItem key={month} value={month}>
+                            {month}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="birthdayDay">Day</Label>
+                <Controller
+                  name="birthdayDay"
+                  control={control}
+                  render={({ field }) => (
+                    <Select
+                      value={field.value?.toString()}
+                      onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)}
+                    >
+                      <SelectTrigger id="birthdayDay">
+                        <SelectValue placeholder="Select day" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {days.map((day) => (
+                          <SelectItem key={day} value={day.toString()}>
+                            {day}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </div>
+            </div>
+
+            {/* Agency and Agent Team Fields */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="agency">Agency Name</Label>
+                <Controller
+                  name="agency"
+                  control={control}
+                  render={({ field }) => {
+                    const agencyName = editingAgent && editingAgent.agency
+                      ? (typeof editingAgent.agency === 'object' ? editingAgent.agency.name : undefined)
+                      : undefined;
+                    return (
+                      <AgencySearchSelect
+                        value={field.value}
+                        onChange={(value) => field.onChange(value)}
+                        disabled={saving}
+                        selectedName={agencyName}
+                      />
+                    );
+                  }}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="agentTeam">Agent Team</Label>
+                <Controller
+                  name="agentTeam"
+                  control={control}
+                  render={({ field }) => {
+                    const teamName = editingAgent && editingAgent.agentTeam
+                      ? (typeof editingAgent.agentTeam === 'object' ? editingAgent.agentTeam.name : undefined)
+                      : undefined;
+                    return (
+                      <AgentTeamSearchSelect
+                        value={field.value}
+                        onChange={(value) => field.onChange(value)}
+                        disabled={saving}
+                        selectedName={teamName}
+                      />
+                    );
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="agencyPhone">Agency Phone</Label>
+              <Controller
+                name="agencyPhone"
+                control={control}
+                render={({ field }) => (
+                  <Input id="agencyPhone" type="tel" {...field} placeholder="Enter agency phone" />
+                )}
+              />
+            </div>
+
+            {/* Tags */}
+            <div className="space-y-2">
+              <Label>Tags</Label>
+              <TagSearchInput
+                selectedTags={selectedTags}
+                onAddTag={handleAddTag}
+                onRemoveTag={handleRemoveTag}
+                allTags={allTagsForInput}
+                disabled={saving || loadingAllTags}
+              />
+            </div>
+
+            {/* Social Media URLs */}
+            <div className="space-y-4 border-t pt-4">
+              <h4 className="text-sm font-medium">Social Media & Links</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="facebookUrl">Facebook URL</Label>
+                  <Controller
+                    name="facebookUrl"
+                    control={control}
+                    render={({ field }) => (
+                      <Input id="facebookUrl" type="url" placeholder="https://facebook.com/..." {...field} />
+                    )}
+                  />
+                  {errors.facebookUrl && (
+                    <p className="text-sm text-destructive">{errors.facebookUrl.message}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="linkedinUrl">LinkedIn URL</Label>
+                  <Controller
+                    name="linkedinUrl"
+                    control={control}
+                    render={({ field }) => (
+                      <Input id="linkedinUrl" type="url" placeholder="https://linkedin.com/in/..." {...field} />
+                    )}
+                  />
+                  {errors.linkedinUrl && (
+                    <p className="text-sm text-destructive">{errors.linkedinUrl.message}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="twitterUrl">Twitter URL</Label>
+                  <Controller
+                    name="twitterUrl"
+                    control={control}
+                    render={({ field }) => (
+                      <Input id="twitterUrl" type="url" placeholder="https://twitter.com/..." {...field} />
+                    )}
+                  />
+                  {errors.twitterUrl && (
+                    <p className="text-sm text-destructive">{errors.twitterUrl.message}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="instagramUrl">Instagram URL</Label>
+                  <Controller
+                    name="instagramUrl"
+                    control={control}
+                    render={({ field }) => (
+                      <Input id="instagramUrl" type="url" placeholder="https://instagram.com/..." {...field} />
+                    )}
+                  />
+                  {errors.instagramUrl && (
+                    <p className="text-sm text-destructive">{errors.instagramUrl.message}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="tiktokUrl">TikTok URL</Label>
+                  <Controller
+                    name="tiktokUrl"
+                    control={control}
+                    render={({ field }) => (
+                      <Input id="tiktokUrl" type="url" placeholder="https://tiktok.com/@..." {...field} />
+                    )}
+                  />
+                  {errors.tiktokUrl && (
+                    <p className="text-sm text-destructive">{errors.tiktokUrl.message}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="websiteUrl">Website URL</Label>
+                  <Controller
+                    name="websiteUrl"
+                    control={control}
+                    render={({ field }) => (
+                      <Input id="websiteUrl" type="url" placeholder="https://..." {...field} />
+                    )}
+                  />
+                  {errors.websiteUrl && (
+                    <p className="text-sm text-destructive">{errors.websiteUrl.message}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Checkboxes */}
+            <div className="space-y-4 border-t pt-4">
+              <div className="space-y-2">
+                <Controller
+                  name="excludeFromMassEmail"
+                  control={control}
+                  render={({ field }) => (
+                    <div className="flex items-center gap-3">
+                      <Checkbox
+                        id="excludeFromMassEmail"
+                        checked={field.value}
+                        onCheckedChange={(checked) => field.onChange(Boolean(checked))}
+                      />
+                      <Label htmlFor="excludeFromMassEmail" className="font-medium cursor-pointer">
+                        Exclude from Mass Email - Do not contact
+                      </Label>
+                    </div>
+                  )}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Controller
+                  name="unsubscribedFromMassEmails"
+                  control={control}
+                  render={({ field }) => (
+                    <div className="flex items-center gap-3">
+                      <Checkbox
+                        id="unsubscribedFromMassEmails"
+                        checked={field.value}
+                        onCheckedChange={(checked) => field.onChange(Boolean(checked))}
+                      />
+                      <Label htmlFor="unsubscribedFromMassEmails" className="font-medium cursor-pointer">
+                        Unsubscribed from Mass Emails
+                      </Label>
+                    </div>
+                  )}
+                />
+              </div>
+            </div>
+
+            {/* Internal Notes */}
+            <div className="space-y-2">
+              <Label htmlFor="internalNotes">Internal - Only visible to company</Label>
+              <Controller
+                name="internalNotes"
+                control={control}
+                render={({ field }) => (
+                  <Textarea
+                    id="internalNotes"
+                    rows={4}
+                    {...field}
+                  />
+                )}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="internalAdminNotes">Internal - Only visible to company admins</Label>
+              <Controller
+                name="internalAdminNotes"
+                control={control}
+                render={({ field }) => (
+                  <Textarea
+                    id="internalAdminNotes"
+                    rows={4}
+                    {...field}
+                  />
+                )}
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setDialogOpen(false);
+                  setEditingAgent(null);
+                  setSelectedTags([]);
+                }}
+                disabled={saving}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={saving}>
+                {saving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  editingAgent ? 'Update' : 'Create'
+                )}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={Boolean(agentToDelete)} onOpenChange={(open) => !open && !isDeleting && setAgentToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Agent?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete "{agentToDelete ? getAgentDisplayName(agentToDelete) : ''}"? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
