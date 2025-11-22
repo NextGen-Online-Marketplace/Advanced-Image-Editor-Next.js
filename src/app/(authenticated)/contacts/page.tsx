@@ -3,6 +3,7 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import TagsManager from "./_components/TagsManager";
 import PeopleManager from "./_components/PeopleManager";
+import ClientManager from "./_components/ClientManager";
 
 export default function ContactsPage() {
   return (
@@ -44,10 +45,7 @@ export default function ContactsPage() {
         </TabsContent>
         
         <TabsContent value="clients" className="mt-6">
-          <div className="rounded-lg border p-6">
-            <h3 className="text-lg font-semibold mb-2">Clients</h3>
-            <p className="text-muted-foreground">Manage your clients here.</p>
-          </div>
+          <ClientManager />
         </TabsContent>
         
         <TabsContent value="people" className="mt-6">
