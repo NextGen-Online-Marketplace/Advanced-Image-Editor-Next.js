@@ -196,7 +196,8 @@ export async function POST(request: NextRequest) {
       zip: zip?.trim() || undefined,
       birthdayMonth: birthdayMonth || undefined,
       birthdayDay: birthdayDay || undefined,
-      photoUrl: photoUrl?.trim() || undefined,
+      // Handle null explicitly to clear the field, undefined to keep existing value
+      photoUrl: photoUrl === null ? null : (photoUrl?.trim() || undefined),
       facebookUrl: facebookUrl?.trim() || undefined,
       linkedinUrl: linkedinUrl?.trim() || undefined,
       twitterUrl: twitterUrl?.trim() || undefined,
@@ -204,7 +205,8 @@ export async function POST(request: NextRequest) {
       tiktokUrl: tiktokUrl?.trim() || undefined,
       websiteUrl: websiteUrl?.trim() || undefined,
       tags: Array.isArray(tags) ? tags : [],
-      agency: agency || undefined,
+      // Handle null explicitly to clear the field, undefined to keep existing value
+      agency: agency === null ? null : (agency || undefined),
       agencyPhone: agencyPhone?.trim() || undefined,
       internalNotes: internalNotes?.trim() || undefined,
       internalAdminNotes: internalAdminNotes?.trim() || undefined,
@@ -423,7 +425,8 @@ export async function PUT(request: NextRequest) {
         zip: zip?.trim() || undefined,
         birthdayMonth: birthdayMonth || undefined,
         birthdayDay: birthdayDay || undefined,
-        photoUrl: photoUrl?.trim() || undefined,
+        // Handle null explicitly to clear the field, undefined to keep existing value
+        photoUrl: photoUrl === null ? null : (photoUrl?.trim() || undefined),
         facebookUrl: facebookUrl?.trim() || undefined,
         linkedinUrl: linkedinUrl?.trim() || undefined,
         twitterUrl: twitterUrl?.trim() || undefined,
@@ -431,7 +434,8 @@ export async function PUT(request: NextRequest) {
         tiktokUrl: tiktokUrl?.trim() || undefined,
         websiteUrl: websiteUrl?.trim() || undefined,
         tags: Array.isArray(tags) ? tags : [],
-        agency: agency || undefined,
+        // Handle null explicitly to clear the field, undefined to keep existing value
+        agency: agency === null ? null : (agency || undefined),
         agencyPhone: agencyPhone?.trim() || undefined,
         internalNotes: internalNotes?.trim() || undefined,
         internalAdminNotes: internalAdminNotes?.trim() || undefined,

@@ -254,7 +254,7 @@ export async function PUT(request: NextRequest) {
         phone: phone?.trim() || undefined,
         homePhone: homePhone?.trim() || undefined,
         mobilePhone: mobilePhone?.trim() || undefined,
-        company: personCompany?.trim() || undefined,
+        personCompany: personCompany?.trim() || undefined,
         role: role || undefined,
         tags: Array.isArray(tags) ? tags : [],
         internalNotes: internalNotes?.trim() || undefined,

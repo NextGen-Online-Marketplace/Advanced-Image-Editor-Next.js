@@ -16,7 +16,7 @@ export default function ContactsPage() {
         <p className="text-muted-foreground">Manage your contacts, agents, teams, agencies, clients, and people</p>
       </div>
 
-      <Tabs defaultValue="tags-manager" className="w-full">
+      <Tabs defaultValue="agents" className="w-full">
         <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
           <TabsTrigger value="agents">Agents</TabsTrigger>
           <TabsTrigger value="agent-teams">Agent Teams</TabsTrigger>

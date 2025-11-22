@@ -174,11 +174,23 @@ function AgencySearchSelect({
   selectedName?: string;
 }) {
   const [currentSelectedName, setCurrentSelectedName] = useState<string | undefined>(selectedName);
+  const [isCleared, setIsCleared] = useState(false);
 
   // Update current selected name when prop changes
   useEffect(() => {
-    setCurrentSelectedName(selectedName);
+    if (selectedName !== undefined) {
+      setCurrentSelectedName(selectedName);
+      setIsCleared(false);
+    }
   }, [selectedName]);
+
+  // Reset current selected name when value becomes undefined
+  useEffect(() => {
+    if (!value) {
+      setCurrentSelectedName(undefined);
+      setIsCleared(false);
+    }
+  }, [value]);
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [agencies, setAgencies] = useState<Agency[]>([]);
@@ -251,6 +263,14 @@ function AgencySearchSelect({
     setOpen(false);
   };
 
+  const handleClear = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    onChange(undefined);
+    setCurrentSelectedName(undefined);
+    setIsCleared(true);
+  };
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -262,10 +282,29 @@ function AgencySearchSelect({
           className="w-full justify-between"
           disabled={disabled}
         >
-          <span className={value ? 'text-foreground' : 'text-muted-foreground'}>
-            {currentSelectedName || (value ? 'Loading...' : 'Search and select agency...')}
+          <span className={value && currentSelectedName ? 'text-foreground' : 'text-muted-foreground'}>
+            {currentSelectedName || (isCleared || !value ? 'Search and select agency...' : 'Loading...')}
           </span>
-          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          <div className="flex items-center gap-1">
+            {value && (
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={handleClear}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handleClear(e as any);
+                  }
+                }}
+                className="h-4 w-4 shrink-0 opacity-50 hover:opacity-100 cursor-pointer flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-ring rounded"
+                aria-label="Clear selection"
+              >
+                <X className="h-4 w-4" />
+              </span>
+            )}
+            <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+          </div>
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
@@ -283,17 +322,6 @@ function AgencySearchSelect({
               </div>
             ) : agencies.length > 0 ? (
               <CommandGroup>
-                <CommandItem
-                  value=""
-                  onSelect={() => {
-                    onChange(undefined);
-                    setCurrentSelectedName(undefined);
-                    setSearchQuery('');
-                    setOpen(false);
-                  }}
-                >
-                  <span className="text-muted-foreground">Clear selection</span>
-                </CommandItem>
                 {agencies.map((agency) => (
                   <CommandItem
                     key={agency._id}
@@ -332,12 +360,24 @@ function AgentTeamSearchSelect({
   const [searchQuery, setSearchQuery] = useState('');
   const [agentTeams, setAgentTeams] = useState<AgentTeam[]>([]);
   const [currentSelectedName, setCurrentSelectedName] = useState<string | undefined>(selectedName);
+  const [isCleared, setIsCleared] = useState(false);
   const [loading, setLoading] = useState(false);
 
   // Update current selected name when prop changes
   useEffect(() => {
-    setCurrentSelectedName(selectedName);
+    if (selectedName !== undefined) {
+      setCurrentSelectedName(selectedName);
+      setIsCleared(false);
+    }
   }, [selectedName]);
+
+  // Reset current selected name when value becomes undefined
+  useEffect(() => {
+    if (!value) {
+      setCurrentSelectedName(undefined);
+      setIsCleared(false);
+    }
+  }, [value]);
 
   // Debounce search query
   useEffect(() => {
@@ -406,6 +446,14 @@ function AgentTeamSearchSelect({
     setOpen(false);
   };
 
+  const handleClear = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    onChange(undefined);
+    setCurrentSelectedName(undefined);
+    setIsCleared(true);
+  };
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -417,10 +465,29 @@ function AgentTeamSearchSelect({
           className="w-full justify-between"
           disabled={disabled}
         >
-          <span className={value ? 'text-foreground' : 'text-muted-foreground'}>
-            {currentSelectedName || (value ? 'Loading...' : 'Search and select agent team...')}
+          <span className={value && currentSelectedName ? 'text-foreground' : 'text-muted-foreground'}>
+            {currentSelectedName || (isCleared || !value ? 'Search and select agent team...' : 'Loading...')}
           </span>
-          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          <div className="flex items-center gap-1">
+            {value && (
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={handleClear}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handleClear(e as any);
+                  }
+                }}
+                className="h-4 w-4 shrink-0 opacity-50 hover:opacity-100 cursor-pointer flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-ring rounded"
+                aria-label="Clear selection"
+              >
+                <X className="h-4 w-4" />
+              </span>
+            )}
+            <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+          </div>
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
@@ -438,17 +505,6 @@ function AgentTeamSearchSelect({
               </div>
             ) : agentTeams.length > 0 ? (
               <CommandGroup>
-                <CommandItem
-                  value=""
-                  onSelect={() => {
-                    onChange(undefined);
-                    setCurrentSelectedName(undefined);
-                    setSearchQuery('');
-                    setOpen(false);
-                  }}
-                >
-                  <span className="text-muted-foreground">Clear selection</span>
-                </CommandItem>
                 {agentTeams.map((team) => (
                   <CommandItem
                     key={team._id}
@@ -985,7 +1041,8 @@ export default function AgentManager() {
       const payload: any = {
         ...values,
         tags: tagIds,
-        photoUrl: values.photoUrl || undefined,
+        // Handle null explicitly to clear the field, undefined to keep existing value
+        photoUrl: values.photoUrl === null ? null : (values.photoUrl || undefined),
         ccEmail: values.ccEmail?.trim() || undefined,
         facebookUrl: values.facebookUrl?.trim() || undefined,
         linkedinUrl: values.linkedinUrl?.trim() || undefined,
@@ -993,6 +1050,10 @@ export default function AgentManager() {
         instagramUrl: values.instagramUrl?.trim() || undefined,
         tiktokUrl: values.tiktokUrl?.trim() || undefined,
         websiteUrl: values.websiteUrl?.trim() || undefined,
+        // Explicitly set to null if falsy so backend receives it and can clear the field
+        // If undefined/null/empty, send null. Otherwise send the value.
+        agency: values.agency ? values.agency : null,
+        agentTeam: values.agentTeam ? values.agentTeam : null,
       };
 
       if (editingAgent) {
