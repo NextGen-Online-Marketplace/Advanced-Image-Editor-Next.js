@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import mongoose from 'mongoose';
 import dbConnect from '../../../../lib/db';
 import { getCurrentUser } from '../../../../lib/auth-helpers';
 import Service from '../../../../src/models/Service';
@@ -58,6 +59,7 @@ export async function POST(request: NextRequest) {
       baseDurationHours,
       defaultInspectionEvents,
       organizationServiceId,
+      agreementIds,
       modifiers,
     } = body;
 
@@ -122,6 +124,14 @@ export async function POST(request: NextRequest) {
     const sanitizedModifiers = sanitizeModifiers(modifiers);
     const sanitizedAddOns = sanitizeAddOns(body.addOns);
     const sanitizedTaxes = sanitizeTaxes(body.taxes);
+    
+    let agreementObjectIds: mongoose.Types.ObjectId[] = [];
+    if (Array.isArray(agreementIds)) {
+      agreementObjectIds = agreementIds
+        .filter((id: any) => mongoose.Types.ObjectId.isValid(id))
+        .map((id: any) => new mongoose.Types.ObjectId(id));
+    }
+    
     const lastService = await Service.findOne({ company: currentUser.company })
       .sort({ orderIndex: -1 })
       .select('orderIndex')
@@ -139,6 +149,7 @@ export async function POST(request: NextRequest) {
       ...(parsedBaseDuration !== undefined ? { baseDurationHours: parsedBaseDuration } : {}),
       defaultInspectionEvents: events,
       organizationServiceId: organizationServiceId?.trim() || undefined,
+      agreementIds: agreementObjectIds,
       orderIndex: nextOrderIndex,
       company: currentUser.company,
       createdBy: currentUser._id,

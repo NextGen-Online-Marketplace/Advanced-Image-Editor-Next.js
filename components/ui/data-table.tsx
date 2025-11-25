@@ -42,6 +42,7 @@ export interface DataTableProps<T> {
   };
   emptyMessage?: string;
   className?: string;
+  onRowClick?: (row: T) => void;
 }
 
 export function DataTable<T extends Record<string, any>>({
@@ -51,6 +52,7 @@ export function DataTable<T extends Record<string, any>>({
   pagination,
   emptyMessage = "No data available",
   className,
+  onRowClick,
 }: DataTableProps<T>) {
   const renderPagination = () => {
     if (!pagination) return null;
@@ -185,7 +187,11 @@ export function DataTable<T extends Record<string, any>>({
               </TableRow>
             ) : (
               data.map((row, rowIndex) => (
-                <TableRow key={rowIndex}>
+                <TableRow 
+                  key={rowIndex}
+                  onClick={() => onRowClick?.(row)}
+                  className={onRowClick ? "cursor-pointer hover:bg-muted/50" : undefined}
+                >
                   {columns.map((column) => (
                     <TableCell key={column.id} className={column.className}>
                       {column.cell

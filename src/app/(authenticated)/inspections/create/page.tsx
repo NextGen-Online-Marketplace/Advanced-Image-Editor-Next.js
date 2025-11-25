@@ -1,0 +1,3040 @@
+"use client";
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import Select from 'react-select';
+import AsyncSelect from 'react-select/async';
+import CreatableSelect from 'react-select/creatable';
+import AsyncCreatableSelect from 'react-select/async-creatable';
+import { format } from 'date-fns';
+import { CalendarIcon, ArrowLeft, Plus, X, Pencil } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { Textarea } from '@/components/ui/textarea';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Info } from 'lucide-react';
+import { ImageUpload } from '@/components/ui/image-upload';
+import CustomFields from '@/components/custom-fields/CustomFields';
+import { toast } from 'sonner';
+
+const getDefaultDate = () => {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  return tomorrow;
+};
+
+// Helper function to check if a string is a valid MongoDB ObjectId
+const isValidObjectId = (str: string): boolean => {
+  return /^[0-9a-fA-F]{24}$/.test(str);
+};
+
+const inspectionFormSchema = z.object({
+  inspectionName: z.string().min(1, 'Inspection name is required'),
+  inspector: z.string().optional(),
+  companyOwnerRequested: z.boolean(),
+  date: z.date().optional(),
+  time: z.string(),
+  location: z.object({
+    address: z.string().optional(),
+    unit: z.string().optional(),
+    city: z.string().optional(),
+    state: z.string().optional(),
+    zip: z.string().optional(),
+    county: z.string().optional(),
+    squareFeet: z.string().optional(),
+    yearBuild: z.string().optional(),
+    foundation: z.enum(['Basement', 'Slab', 'Crawlspace']).optional(),
+  }).optional(),
+  enableClientCCEmail: z.boolean(),
+  clients: z.array(z.object({
+    isCompany: z.boolean(),
+    firstName: z.string().optional(),
+    lastName: z.string().optional(),
+    companyName: z.string().optional(),
+    email: z.string().optional(),
+    ccEmail: z.string().optional(),
+    phone: z.string().optional(),
+    tags: z.array(z.string()),
+    notes: z.string().optional(),
+    privateNotes: z.string().optional(),
+  })),
+  services: z.array(z.object({
+    serviceId: z.string(),
+    addOns: z.array(z.object({
+      name: z.string(),
+      addFee: z.number().optional(),
+      addHours: z.number().optional(),
+    })),
+  })),
+  discountCode: z.string().optional(),
+  requirePaymentToReleaseReports: z.boolean(),
+  paymentNotes: z.string().optional(),
+  agents: z.array(z.object({
+    firstName: z.string().optional(),
+    lastName: z.string().optional(),
+    email: z.string().optional(),
+    ccEmail: z.string().optional(),
+    phone: z.string().optional(),
+    agency: z.string().optional(),
+    photoUrl: z.string().optional(),
+    tags: z.array(z.string()),
+    notes: z.string().optional(),
+    privateNotes: z.string().optional(),
+  })),
+  listingAgents: z.array(z.object({
+    firstName: z.string().optional(),
+    lastName: z.string().optional(),
+    email: z.string().optional(),
+    ccEmail: z.string().optional(),
+    phone: z.string().optional(),
+    agency: z.string().optional(),
+    photoUrl: z.string().optional(),
+    tags: z.array(z.string()),
+    notes: z.string().optional(),
+    privateNotes: z.string().optional(),
+  })),
+  people: z.array(z.object({
+    isCompany: z.boolean(),
+    firstName: z.string().optional(),
+    lastName: z.string().optional(),
+    companyName: z.string().optional(),
+    email: z.string().optional(),
+    ccEmail: z.string().optional(),
+    phone: z.string().optional(),
+    role: z.enum(['Attorney', 'Insurance agent', 'Transaction coordinator', 'Title company', 'Other']).optional(),
+    personCompany: z.string().optional(),
+    tags: z.array(z.string()),
+    notes: z.string().optional(),
+    privateNotes: z.string().optional(),
+  })),
+  orderId: z.number().optional(),
+  referralSource: z.string().optional(),
+  confirmedInspection: z.boolean(),
+  disableAutomatedNotifications: z.boolean(),
+  internalNotes: z.string().optional(),
+  customData: z.record(z.string(), z.any()).optional(),
+});
+
+type InspectionFormData = z.infer<typeof inspectionFormSchema>;
+
+export default function CreateInspectionPage() {
+  const router = useRouter();
+  
+  const form = useForm<InspectionFormData>({
+    resolver: zodResolver(inspectionFormSchema),
+    mode: 'onSubmit',
+    reValidateMode: 'onChange',
+    defaultValues: {
+      inspectionName: '',
+      inspector: undefined,
+      companyOwnerRequested: false,
+      date: getDefaultDate(),
+      time: '00:00',
+      location: {
+    address: '',
+    unit: '',
+    city: '',
+    state: '',
+    zip: '',
+    county: '',
+    squareFeet: '',
+    yearBuild: '',
+        foundation: undefined,
+      },
+      enableClientCCEmail: true,
+      clients: [{
+      isCompany: false,
+      firstName: '',
+      lastName: '',
+      companyName: '',
+      email: '',
+      ccEmail: '',
+      phone: '',
+        tags: [],
+      notes: '',
+      privateNotes: '',
+      }],
+      services: [],
+      discountCode: undefined,
+      requirePaymentToReleaseReports: true,
+      paymentNotes: '',
+      agents: [{
+        firstName: '',
+        lastName: '',
+        email: '',
+        ccEmail: '',
+        phone: '',
+        agency: undefined,
+        photoUrl: undefined,
+        tags: [],
+        notes: '',
+        privateNotes: '',
+      }],
+      listingAgents: [{
+        firstName: '',
+        lastName: '',
+        email: '',
+        ccEmail: '',
+        phone: '',
+        agency: undefined,
+        photoUrl: undefined,
+        tags: [],
+        notes: '',
+        privateNotes: '',
+      }],
+      people: [{
+        isCompany: false,
+        firstName: '',
+        lastName: '',
+        companyName: '',
+        email: '',
+        ccEmail: '',
+        phone: '',
+        role: undefined,
+        personCompany: '',
+        tags: [],
+        notes: '',
+        privateNotes: '',
+      }],
+      orderId: undefined,
+      referralSource: '',
+      confirmedInspection: true,
+      disableAutomatedNotifications: false,
+      internalNotes: '',
+      customData: {},
+    },
+  });
+
+  const [inspectors, setInspectors] = useState<{ value: string; label: string }[]>([]);
+  const [companyOwner, setCompanyOwner] = useState<{ id: string; name: string } | null>(null);
+  const [loadingFormData, setLoadingFormData] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [services, setServices] = useState<any[]>([]);
+  const [discountCodes, setDiscountCodes] = useState<any[]>([]);
+  const [agreements, setAgreements] = useState<any[]>([]);
+  const [selectedServices, setSelectedServices] = useState<Array<{
+    serviceId: string;
+    service: any;
+    addOns: Array<{ name: string; addFee?: number; addHours?: number }>;
+  }>>([]);
+  const [selectedDiscountCode, setSelectedDiscountCode] = useState<{ value: string; label: string; discountCode: any } | null>(null);
+  const [agencyNames, setAgencyNames] = useState<Record<string, string>>({});
+  const [listingAgencyNames, setListingAgencyNames] = useState<Record<string, string>>({});
+  const [events, setEvents] = useState<Array<{
+    name: string;
+    description: string;
+    inspector: { value: string; label: string } | null;
+    startDate: Date | undefined;
+    startTime: string;
+    endDate: Date | undefined;
+    endTime: string;
+  }>>([]);
+  const [isEventModalOpen, setIsEventModalOpen] = useState(false);
+  const [editingEventIndex, setEditingEventIndex] = useState<number | null>(null);
+  const [currentEvent, setCurrentEvent] = useState<{
+    name: string;
+    description: string;
+    inspector: { value: string; label: string } | null;
+    startDate: Date | undefined;
+    startTime: string;
+    endDate: Date | undefined;
+    endTime: string;
+  }>({
+    name: '',
+    description: '',
+    inspector: null,
+    startDate: undefined,
+    startTime: '00:00',
+    endDate: undefined,
+    endTime: '00:00',
+  });
+
+  useEffect(() => {
+    fetchFormData();
+  }, []);
+
+  // Load agency names for selected agencies (only for existing agencies with IDs)
+  const agents = form.watch('agents');
+  useEffect(() => {
+    const loadAgencyNames = async () => {
+      // Filter to only get valid ObjectIds (existing agencies), not new agency names
+      const agencyIds = agents
+        .map(a => a.agency)
+        .filter((id): id is string => {
+          return Boolean(id) && 
+                 typeof id === 'string' && 
+                 isValidObjectId(id) && 
+                 !agencyNames[id];
+        });
+
+      if (agencyIds.length === 0) return;
+
+      try {
+        // Load all agencies to find the ones we need
+        const response = await fetch('/api/agencies/search?limit=100', {
+          credentials: 'include',
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const agenciesList = data.agencies || [];
+          const namesMap: Record<string, string> = {};
+
+          agenciesList.forEach((a: any) => {
+            const agencyId = String(a._id || a.id);
+            if (agencyIds.includes(agencyId)) {
+              namesMap[agencyId] = a.name;
+            }
+          });
+
+          if (Object.keys(namesMap).length > 0) {
+            setAgencyNames(prev => ({ ...prev, ...namesMap }));
+          }
+        }
+      } catch (error) {
+        console.error('Error loading agency names:', error);
+      }
+    };
+
+    loadAgencyNames();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agents]);
+
+  // Load agency names for selected listing agencies (only for existing agencies with IDs)
+  const listingAgents = form.watch('listingAgents');
+  useEffect(() => {
+    const loadListingAgencyNames = async () => {
+      // Filter to only get valid ObjectIds (existing agencies), not new agency names
+      const agencyIds = listingAgents
+        .map(a => a.agency)
+        .filter((id): id is string => {
+          return Boolean(id) && 
+                 typeof id === 'string' && 
+                 isValidObjectId(id) && 
+                 !listingAgencyNames[id];
+        });
+
+      if (agencyIds.length === 0) return;
+
+      try {
+        // Load all agencies to find the ones we need
+        const response = await fetch('/api/agencies/search?limit=100', {
+          credentials: 'include',
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const agenciesList = data.agencies || [];
+          const namesMap: Record<string, string> = {};
+
+          agenciesList.forEach((a: any) => {
+            const agencyId = String(a._id || a.id);
+            if (agencyIds.includes(agencyId)) {
+              namesMap[agencyId] = a.name;
+            }
+          });
+
+          if (Object.keys(namesMap).length > 0) {
+            setListingAgencyNames(prev => ({ ...prev, ...namesMap }));
+          }
+        }
+      } catch (error) {
+        console.error('Error loading listing agency names:', error);
+      }
+    };
+
+    loadListingAgencyNames();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listingAgents]);
+
+  const fetchFormData = async () => {
+    try {
+      setLoadingFormData(true);
+      const [formDataRes, servicesRes, discountCodesRes, agreementsRes] = await Promise.all([
+        fetch('/api/inspections/form-data', { credentials: 'include' }),
+        fetch('/api/services', { credentials: 'include' }),
+        fetch('/api/discount-codes', { credentials: 'include' }),
+        fetch('/api/agreements', { credentials: 'include' }),
+      ]);
+
+      if (formDataRes.ok) {
+        const data = await formDataRes.json();
+        setInspectors(data.inspectors || []);
+        setCompanyOwner(data.companyOwner || null);
+      }
+
+      if (servicesRes.ok) {
+        const data = await servicesRes.json();
+        setServices(data.services || []);
+      }
+
+      if (discountCodesRes.ok) {
+        const data = await discountCodesRes.json();
+        const activeCodes = (data.discountCodes || []).filter((code: any) => code.active);
+        setDiscountCodes(activeCodes);
+      }
+
+      if (agreementsRes.ok) {
+        const data = await agreementsRes.json();
+        setAgreements(data.agreements || []);
+      }
+    } catch (error) {
+      console.error('Error fetching form data:', error);
+    } finally {
+      setLoadingFormData(false);
+    }
+  };
+
+  const handleOpenEventModal = (index?: number) => {
+    if (index !== undefined) {
+      const event = events[index];
+      setCurrentEvent({
+        name: event.name,
+        description: event.description,
+        inspector: event.inspector,
+        startDate: event.startDate,
+        startTime: event.startTime,
+        endDate: event.endDate,
+        endTime: event.endTime,
+      });
+      setEditingEventIndex(index);
+    } else {
+      // Set default to next day: start at 12:00 AM, end at 1:00 PM
+      const tomorrow = getDefaultDate();
+      
+      setCurrentEvent({
+        name: '',
+        description: '',
+        inspector: null,
+        startDate: tomorrow,
+        startTime: '00:00',
+        endDate: tomorrow,
+        endTime: '13:00',
+      });
+      setEditingEventIndex(null);
+    }
+    setIsEventModalOpen(true);
+  };
+
+  const handleSaveEvent = () => {
+    if (!currentEvent.name.trim() || !currentEvent.startDate || !currentEvent.endDate) {
+      alert('Please fill in all required fields (Name, Start Date, End Date)');
+      return;
+    }
+
+    if (editingEventIndex !== null) {
+      const newEvents = [...events];
+      newEvents[editingEventIndex] = { ...currentEvent };
+      setEvents(newEvents);
+    } else {
+      setEvents([...events, { ...currentEvent }]);
+    }
+
+    setIsEventModalOpen(false);
+    setCurrentEvent({
+      name: '',
+      description: '',
+      inspector: null,
+      startDate: undefined,
+      startTime: '00:00',
+      endDate: undefined,
+      endTime: '00:00',
+    });
+    setEditingEventIndex(null);
+  };
+
+  const handleDeleteEvent = (index: number) => {
+    setEvents(events.filter((_, i) => i !== index));
+  };
+
+  const onSubmit = async (data: InspectionFormData, e?: React.BaseSyntheticEvent) => {
+    // Validate all custom fields before submission
+    const customFieldsResponse = await fetch('/api/scheduling-options/custom-fields', {
+      credentials: 'include',
+    });
+    
+    if (customFieldsResponse.ok) {
+      const customFieldsData = await customFieldsResponse.json();
+      const requiredFields = (customFieldsData.customFields || []).filter(
+        (field: any) => field.requiredForOnlineScheduler && field.fieldKey
+      );
+      
+      if (requiredFields.length > 0) {
+        // Trigger validation for all required custom fields
+        const validationPromises = requiredFields.map((field: any) => 
+          form.trigger(`customData.${field.fieldKey}`)
+        );
+        const validationResults = await Promise.all(validationPromises);
+        
+        // Check if any validation failed and collect missing field names
+        const missingFields: string[] = [];
+        const customDataValue = data.customData || {};
+        
+        requiredFields.forEach((field: any, index: number) => {
+          const fieldValue = customDataValue[field.fieldKey];
+          let isValid = false;
+          
+          if (field.fieldType === 'Text' || field.fieldType === 'Paragraph') {
+            isValid = fieldValue && typeof fieldValue === 'string' && fieldValue.trim() !== '';
+          } else if (field.fieldType === 'Number') {
+            isValid = fieldValue !== undefined && fieldValue !== null && fieldValue !== '' && !isNaN(Number(fieldValue));
+          } else if (field.fieldType === 'Checkbox') {
+            isValid = fieldValue === true;
+          } else if (field.fieldType === 'Calendar') {
+            isValid = fieldValue && fieldValue !== 'N/A';
+          } else if (field.fieldType === 'Dropdown') {
+            isValid = fieldValue && fieldValue !== '';
+          } else if (field.fieldType === 'Date' || field.fieldType === 'Date & Time') {
+            isValid = fieldValue !== undefined && fieldValue !== null && fieldValue !== '';
+          }
+          
+          if (!isValid || validationResults[index] === false) {
+            missingFields.push(field.name);
+          }
+        });
+        
+        if (missingFields.length > 0) {
+          // Show toast with missing fields
+          toast.error(
+            `Please fill in the following required custom fields: ${missingFields.join(', ')}`,
+            {
+              duration: 5000,
+            }
+          );
+          // Prevent form submission - validation errors will be shown in UI
+          setIsSubmitting(false);
+          return;
+        }
+      }
+    }
+    
+    try {
+      setIsSubmitting(true);
+      let dateTime: Date | undefined = undefined;
+      if (data.date) {
+        dateTime = new Date(data.date);
+        if (data.time) {
+          const [hours, minutes] = data.time.split(':').map(Number);
+          dateTime.setHours(hours, minutes, 0, 0);
+        }
+      }
+
+      const locationData: any = {};
+      if (data.location) {
+        if (data.location.address) locationData.address = data.location.address;
+        if (data.location.unit) locationData.unit = data.location.unit;
+        if (data.location.city) locationData.city = data.location.city;
+        if (data.location.state) locationData.state = data.location.state;
+        if (data.location.zip) locationData.zip = data.location.zip;
+        if (data.location.county) locationData.county = data.location.county;
+        if (data.location.squareFeet) locationData.squareFeet = Number(data.location.squareFeet);
+        if (data.location.yearBuild) locationData.yearBuild = Number(data.location.yearBuild);
+        if (data.location.foundation) locationData.foundation = data.location.foundation;
+      }
+
+      // Prepare events data
+      const eventsData = events.map(event => {
+        let startDateTime: Date | undefined = undefined;
+        let endDateTime: Date | undefined = undefined;
+
+        if (event.startDate) {
+          startDateTime = new Date(event.startDate);
+          if (event.startTime) {
+            const [hours, minutes] = event.startTime.split(':').map(Number);
+            startDateTime.setHours(hours, minutes, 0, 0);
+          }
+        }
+
+        if (event.endDate) {
+          endDateTime = new Date(event.endDate);
+          if (event.endTime) {
+            const [hours, minutes] = event.endTime.split(':').map(Number);
+            endDateTime.setHours(hours, minutes, 0, 0);
+          }
+        }
+
+        return {
+          name: event.name.trim(),
+          description: event.description.trim() || undefined,
+          inspector: event.inspector?.value || undefined,
+          startDate: startDateTime?.toISOString(),
+          endDate: endDateTime?.toISOString(),
+        };
+      });
+
+      const response = await fetch('/api/inspections', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          inspectionName: data.inspectionName.trim(),
+          inspector: data.inspector,
+          companyOwnerRequested: data.companyOwnerRequested,
+          enableClientCCEmail: data.enableClientCCEmail,
+          dateTime: dateTime?.toISOString(),
+          location: Object.keys(locationData).length > 0 ? locationData : undefined,
+          clients: data.clients.filter(c => c.email?.trim()),
+          services: selectedServices.map(s => ({
+            serviceId: s.serviceId,
+            addOns: s.addOns,
+          })),
+          discountCode: selectedDiscountCode?.value,
+          events: eventsData,
+          requirePaymentToReleaseReports: data.requirePaymentToReleaseReports,
+          paymentNotes: data.paymentNotes?.trim() || undefined,
+          agents: data.agents?.filter((a: any) => a.email?.trim()) || [],
+          listingAgents: data.listingAgents?.filter((a: any) => a.email?.trim()) || [],
+          people: data.people?.filter((p: any) => p.email?.trim()) || [],
+          referralSource: data.referralSource?.trim() || undefined,
+          confirmedInspection: data.confirmedInspection,
+          disableAutomatedNotifications: data.disableAutomatedNotifications,
+          internalNotes: data.internalNotes?.trim() || undefined,
+          customData: data.customData || {},
+        }),
+      });
+
+      if (response.ok) {
+        router.push('/inspections');
+      } else {
+        const error = await response.json();
+        console.error('Failed to create inspection:', error);
+        alert(error.error || 'Failed to create inspection');
+      }
+    } catch (error) {
+      console.error('Error creating inspection:', error);
+      alert('An error occurred while creating the inspection');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="container mx-auto py-6 max-w-5xl">
+      <div className="space-y-6">
+        <div className="flex items-center gap-4">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => router.push('/inspections')}
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Create New Inspection</h1>
+            <p className="text-muted-foreground mt-1">
+              Fill in the details for your new inspection.
+            </p>
+          </div>
+        </div>
+
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 bg-card border rounded-lg p-6">
+          <div className="space-y-2">
+            <Label htmlFor="inspectionName">Inspection Name *</Label>
+            <Input
+              id="inspectionName"
+              {...form.register('inspectionName')}
+              placeholder="Enter inspection name..."
+              autoFocus
+            />
+            {form.formState.errors.inspectionName && (
+              <p className="text-sm text-destructive">{form.formState.errors.inspectionName.message}</p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label>Inspector</Label>
+            <Controller
+              name="inspector"
+              control={form.control}
+              render={({ field }) => (
+            <Select
+                  value={inspectors.find(opt => opt.value === field.value) || null}
+                  onChange={(option) => field.onChange(option?.value || undefined)}
+              options={inspectors}
+              isClearable
+              placeholder="Select an inspector..."
+              isLoading={loadingFormData}
+              className="react-select-container"
+              classNamePrefix="react-select"
+                />
+              )}
+            />
+          </div>
+
+          {companyOwner && (
+            <div className="flex items-center space-x-2">
+              <Controller
+                name="companyOwnerRequested"
+                control={form.control}
+                render={({ field }) => (
+              <Checkbox
+                id="companyOwnerRequested"
+                    checked={field.value}
+                    onCheckedChange={(checked) => field.onChange(checked === true)}
+                  />
+                )}
+              />
+              <Label
+                htmlFor="companyOwnerRequested"
+                className="text-sm font-normal cursor-pointer"
+              >
+                {companyOwner.name} specially requested this
+              </Label>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <Label>Date/Time</Label>
+            <div className="flex gap-2">
+              <Controller
+                name="date"
+                control={form.control}
+                render={({ field }) => (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                        type="button"
+                    variant="outline"
+                    className={cn(
+                      "w-full justify-start text-left font-normal",
+                          !field.value && "text-muted-foreground"
+                    )}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                        {field.value ? format(field.value, "PPP") : "Pick a date"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                        selected={field.value}
+                        onSelect={field.onChange}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+                )}
+              />
+              <Input
+                type="time"
+                {...form.register('time')}
+                className="w-32"
+                placeholder="Time"
+              />
+            </div>
+          </div>
+
+          <Accordion type="single" collapsible className="border-t pt-4">
+            <AccordionItem value="location" className="border-none">
+              <AccordionTrigger className="text-lg font-semibold py-2">
+                Location
+              </AccordionTrigger>
+              <AccordionContent className="space-y-4 pt-4">
+                <div className="space-y-2">
+                  <Label htmlFor="address">Address</Label>
+                  <Input
+                    id="address"
+                    {...form.register('location.address')}
+                    placeholder="Enter address..."
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="unit">Unit</Label>
+                    <Input
+                      id="unit"
+                      {...form.register('location.unit')}
+                      placeholder="Unit number..."
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="city">City</Label>
+                    <Input
+                      id="city"
+                      {...form.register('location.city')}
+                      placeholder="City..."
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="state">State</Label>
+                    <Input
+                      id="state"
+                      {...form.register('location.state')}
+                      placeholder="State..."
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="zip">Zip</Label>
+                    <Input
+                      id="zip"
+                      {...form.register('location.zip')}
+                      placeholder="Zip code..."
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="county">County</Label>
+                  <Input
+                    id="county"
+                    {...form.register('location.county')}
+                    placeholder="County..."
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="squareFeet">Square Feet</Label>
+                    <Input
+                      id="squareFeet"
+                      type="number"
+                      min="0"
+                      {...form.register('location.squareFeet')}
+                      placeholder="Square feet..."
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="yearBuild">Year Built</Label>
+                    <Input
+                      id="yearBuild"
+                      type="number"
+                      max={new Date().getFullYear()}
+                      {...form.register('location.yearBuild')}
+                      placeholder="Year..."
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="foundation">Foundation</Label>
+                  <Controller
+                    name="location.foundation"
+                    control={form.control}
+                    render={({ field }) => (
+                  <Select
+                        value={field.value ? { value: field.value, label: field.value } : null}
+                        onChange={(option) => field.onChange(option?.value || undefined)}
+                    options={[
+                      { value: 'Basement', label: 'Basement' },
+                      { value: 'Slab', label: 'Slab' },
+                      { value: 'Crawlspace', label: 'Crawlspace' },
+                    ]}
+                    isClearable
+                    placeholder="Select foundation type..."
+                    className="react-select-container"
+                    classNamePrefix="react-select"
+                      />
+                    )}
+                  />
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+
+          <Accordion type="single" collapsible className="border-t pt-4">
+            <AccordionItem value="client" className="border-none">
+              <AccordionTrigger className="text-lg font-semibold py-2">
+                Client
+              </AccordionTrigger>
+              <AccordionContent className="space-y-4 pt-4">
+                <div className="flex items-center space-x-2">
+                  <Controller
+                    name="enableClientCCEmail"
+                    control={form.control}
+                    render={({ field }) => (
+                  <Checkbox
+                    id="enableClientCCEmail"
+                        checked={field.value}
+                        onCheckedChange={(checked) => field.onChange(checked === true)}
+                      />
+                    )}
+                  />
+                  <Label
+                    htmlFor="enableClientCCEmail"
+                    className="text-sm font-normal cursor-pointer"
+                  >
+                    Enable Client CC email for this inspection
+                  </Label>
+                </div>
+
+                {form.watch('clients').map((client, index) => {
+                  const loadClientOptions = async (inputValue: string) => {
+                    if (!inputValue || inputValue.length < 2) {
+                      return [];
+                    }
+
+                    try {
+                      const response = await fetch(
+                        `/api/clients?search=${encodeURIComponent(inputValue)}&limit=20`,
+                        { credentials: 'include' }
+                      );
+
+                      if (!response.ok) {
+                        return [];
+                      }
+
+                      const data = await response.json();
+                      const clientsList = data.clients || [];
+
+                      return clientsList.map((c: any) => {
+                        const displayName = c.isCompany
+                          ? c.companyName || 'Unnamed Company'
+                          : `${c.firstName || ''} ${c.lastName || ''}`.trim() || 'Unnamed Client';
+                        
+                        return {
+                          value: c._id,
+                          label: displayName,
+                          client: c,
+                        };
+                      });
+                    } catch (error) {
+                      console.error('Error loading clients:', error);
+                      return [];
+                    }
+                  };
+
+                  const handleClientSelect = (selectedOption: any) => {
+                    if (!selectedOption || !selectedOption.client) return;
+
+                    const selectedClient = selectedOption.client;
+                    const currentClients = form.getValues('clients');
+                    const newClients = [...currentClients];
+                    
+                    newClients[index] = {
+                      isCompany: selectedClient.isCompany || false,
+                      firstName: selectedClient.firstName || '',
+                      lastName: selectedClient.lastName || '',
+                      companyName: selectedClient.companyName || '',
+                      email: selectedClient.email || '',
+                      ccEmail: selectedClient.ccEmail || '',
+                      phone: selectedClient.phone || '',
+                      tags: (selectedClient.tags || []).map((tag: any) => 
+                        typeof tag === 'string' ? tag : tag.name || tag
+                      ),
+                      notes: selectedClient.internalNotes || '',
+                      privateNotes: selectedClient.internalAdminNotes || '',
+                    };
+
+                    form.setValue('clients', newClients);
+                  };
+
+                  return (
+                    <div key={index} className="space-y-4 p-4 border rounded-lg">
+                      {form.watch('clients').length > 1 && (
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-medium">Client {index + 1}</h4>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              const currentClients = form.getValues('clients');
+                              form.setValue('clients', currentClients.filter((_, i) => i !== index));
+                            }}
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      )}
+
+                      <div className="space-y-2">
+                        <Label>Search Existing Client</Label>
+                        <AsyncSelect
+                          loadOptions={loadClientOptions}
+                          onChange={handleClientSelect}
+                          placeholder="Type to search for existing client..."
+                          isClearable
+                          noOptionsMessage={({ inputValue }) =>
+                            inputValue.length < 2
+                              ? 'Type at least 2 characters to search'
+                              : 'No clients found'
+                          }
+                          className="react-select-container"
+                          classNamePrefix="react-select"
+                        />
+                      </div>
+
+                      <div className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`isCompany-${index}`}
+                          checked={client.isCompany}
+                          onCheckedChange={(checked) => {
+                            const currentClients = form.getValues('clients');
+                            const newClients = [...currentClients];
+                            newClients[index].isCompany = checked === true;
+                            if (checked) {
+                              newClients[index].firstName = '';
+                              newClients[index].lastName = '';
+                            } else {
+                              newClients[index].companyName = '';
+                            }
+                            form.setValue('clients', newClients);
+                          }}
+                        />
+                        <Label
+                          htmlFor={`isCompany-${index}`}
+                          className="text-sm font-normal cursor-pointer"
+                        >
+                          Client is a Company/Organization
+                        </Label>
+                      </div>
+
+                    {client.isCompany ? (
+                      <div className="space-y-2">
+                        <Label htmlFor={`companyName-${index}`}>Company Name</Label>
+                        <Input
+                          id={`companyName-${index}`}
+                          value={client.companyName || ''}
+                          onChange={(e) => {
+                            const currentClients = form.getValues('clients');
+                            const newClients = [...currentClients];
+                            newClients[index].companyName = e.target.value;
+                            form.setValue('clients', newClients);
+                          }}
+                          placeholder="Company name..."
+                        />
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor={`firstName-${index}`}>First Name</Label>
+                          <Input
+                            id={`firstName-${index}`}
+                            value={client.firstName || ''}
+                            onChange={(e) => {
+                              const currentClients = form.getValues('clients');
+                              const newClients = [...currentClients];
+                              newClients[index].firstName = e.target.value;
+                              form.setValue('clients', newClients);
+                            }}
+                            placeholder="First name..."
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`lastName-${index}`}>Last Name</Label>
+                          <Input
+                            id={`lastName-${index}`}
+                            value={client.lastName || ''}
+                            onChange={(e) => {
+                              const currentClients = form.getValues('clients');
+                              const newClients = [...currentClients];
+                              newClients[index].lastName = e.target.value;
+                              form.setValue('clients', newClients);
+                            }}
+                            placeholder="Last name..."
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="space-y-2">
+                      <Label htmlFor={`email-${index}`}>Email</Label>
+                      <Input
+                        id={`email-${index}`}
+                        type="email"
+                        value={client.email || ''}
+                        onChange={(e) => {
+                          const currentClients = form.getValues('clients');
+                          const newClients = [...currentClients];
+                          newClients[index].email = e.target.value;
+                          form.setValue('clients', newClients);
+                        }}
+                        placeholder="Email..."
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor={`ccEmail-${index}`}>CC Email</Label>
+                      <Input
+                        id={`ccEmail-${index}`}
+                        type="email"
+                        value={client.ccEmail || ''}
+                        onChange={(e) => {
+                          const currentClients = form.getValues('clients');
+                          const newClients = [...currentClients];
+                          newClients[index].ccEmail = e.target.value;
+                          form.setValue('clients', newClients);
+                        }}
+                        placeholder="CC email..."
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor={`phone-${index}`}>Phone</Label>
+                      <Input
+                        id={`phone-${index}`}
+                        type="tel"
+                        value={client.phone || ''}
+                        onChange={(e) => {
+                          const currentClients = form.getValues('clients');
+                          const newClients = [...currentClients];
+                          newClients[index].phone = e.target.value;
+                          form.setValue('clients', newClients);
+                        }}
+                        placeholder="Phone..."
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor={`tags-${index}`}>Tags</Label>
+                      <CreatableSelect
+                        isMulti
+                        value={(client.tags || []).map(tag => ({ value: tag, label: tag }))}
+                        onChange={(selectedOptions) => {
+                          const currentClients = form.getValues('clients');
+                          const newClients = [...currentClients];
+                          newClients[index].tags = selectedOptions.map(opt => opt.value);
+                          form.setValue('clients', newClients);
+                        }}
+                        onCreateOption={(inputValue) => {
+                          const currentClients = form.getValues('clients');
+                          const newClients = [...currentClients];
+                          if (!newClients[index].tags.includes(inputValue.trim())) {
+                            newClients[index].tags.push(inputValue.trim());
+                            form.setValue('clients', newClients);
+                          }
+                        }}
+                        placeholder="Type and press Enter to add tags..."
+                        className="react-select-container"
+                        classNamePrefix="react-select"
+                        formatCreateLabel={(inputValue) => `Create "${inputValue}"`}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor={`notes-${index}`}>Notes</Label>
+                      <Textarea
+                        id={`notes-${index}`}
+                        value={client.notes || ''}
+                        onChange={(e) => {
+                          const currentClients = form.getValues('clients');
+                          const newClients = [...currentClients];
+                          newClients[index].notes = e.target.value;
+                          form.setValue('clients', newClients);
+                        }}
+                        placeholder="Notes..."
+                        rows={3}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor={`privateNotes-${index}`}>Private Notes</Label>
+                      <Textarea
+                        id={`privateNotes-${index}`}
+                        value={client.privateNotes || ''}
+                        onChange={(e) => {
+                          const currentClients = form.getValues('clients');
+                          const newClients = [...currentClients];
+                          newClients[index].privateNotes = e.target.value;
+                          form.setValue('clients', newClients);
+                        }}
+                        placeholder="Private notes..."
+                        rows={3}
+                      />
+                    </div>
+                  </div>
+                  );
+                })}
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    const currentClients = form.getValues('clients');
+                    form.setValue('clients', [
+                      ...currentClients,
+                      {
+                        isCompany: false,
+                        firstName: '',
+                        lastName: '',
+                        companyName: '',
+                        email: '',
+                        ccEmail: '',
+                        phone: '',
+                        tags: [],
+                        notes: '',
+                        privateNotes: '',
+                      },
+                    ]);
+                  }}
+                  className="w-full"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add More Client
+                </Button>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+
+          <Accordion type="single" collapsible className="border-t pt-4">
+            <AccordionItem value="person" className="border-none">
+              <AccordionTrigger className="text-lg font-semibold py-2">
+                Person
+              </AccordionTrigger>
+              <AccordionContent className="space-y-4 pt-4">
+                {form.watch('people').map((person, index) => {
+                  const loadPersonOptions = async (inputValue: string) => {
+                    if (!inputValue || inputValue.length < 2) {
+                      return [];
+                    }
+
+                    try {
+                      const response = await fetch(
+                        `/api/people?search=${encodeURIComponent(inputValue)}&limit=20`,
+                        { credentials: 'include' }
+                      );
+
+                      if (!response.ok) {
+                        return [];
+                      }
+
+                      const data = await response.json();
+                      const peopleList = data.people || [];
+
+                      return peopleList.map((p: any) => {
+                        const displayName = p.isCompany
+                          ? p.companyName || 'Unnamed Company'
+                          : `${p.firstName || ''} ${p.lastName || ''}`.trim() || 'Unnamed Person';
+                        
+                        return {
+                          value: p._id,
+                          label: displayName,
+                          person: p,
+                        };
+                      });
+                    } catch (error) {
+                      console.error('Error loading people:', error);
+                      return [];
+                    }
+                  };
+
+                  const handlePersonSelect = (selectedOption: any) => {
+                    if (!selectedOption || !selectedOption.person) return;
+
+                    const selectedPerson = selectedOption.person;
+                    const currentPeople = form.getValues('people');
+                    const newPeople = [...currentPeople];
+                    
+                    newPeople[index] = {
+                      isCompany: selectedPerson.isCompany || false,
+                      firstName: selectedPerson.firstName || '',
+                      lastName: selectedPerson.lastName || '',
+                      companyName: selectedPerson.companyName || '',
+                      email: selectedPerson.email || '',
+                      ccEmail: selectedPerson.ccEmail || '',
+                      phone: selectedPerson.phone || '',
+                      role: selectedPerson.role || undefined,
+                      personCompany: selectedPerson.personCompany || '',
+                      tags: (selectedPerson.tags || []).map((tag: any) => 
+                        typeof tag === 'string' ? tag : tag.name || tag
+                      ),
+                      notes: selectedPerson.internalNotes || '',
+                      privateNotes: selectedPerson.internalAdminNotes || '',
+                    };
+
+                    form.setValue('people', newPeople);
+                  };
+
+                  return (
+                    <div key={index} className="space-y-4 p-4 border rounded-lg">
+                      {form.watch('people').length > 1 && (
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-medium">Person {index + 1}</h4>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              const currentPeople = form.getValues('people');
+                              form.setValue('people', currentPeople.filter((_, i) => i !== index));
+                            }}
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      )}
+
+                      <div className="space-y-2">
+                        <Label>Search Existing Person</Label>
+                        <AsyncSelect
+                          loadOptions={loadPersonOptions}
+                          onChange={handlePersonSelect}
+                          placeholder="Type to search for existing person..."
+                          isClearable
+                          noOptionsMessage={({ inputValue }) =>
+                            inputValue.length < 2
+                              ? 'Type at least 2 characters to search'
+                              : 'No people found'
+                          }
+                          className="react-select-container"
+                          classNamePrefix="react-select"
+                        />
+                      </div>
+
+                      <div className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`personIsCompany-${index}`}
+                          checked={person.isCompany}
+                          onCheckedChange={(checked) => {
+                            const currentPeople = form.getValues('people');
+                            const newPeople = [...currentPeople];
+                            newPeople[index].isCompany = checked === true;
+                            if (checked) {
+                              newPeople[index].firstName = '';
+                              newPeople[index].lastName = '';
+                            } else {
+                              newPeople[index].companyName = '';
+                            }
+                            form.setValue('people', newPeople);
+                          }}
+                        />
+                        <Label
+                          htmlFor={`personIsCompany-${index}`}
+                          className="text-sm font-normal cursor-pointer"
+                        >
+                          Person is a Company/Organization
+                        </Label>
+                      </div>
+
+                    {person.isCompany ? (
+                      <div className="space-y-2">
+                        <Label htmlFor={`personCompanyName-${index}`}>Company Name</Label>
+                        <Input
+                          id={`personCompanyName-${index}`}
+                          value={person.companyName || ''}
+                          onChange={(e) => {
+                            const currentPeople = form.getValues('people');
+                            const newPeople = [...currentPeople];
+                            newPeople[index].companyName = e.target.value;
+                            form.setValue('people', newPeople);
+                          }}
+                          placeholder="Company name..."
+                        />
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor={`personFirstName-${index}`}>First Name</Label>
+                          <Input
+                            id={`personFirstName-${index}`}
+                            value={person.firstName || ''}
+                            onChange={(e) => {
+                              const currentPeople = form.getValues('people');
+                              const newPeople = [...currentPeople];
+                              newPeople[index].firstName = e.target.value;
+                              form.setValue('people', newPeople);
+                            }}
+                            placeholder="First name..."
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`personLastName-${index}`}>Last Name</Label>
+                          <Input
+                            id={`personLastName-${index}`}
+                            value={person.lastName || ''}
+                            onChange={(e) => {
+                              const currentPeople = form.getValues('people');
+                              const newPeople = [...currentPeople];
+                              newPeople[index].lastName = e.target.value;
+                              form.setValue('people', newPeople);
+                            }}
+                            placeholder="Last name..."
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="space-y-2">
+                      <Label htmlFor={`personEmail-${index}`}>Email</Label>
+                      <Input
+                        id={`personEmail-${index}`}
+                        type="email"
+                        value={person.email || ''}
+                        onChange={(e) => {
+                          const currentPeople = form.getValues('people');
+                          const newPeople = [...currentPeople];
+                          newPeople[index].email = e.target.value;
+                          form.setValue('people', newPeople);
+                        }}
+                        placeholder="Email..."
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor={`personCCEmail-${index}`}>CC Email</Label>
+                      <Input
+                        id={`personCCEmail-${index}`}
+                        type="email"
+                        value={person.ccEmail || ''}
+                        onChange={(e) => {
+                          const currentPeople = form.getValues('people');
+                          const newPeople = [...currentPeople];
+                          newPeople[index].ccEmail = e.target.value;
+                          form.setValue('people', newPeople);
+                        }}
+                        placeholder="CC email..."
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor={`personPhone-${index}`}>Phone</Label>
+                      <Input
+                        id={`personPhone-${index}`}
+                        type="tel"
+                        value={person.phone || ''}
+                        onChange={(e) => {
+                          const currentPeople = form.getValues('people');
+                          const newPeople = [...currentPeople];
+                          newPeople[index].phone = e.target.value;
+                          form.setValue('people', newPeople);
+                        }}
+                        placeholder="Phone..."
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor={`personRole-${index}`}>Role</Label>
+                      <Controller
+                        name={`people.${index}.role`}
+                        control={form.control}
+                        render={({ field }) => (
+                          <Select
+                            value={field.value ? { value: field.value, label: field.value } : null}
+                            onChange={(option) => field.onChange(option?.value || undefined)}
+                            options={[
+                              { value: 'Attorney', label: 'Attorney' },
+                              { value: 'Insurance agent', label: 'Insurance agent' },
+                              { value: 'Transaction coordinator', label: 'Transaction coordinator' },
+                              { value: 'Title company', label: 'Title company' },
+                              { value: 'Other', label: 'Other' },
+                            ]}
+                            isClearable
+                            placeholder="Select role..."
+                            className="react-select-container"
+                            classNamePrefix="react-select"
+                          />
+                        )}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor={`personPersonCompany-${index}`}>Company Name</Label>
+                      <Input
+                        id={`personPersonCompany-${index}`}
+                        value={person.personCompany || ''}
+                        onChange={(e) => {
+                          const currentPeople = form.getValues('people');
+                          const newPeople = [...currentPeople];
+                          newPeople[index].personCompany = e.target.value;
+                          form.setValue('people', newPeople);
+                        }}
+                        placeholder="Company name..."
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor={`personTags-${index}`}>Tags</Label>
+                      <CreatableSelect
+                        isMulti
+                        value={(person.tags || []).map(tag => ({ value: tag, label: tag }))}
+                        onChange={(selectedOptions) => {
+                          const currentPeople = form.getValues('people');
+                          const newPeople = [...currentPeople];
+                          newPeople[index].tags = selectedOptions.map(opt => opt.value);
+                          form.setValue('people', newPeople);
+                        }}
+                        onCreateOption={(inputValue) => {
+                          const currentPeople = form.getValues('people');
+                          const newPeople = [...currentPeople];
+                          if (!newPeople[index].tags.includes(inputValue.trim())) {
+                            newPeople[index].tags.push(inputValue.trim());
+                            form.setValue('people', newPeople);
+                          }
+                        }}
+                        placeholder="Type and press Enter to add tags..."
+                        className="react-select-container"
+                        classNamePrefix="react-select"
+                        formatCreateLabel={(inputValue) => `Create "${inputValue}"`}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor={`personNotes-${index}`}>Notes</Label>
+                      <Textarea
+                        id={`personNotes-${index}`}
+                        value={person.notes || ''}
+                        onChange={(e) => {
+                          const currentPeople = form.getValues('people');
+                          const newPeople = [...currentPeople];
+                          newPeople[index].notes = e.target.value;
+                          form.setValue('people', newPeople);
+                        }}
+                        placeholder="Notes..."
+                        rows={3}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor={`personPrivateNotes-${index}`}>Private Notes</Label>
+                      <Textarea
+                        id={`personPrivateNotes-${index}`}
+                        value={person.privateNotes || ''}
+                        onChange={(e) => {
+                          const currentPeople = form.getValues('people');
+                          const newPeople = [...currentPeople];
+                          newPeople[index].privateNotes = e.target.value;
+                          form.setValue('people', newPeople);
+                        }}
+                        placeholder="Private notes..."
+                        rows={3}
+                      />
+                    </div>
+                  </div>
+                  );
+                })}
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    const currentPeople = form.getValues('people');
+                    form.setValue('people', [
+                      ...currentPeople,
+                      {
+                        isCompany: false,
+                        firstName: '',
+                        lastName: '',
+                        companyName: '',
+                        email: '',
+                        ccEmail: '',
+                        phone: '',
+                        role: undefined,
+                        personCompany: '',
+                        tags: [],
+                        notes: '',
+                        privateNotes: '',
+                      },
+                    ]);
+                  }}
+                  className="w-full"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add More Person
+                </Button>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+
+          <Accordion type="single" collapsible className="border-t pt-4">
+            <AccordionItem value="agent" className="border-none">
+              <AccordionTrigger className="text-lg font-semibold py-2">
+                Client's Agent
+              </AccordionTrigger>
+              <AccordionContent className="space-y-4 pt-4">
+                {form.watch('agents').map((agent, index) => {
+                  const loadAgentOptions = async (inputValue: string) => {
+                    if (!inputValue || inputValue.length < 2) {
+                      return [];
+                    }
+
+                    try {
+                      const response = await fetch(
+                        `/api/agents/search?search=${encodeURIComponent(inputValue)}&limit=20`,
+                        { credentials: 'include' }
+                      );
+
+                      if (!response.ok) {
+                        return [];
+                      }
+
+                      const data = await response.json();
+                      const agentsList = data.agents || [];
+
+                      return agentsList.map((a: any) => {
+                        const displayName = `${a.firstName || ''} ${a.lastName || ''}`.trim() || 'Unnamed Agent';
+                        return {
+                          value: a._id,
+                          label: displayName,
+                          agent: a,
+                        };
+                      });
+                    } catch (error) {
+                      console.error('Error loading agents:', error);
+                      return [];
+                    }
+                  };
+
+                  const handleAgentSelect = (selectedOption: any) => {
+                    if (!selectedOption || !selectedOption.agent) return;
+
+                    const selectedAgent = selectedOption.agent;
+                    const currentAgents = form.getValues('agents');
+                    const newAgents = [...currentAgents];
+                    
+                    newAgents[index] = {
+                      firstName: selectedAgent.firstName || '',
+                      lastName: selectedAgent.lastName || '',
+                      email: selectedAgent.email || '',
+                      ccEmail: selectedAgent.ccEmail || '',
+                      phone: selectedAgent.phone || '',
+                      agency: selectedAgent.agency?._id?.toString() || selectedAgent.agency || undefined,
+                      photoUrl: selectedAgent.photoUrl || undefined,
+                      tags: (selectedAgent.tags || []).map((tag: any) => 
+                        typeof tag === 'string' ? tag : tag.name || tag
+                      ) || [],
+                      notes: selectedAgent.internalNotes || '',
+                      privateNotes: selectedAgent.internalAdminNotes || '',
+                    };
+
+                    form.setValue('agents', newAgents);
+                  };
+
+                  return (
+                    <div key={index} className="space-y-4 p-4 border rounded-lg">
+                      {form.watch('agents').length > 1 && (
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-medium">Agent {index + 1}</h4>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              const currentAgents = form.getValues('agents');
+                              form.setValue('agents', currentAgents.filter((_, i) => i !== index));
+                            }}
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      )}
+
+                      <div className="space-y-2">
+                        <Label>Search Existing Agent</Label>
+                        <AsyncSelect
+                          loadOptions={loadAgentOptions}
+                          onChange={handleAgentSelect}
+                          placeholder="Type to search for existing agent..."
+                          isClearable
+                          noOptionsMessage={({ inputValue }) =>
+                            inputValue.length < 2
+                              ? 'Type at least 2 characters to search'
+                              : 'No agents found'
+                          }
+                          className="react-select-container"
+                          classNamePrefix="react-select"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor={`agentFirstName-${index}`}>First Name</Label>
+                          <Input
+                            id={`agentFirstName-${index}`}
+                            value={agent.firstName || ''}
+                            onChange={(e) => {
+                              const currentAgents = form.getValues('agents');
+                              const newAgents = [...currentAgents];
+                              newAgents[index] = {
+                                ...newAgents[index],
+                                tags: newAgents[index].tags || [],
+                                firstName: e.target.value,
+                              };
+                              form.setValue('agents', newAgents);
+                            }}
+                            placeholder="First name..."
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`agentLastName-${index}`}>Last Name</Label>
+                          <Input
+                            id={`agentLastName-${index}`}
+                            value={agent.lastName || ''}
+                            onChange={(e) => {
+                              const currentAgents = form.getValues('agents');
+                              const newAgents = [...currentAgents];
+                              newAgents[index] = {
+                                ...newAgents[index],
+                                tags: newAgents[index].tags || [],
+                                lastName: e.target.value,
+                              };
+                              form.setValue('agents', newAgents);
+                            }}
+                            placeholder="Last name..."
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor={`agentEmail-${index}`}>Email</Label>
+                        <Input
+                          id={`agentEmail-${index}`}
+                          type="email"
+                          value={agent.email || ''}
+                          onChange={(e) => {
+                            const currentAgents = form.getValues('agents');
+                            const newAgents = [...currentAgents];
+                            newAgents[index] = {
+                              ...newAgents[index],
+                              tags: newAgents[index].tags || [],
+                              email: e.target.value,
+                            };
+                            form.setValue('agents', newAgents);
+                          }}
+                          placeholder="Email..."
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor={`agentCCEmail-${index}`}>CC Email</Label>
+                        <Input
+                          id={`agentCCEmail-${index}`}
+                          type="email"
+                          value={agent.ccEmail || ''}
+                          onChange={(e) => {
+                            const currentAgents = form.getValues('agents');
+                            const newAgents = [...currentAgents];
+                            newAgents[index] = {
+                              ...newAgents[index],
+                              tags: newAgents[index].tags || [],
+                              ccEmail: e.target.value,
+                            };
+                            form.setValue('agents', newAgents);
+                          }}
+                          placeholder="CC email..."
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor={`agentPhone-${index}`}>Phone</Label>
+                        <Input
+                          id={`agentPhone-${index}`}
+                          type="tel"
+                          value={agent.phone || ''}
+                          onChange={(e) => {
+                            const currentAgents = form.getValues('agents');
+                            const newAgents = [...currentAgents];
+                            newAgents[index] = {
+                              ...newAgents[index],
+                              tags: newAgents[index].tags || [],
+                              phone: e.target.value,
+                            };
+                            form.setValue('agents', newAgents);
+                          }}
+                          placeholder="Phone..."
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Agency</Label>
+                        <AsyncCreatableSelect
+                          cacheOptions
+                          value={(() => {
+                            const agencyValue = agent.agency;
+                            if (!agencyValue) return null;
+                            
+                            // If it's a valid ObjectId, it's an existing agency
+                            if (isValidObjectId(String(agencyValue))) {
+                              const cachedName = agencyNames[String(agencyValue)];
+                              return { 
+                                value: String(agencyValue), 
+                                label: cachedName || 'Loading...' 
+                              };
+                            } else {
+                              // It's a new agency name (string)
+                              return { 
+                                value: String(agencyValue), 
+                                label: String(agencyValue) 
+                              };
+                            }
+                          })()}
+                          onChange={async (option: any, actionMeta: any) => {
+                            const currentAgents = form.getValues('agents');
+                            const newAgents = [...currentAgents];
+                            
+                            if (actionMeta.action === 'create-option') {
+                              // Store the new agency name as a string (will be created on form submit)
+                              newAgents[index] = {
+                                ...newAgents[index],
+                                tags: newAgents[index].tags || [],
+                                agency: option.value.trim(), // Store as string name, not ID
+                              };
+                              form.setValue('agents', newAgents);
+                            } else if (actionMeta.action === 'select-option') {
+                              // Select existing agency (store as ID)
+                              // Cache the agency name
+                              if (option?.label) {
+                                setAgencyNames(prev => ({
+                                  ...prev,
+                                  [option.value]: option.label,
+                                }));
+                              }
+                              
+                              newAgents[index] = {
+                                ...newAgents[index],
+                                tags: newAgents[index].tags || [],
+                                agency: option?.value || undefined,
+                              };
+                              form.setValue('agents', newAgents);
+                            } else if (actionMeta.action === 'clear') {
+                              // Clear selection
+                              newAgents[index] = {
+                                ...newAgents[index],
+                                tags: newAgents[index].tags || [],
+                                agency: undefined,
+                              };
+                              form.setValue('agents', newAgents);
+                            }
+                          }}
+                          loadOptions={async (inputValue: string) => {
+                            try {
+                              const search = inputValue || '';
+                              const response = await fetch(
+                                `/api/agencies/search?search=${encodeURIComponent(search)}&limit=20`,
+                                { credentials: 'include' }
+                              );
+
+                              if (!response.ok) {
+                                return [];
+                              }
+
+                              const data = await response.json();
+                              const agenciesList = data.agencies || [];
+
+                              const options = agenciesList.map((a: any) => {
+                                const agencyId = a._id || a.id;
+                                const agencyName = a.name;
+                                
+                                // Cache agency names
+                                setAgencyNames(prev => ({
+                                  ...prev,
+                                  [agencyId]: agencyName,
+                                }));
+                                
+                                return {
+                                  value: agencyId,
+                                  label: agencyName,
+                                };
+                              });
+
+                              return options;
+                            } catch (error) {
+                              console.error('Error loading agencies:', error);
+                              return [];
+                            }
+                          }}
+                          defaultOptions
+                          isClearable
+                          placeholder="Search or create agency by name..."
+                          noOptionsMessage={({ inputValue }) =>
+                            inputValue
+                              ? `No agencies found. Press Enter to create "${inputValue}"`
+                              : 'Type to search agencies...'
+                          }
+                          className="react-select-container"
+                          classNamePrefix="react-select"
+                          formatCreateLabel={(inputValue) => `Create "${inputValue}"`}
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Photo</Label>
+                        <ImageUpload
+                          value={agent.photoUrl || null}
+                          onChange={(url) => {
+                            const currentAgents = form.getValues('agents');
+                            const newAgents = [...currentAgents];
+                            newAgents[index] = {
+                              ...newAgents[index],
+                              tags: newAgents[index].tags || [],
+                              photoUrl: url || undefined,
+                            };
+                            form.setValue('agents', newAgents);
+                          }}
+                          shape="rounded"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor={`agentTags-${index}`}>Tags</Label>
+                        <CreatableSelect
+                          isMulti
+                          value={(agent.tags || []).map(tag => ({ value: tag, label: tag }))}
+                          onChange={(selectedOptions) => {
+                            const currentAgents = form.getValues('agents');
+                            const newAgents = [...currentAgents];
+                            newAgents[index] = {
+                              ...newAgents[index],
+                              tags: selectedOptions.map(opt => opt.value),
+                            };
+                            form.setValue('agents', newAgents);
+                          }}
+                          onCreateOption={(inputValue) => {
+                            const currentAgents = form.getValues('agents');
+                            const newAgents = [...currentAgents];
+                            const currentTags = newAgents[index].tags || [];
+                            if (!currentTags.includes(inputValue.trim())) {
+                              newAgents[index] = {
+                                ...newAgents[index],
+                                tags: [...currentTags, inputValue.trim()],
+                              };
+                              form.setValue('agents', newAgents);
+                            }
+                          }}
+                          placeholder="Type and press Enter to add tags..."
+                          className="react-select-container"
+                          classNamePrefix="react-select"
+                          formatCreateLabel={(inputValue) => `Create "${inputValue}"`}
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor={`agentNotes-${index}`}>Notes</Label>
+                        <Textarea
+                          id={`agentNotes-${index}`}
+                          value={agent.notes || ''}
+                          onChange={(e) => {
+                            const currentAgents = form.getValues('agents');
+                            const newAgents = [...currentAgents];
+                            newAgents[index] = {
+                              ...newAgents[index],
+                              tags: newAgents[index].tags || [],
+                              notes: e.target.value,
+                            };
+                            form.setValue('agents', newAgents);
+                          }}
+                          placeholder="Notes..."
+                          rows={3}
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor={`agentPrivateNotes-${index}`}>Private Notes</Label>
+                        <Textarea
+                          id={`agentPrivateNotes-${index}`}
+                          value={agent.privateNotes || ''}
+                          onChange={(e) => {
+                            const currentAgents = form.getValues('agents');
+                            const newAgents = [...currentAgents];
+                            newAgents[index] = {
+                              ...newAgents[index],
+                              tags: newAgents[index].tags || [],
+                              privateNotes: e.target.value,
+                            };
+                            form.setValue('agents', newAgents);
+                          }}
+                          placeholder="Private notes..."
+                          rows={3}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    const currentAgents = form.getValues('agents');
+                    form.setValue('agents', [
+                      ...currentAgents,
+                      {
+                        firstName: '',
+                        lastName: '',
+                        email: '',
+                        ccEmail: '',
+                        phone: '',
+                        agency: undefined,
+                        photoUrl: undefined,
+                        tags: [],
+                        notes: '',
+                        privateNotes: '',
+                      },
+                    ]);
+                  }}
+                  className="w-full"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add More Client Agent
+                </Button>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+
+          <Accordion type="single" collapsible className="border-t pt-4">
+            <AccordionItem value="listingAgent" className="border-none">
+              <AccordionTrigger className="text-lg font-semibold py-2">
+                Listing Agent
+              </AccordionTrigger>
+              <AccordionContent className="space-y-4 pt-4">
+                {form.watch('listingAgents').map((agent, index) => {
+                  const loadAgentOptions = async (inputValue: string) => {
+                    if (!inputValue || inputValue.length < 2) {
+                      return [];
+                    }
+
+                    try {
+                      const response = await fetch(
+                        `/api/agents/search?search=${encodeURIComponent(inputValue)}&limit=20`,
+                        { credentials: 'include' }
+                      );
+
+                      if (!response.ok) {
+                        return [];
+                      }
+
+                      const data = await response.json();
+                      const agentsList = data.agents || [];
+
+                      return agentsList.map((a: any) => {
+                        const displayName = `${a.firstName || ''} ${a.lastName || ''}`.trim() || 'Unnamed Agent';
+                        return {
+                          value: a._id,
+                          label: displayName,
+                          agent: a,
+                        };
+                      });
+                    } catch (error) {
+                      console.error('Error loading agents:', error);
+                      return [];
+                    }
+                  };
+
+                  const handleAgentSelect = (selectedOption: any) => {
+                    if (!selectedOption || !selectedOption.agent) return;
+
+                    const selectedAgent = selectedOption.agent;
+                    const currentAgents = form.getValues('listingAgents');
+                    const newAgents = [...currentAgents];
+                    
+                    newAgents[index] = {
+                      firstName: selectedAgent.firstName || '',
+                      lastName: selectedAgent.lastName || '',
+                      email: selectedAgent.email || '',
+                      ccEmail: selectedAgent.ccEmail || '',
+                      phone: selectedAgent.phone || '',
+                      agency: selectedAgent.agency?._id?.toString() || selectedAgent.agency || undefined,
+                      photoUrl: selectedAgent.photoUrl || undefined,
+                      tags: (selectedAgent.tags || []).map((tag: any) => 
+                        typeof tag === 'string' ? tag : tag.name || tag
+                      ) || [],
+                      notes: selectedAgent.internalNotes || '',
+                      privateNotes: selectedAgent.internalAdminNotes || '',
+                    };
+
+                    form.setValue('listingAgents', newAgents);
+                  };
+
+                  return (
+                    <div key={index} className="space-y-4 p-4 border rounded-lg">
+                      {form.watch('listingAgents').length > 1 && (
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-medium">Agent {index + 1}</h4>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              const currentAgents = form.getValues('listingAgents');
+                              form.setValue('listingAgents', currentAgents.filter((_, i) => i !== index));
+                            }}
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      )}
+
+                      <div className="space-y-2">
+                        <Label>Search Existing Agent</Label>
+                        <AsyncSelect
+                          loadOptions={loadAgentOptions}
+                          onChange={handleAgentSelect}
+                          placeholder="Type to search for existing agent..."
+                          isClearable
+                          noOptionsMessage={({ inputValue }) =>
+                            inputValue.length < 2
+                              ? 'Type at least 2 characters to search'
+                              : 'No agents found'
+                          }
+                          className="react-select-container"
+                          classNamePrefix="react-select"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor={`listingAgentFirstName-${index}`}>First Name</Label>
+                          <Input
+                            id={`listingAgentFirstName-${index}`}
+                            value={agent.firstName || ''}
+                            onChange={(e) => {
+                              const currentAgents = form.getValues('listingAgents');
+                              const newAgents = [...currentAgents];
+                              newAgents[index] = {
+                                ...newAgents[index],
+                                tags: newAgents[index].tags || [],
+                                firstName: e.target.value,
+                              };
+                              form.setValue('listingAgents', newAgents);
+                            }}
+                            placeholder="First name..."
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`listingAgentLastName-${index}`}>Last Name</Label>
+                          <Input
+                            id={`listingAgentLastName-${index}`}
+                            value={agent.lastName || ''}
+                            onChange={(e) => {
+                              const currentAgents = form.getValues('listingAgents');
+                              const newAgents = [...currentAgents];
+                              newAgents[index] = {
+                                ...newAgents[index],
+                                tags: newAgents[index].tags || [],
+                                lastName: e.target.value,
+                              };
+                              form.setValue('listingAgents', newAgents);
+                            }}
+                            placeholder="Last name..."
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor={`listingAgentEmail-${index}`}>Email</Label>
+                        <Input
+                          id={`listingAgentEmail-${index}`}
+                          type="email"
+                          value={agent.email || ''}
+                          onChange={(e) => {
+                            const currentAgents = form.getValues('listingAgents');
+                            const newAgents = [...currentAgents];
+                            newAgents[index] = {
+                              ...newAgents[index],
+                              tags: newAgents[index].tags || [],
+                              email: e.target.value,
+                            };
+                            form.setValue('listingAgents', newAgents);
+                          }}
+                          placeholder="Email..."
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor={`listingAgentCCEmail-${index}`}>CC Email</Label>
+                        <Input
+                          id={`listingAgentCCEmail-${index}`}
+                          type="email"
+                          value={agent.ccEmail || ''}
+                          onChange={(e) => {
+                            const currentAgents = form.getValues('listingAgents');
+                            const newAgents = [...currentAgents];
+                            newAgents[index] = {
+                              ...newAgents[index],
+                              tags: newAgents[index].tags || [],
+                              ccEmail: e.target.value,
+                            };
+                            form.setValue('listingAgents', newAgents);
+                          }}
+                          placeholder="CC email..."
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor={`listingAgentPhone-${index}`}>Phone</Label>
+                        <Input
+                          id={`listingAgentPhone-${index}`}
+                          type="tel"
+                          value={agent.phone || ''}
+                          onChange={(e) => {
+                            const currentAgents = form.getValues('listingAgents');
+                            const newAgents = [...currentAgents];
+                            newAgents[index] = {
+                              ...newAgents[index],
+                              tags: newAgents[index].tags || [],
+                              phone: e.target.value,
+                            };
+                            form.setValue('listingAgents', newAgents);
+                          }}
+                          placeholder="Phone..."
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Agency</Label>
+                        <AsyncCreatableSelect
+                          cacheOptions
+                          value={(() => {
+                            const agencyValue = agent.agency;
+                            if (!agencyValue) return null;
+                            
+                            // If it's a valid ObjectId, it's an existing agency
+                            if (isValidObjectId(String(agencyValue))) {
+                              const cachedName = listingAgencyNames[String(agencyValue)];
+                              return { 
+                                value: String(agencyValue), 
+                                label: cachedName || 'Loading...' 
+                              };
+                            } else {
+                              // It's a new agency name (string)
+                              return { 
+                                value: String(agencyValue), 
+                                label: String(agencyValue) 
+                              };
+                            }
+                          })()}
+                          onChange={async (option: any, actionMeta: any) => {
+                            const currentAgents = form.getValues('listingAgents');
+                            const newAgents = [...currentAgents];
+                            
+                            if (actionMeta.action === 'create-option') {
+                              // Store the new agency name as a string (will be created on form submit)
+                              newAgents[index] = {
+                                ...newAgents[index],
+                                tags: newAgents[index].tags || [],
+                                agency: option.value.trim(), // Store as string name, not ID
+                              };
+                              form.setValue('listingAgents', newAgents);
+                            } else if (actionMeta.action === 'select-option') {
+                              // Select existing agency (store as ID)
+                              // Cache the agency name
+                              if (option?.label) {
+                                setListingAgencyNames(prev => ({
+                                  ...prev,
+                                  [option.value]: option.label,
+                                }));
+                              }
+                              
+                              newAgents[index] = {
+                                ...newAgents[index],
+                                tags: newAgents[index].tags || [],
+                                agency: option?.value || undefined,
+                              };
+                              form.setValue('listingAgents', newAgents);
+                            } else if (actionMeta.action === 'clear') {
+                              // Clear selection
+                              newAgents[index] = {
+                                ...newAgents[index],
+                                tags: newAgents[index].tags || [],
+                                agency: undefined,
+                              };
+                              form.setValue('listingAgents', newAgents);
+                            }
+                          }}
+                          loadOptions={async (inputValue: string) => {
+                            try {
+                              const search = inputValue || '';
+                              const response = await fetch(
+                                `/api/agencies/search?search=${encodeURIComponent(search)}&limit=20`,
+                                { credentials: 'include' }
+                              );
+
+                              if (!response.ok) {
+                                return [];
+                              }
+
+                              const data = await response.json();
+                              const agenciesList = data.agencies || [];
+
+                              const options = agenciesList.map((a: any) => {
+                                const agencyId = a._id || a.id;
+                                const agencyName = a.name;
+                                
+                                // Cache agency names
+                                setListingAgencyNames(prev => ({
+                                  ...prev,
+                                  [agencyId]: agencyName,
+                                }));
+                                
+                                return {
+                                  value: agencyId,
+                                  label: agencyName,
+                                };
+                              });
+
+                              return options;
+                            } catch (error) {
+                              console.error('Error loading agencies:', error);
+                              return [];
+                            }
+                          }}
+                          defaultOptions
+                          isClearable
+                          placeholder="Search or create agency by name..."
+                          noOptionsMessage={({ inputValue }) =>
+                            inputValue
+                              ? `No agencies found. Press Enter to create "${inputValue}"`
+                              : 'Type to search agencies...'
+                          }
+                          className="react-select-container"
+                          classNamePrefix="react-select"
+                          formatCreateLabel={(inputValue) => `Create "${inputValue}"`}
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Photo</Label>
+                        <ImageUpload
+                          value={agent.photoUrl || null}
+                          onChange={(url) => {
+                            const currentAgents = form.getValues('listingAgents');
+                            const newAgents = [...currentAgents];
+                            newAgents[index] = {
+                              ...newAgents[index],
+                              tags: newAgents[index].tags || [],
+                              photoUrl: url || undefined,
+                            };
+                            form.setValue('listingAgents', newAgents);
+                          }}
+                          shape="rounded"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor={`listingAgentTags-${index}`}>Tags</Label>
+                        <CreatableSelect
+                          isMulti
+                          value={(agent.tags || []).map(tag => ({ value: tag, label: tag }))}
+                          onChange={(selectedOptions) => {
+                            const currentAgents = form.getValues('listingAgents');
+                            const newAgents = [...currentAgents];
+                            newAgents[index] = {
+                              ...newAgents[index],
+                              tags: selectedOptions.map(opt => opt.value),
+                            };
+                            form.setValue('listingAgents', newAgents);
+                          }}
+                          onCreateOption={(inputValue) => {
+                            const currentAgents = form.getValues('listingAgents');
+                            const newAgents = [...currentAgents];
+                            const currentTags = newAgents[index].tags || [];
+                            if (!currentTags.includes(inputValue.trim())) {
+                              newAgents[index] = {
+                                ...newAgents[index],
+                                tags: [...currentTags, inputValue.trim()],
+                              };
+                              form.setValue('listingAgents', newAgents);
+                            }
+                          }}
+                          placeholder="Type and press Enter to add tags..."
+                          className="react-select-container"
+                          classNamePrefix="react-select"
+                          formatCreateLabel={(inputValue) => `Create "${inputValue}"`}
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor={`listingAgentNotes-${index}`}>Notes</Label>
+                        <Textarea
+                          id={`listingAgentNotes-${index}`}
+                          value={agent.notes || ''}
+                          onChange={(e) => {
+                            const currentAgents = form.getValues('listingAgents');
+                            const newAgents = [...currentAgents];
+                            newAgents[index] = {
+                              ...newAgents[index],
+                              tags: newAgents[index].tags || [],
+                              notes: e.target.value,
+                            };
+                            form.setValue('listingAgents', newAgents);
+                          }}
+                          placeholder="Notes..."
+                          rows={3}
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor={`listingAgentPrivateNotes-${index}`}>Private Notes</Label>
+                        <Textarea
+                          id={`listingAgentPrivateNotes-${index}`}
+                          value={agent.privateNotes || ''}
+                          onChange={(e) => {
+                            const currentAgents = form.getValues('listingAgents');
+                            const newAgents = [...currentAgents];
+                            newAgents[index] = {
+                              ...newAgents[index],
+                              tags: newAgents[index].tags || [],
+                              privateNotes: e.target.value,
+                            };
+                            form.setValue('listingAgents', newAgents);
+                          }}
+                          placeholder="Private notes..."
+                          rows={3}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    const currentAgents = form.getValues('listingAgents');
+                    form.setValue('listingAgents', [
+                      ...currentAgents,
+                      {
+                        firstName: '',
+                        lastName: '',
+                        email: '',
+                        ccEmail: '',
+                        phone: '',
+                        agency: undefined,
+                        photoUrl: undefined,
+                        tags: [],
+                        notes: '',
+                        privateNotes: '',
+                      },
+                    ]);
+                  }}
+                  className="w-full"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add More Listing Agent
+                </Button>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+
+          <div className="border-t pt-4">
+            <h3 className="text-lg font-semibold py-2">Services</h3>
+            <div className="space-y-4 pt-4">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label>Service</Label>
+                      <Select
+                        value={null}
+                        onChange={(option: any) => {
+                          if (option && option.service) {
+                            const service = option.service;
+                            if (!selectedServices.find(s => s.serviceId === service._id)) {
+                              setSelectedServices([
+                                ...selectedServices,
+                                {
+                                  serviceId: service._id,
+                                  service: service,
+                                  addOns: [],
+                                },
+                              ]);
+                            }
+                          }
+                        }}
+                        options={services
+                          .filter(s => !selectedServices.find(ss => ss.serviceId === s._id))
+                          .map(service => ({
+                            value: service._id,
+                            label: service.name,
+                            service: service,
+                          }))}
+                        isClearable
+                        placeholder="Select a service..."
+                        isLoading={loadingFormData}
+                        className="react-select-container"
+                        classNamePrefix="react-select"
+                      />
+                    </div>
+
+                    {selectedServices.map((selectedService, index) => {
+                      const service = selectedService.service;
+                      const availableAddOns = service.addOns || [];
+                      
+                      return (
+                        <div key={index} className="space-y-2 p-4 border rounded-lg">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="font-medium">{service.name}</p>
+                              <p className="text-sm text-muted-foreground">
+                                ${service.baseCost || 0} • {service.baseDurationHours || 0} hrs
+                              </p>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                setSelectedServices(selectedServices.filter((_, i) => i !== index));
+                              }}
+                              className="h-8 w-8 text-destructive hover:text-destructive"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+
+                          {availableAddOns.length > 0 && (
+                            <div className="space-y-2 mt-3">
+                              <Label>Add-ons</Label>
+                              <Select
+                                isMulti
+                                value={selectedService.addOns.map(addOn => ({
+                                  value: addOn.name,
+                                  label: addOn.name,
+                                }))}
+                                onChange={(options: any) => {
+                                  const newSelectedServices = [...selectedServices];
+                                  newSelectedServices[index].addOns = (options || []).map((opt: any) => {
+                                    const addOn = availableAddOns.find((a: any) => a.name === opt.value);
+                                    return {
+                                      name: addOn.name,
+                                      addFee: addOn.baseCost || 0,
+                                      addHours: addOn.baseDurationHours || 0,
+                                    };
+                                  });
+                                  setSelectedServices(newSelectedServices);
+                                }}
+                                options={availableAddOns.map((addOn: any) => ({
+                                  value: addOn.name,
+                                  label: `${addOn.name} ($${addOn.baseCost || 0}, +${addOn.baseDurationHours || 0}hrs)`,
+                                }))}
+                                placeholder="Select add-ons..."
+                                className="react-select-container"
+                                classNamePrefix="react-select"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    <div className="space-y-2">
+                      <Label>Discount Code</Label>
+                      <Select
+                        value={selectedDiscountCode}
+                        onChange={setSelectedDiscountCode}
+                        options={discountCodes.map(code => ({
+                          value: code._id,
+                          label: `${code.code} (${code.type === 'percent' ? `${code.value}%` : `$${code.value}`})`,
+                          discountCode: code,
+                        }))}
+                        isClearable
+                        placeholder="Select a discount code..."
+                        isLoading={loadingFormData}
+                        className="react-select-container"
+                        classNamePrefix="react-select"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="p-4 border rounded-lg bg-muted/50">
+                      <h3 className="font-semibold text-lg mb-4">Receipt</h3>
+                      
+                      {selectedServices.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">No services selected</p>
+                      ) : (
+                        <div className="space-y-4">
+                          <div className="space-y-2">
+                            <h4 className="font-medium text-sm">Services</h4>
+                            {selectedServices.map((selectedService, index) => {
+                              const service = selectedService.service;
+                              return (
+                                <div key={index} className="text-sm">
+                                  <div className="flex justify-between">
+                                    <span>{service.name}</span>
+                                    <span>${service.baseCost || 0}</span>
+                                  </div>
+                                  {selectedService.addOns.length > 0 && (
+                                    <div className="ml-4 mt-1 space-y-1">
+                                      {selectedService.addOns.map((addOn, addOnIndex) => (
+                                        <div key={addOnIndex} className="flex justify-between text-xs text-muted-foreground">
+                                          <span>+ {addOn.name}</span>
+                                          <span>${addOn.addFee || 0}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {(() => {
+                            const subtotal = selectedServices.reduce((sum, s) => {
+                              const serviceCost = s.service.baseCost || 0;
+                              const addOnsCost = s.addOns.reduce((addOnSum, addOn) => addOnSum + (addOn.addFee || 0), 0);
+                              return sum + serviceCost + addOnsCost;
+                            }, 0);
+                            
+                            let discountAmount = 0;
+                            let discountLabel = '';
+                            
+                            if (selectedDiscountCode?.discountCode) {
+                              const discount = selectedDiscountCode.discountCode;
+                              if (discount.type === 'percent') {
+                                discountAmount = subtotal * (discount.value / 100);
+                                discountLabel = `${discount.code} (${discount.value}%)`;
+                              } else {
+                                discountAmount = discount.value;
+                                discountLabel = `${discount.code} ($${discount.value})`;
+                              }
+                            }
+                            
+                            const total = Math.max(0, subtotal - discountAmount);
+                            
+                            return (
+                              <>
+                                <div className="border-t pt-2">
+                                  <div className="flex justify-between text-sm">
+                                    <span>Subtotal</span>
+                                    <span>${subtotal.toFixed(2)}</span>
+                                  </div>
+                                </div>
+                                
+                                {selectedDiscountCode?.discountCode && (
+                                  <div className="pt-2">
+                                    <div className="flex justify-between text-sm text-green-600">
+                                      <span>Discount: {discountLabel}</span>
+                                      <span>-${discountAmount.toFixed(2)}</span>
+                                    </div>
+                                  </div>
+                                )}
+                                
+                                <div className="border-t pt-2">
+                                  <div className="flex justify-between font-semibold">
+                                    <span>Total</span>
+                                    <span>${total.toFixed(2)}</span>
+                                  </div>
+                                </div>
+                              </>
+                            );
+                          })()}
+
+                          <div className="border-t pt-2">
+                            <div className="flex justify-between text-sm">
+                              <span>Total Duration</span>
+                              <span>
+                                {(() => {
+                                  const totalHours = selectedServices.reduce((sum, s) => {
+                                    const serviceHours = s.service.baseDurationHours || 0;
+                                    const addOnsHours = s.addOns.reduce((addOnSum, addOn) => addOnSum + (addOn.addHours || 0), 0);
+                                    return sum + serviceHours + addOnsHours;
+                                  }, 0);
+                                  return `${totalHours} hrs`;
+                                })()}
+                              </span>
+                            </div>
+                          </div>
+
+                          {(() => {
+                            const allAgreementIds = new Set<string>();
+                            selectedServices.forEach(s => {
+                              const service = s.service;
+                              if (service.agreementIds && Array.isArray(service.agreementIds)) {
+                                service.agreementIds.forEach((id: string) => allAgreementIds.add(id.toString()));
+                              }
+                            });
+                            
+                            const uniqueAgreements = agreements.filter(a => allAgreementIds.has(a._id.toString()));
+                            
+                            if (uniqueAgreements.length > 0) {
+                              return (
+                                <div className="border-t pt-2">
+                                  <h4 className="font-medium text-sm mb-2">Agreements</h4>
+                                  <ul className="space-y-1">
+                                    {uniqueAgreements.map((agreement) => (
+                                      <li key={agreement._id} className="text-sm text-muted-foreground">
+                                        • {agreement.name}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              );
+                            }
+                            return null;
+                          })()}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          <div className="border-t pt-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Events</h3>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => handleOpenEventModal()}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Event
+              </Button>
+            </div>
+
+            {events.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No events added yet</p>
+            ) : (
+              <div className="space-y-2">
+                {events.map((event, index) => {
+                  const startDateTime = event.startDate
+                    ? `${format(event.startDate, 'PPP')} ${event.startTime}`
+                    : 'Not set';
+                  const endDateTime = event.endDate
+                    ? `${format(event.endDate, 'PPP')} ${event.endTime}`
+                    : 'Not set';
+                  const inspectorName = event.inspector?.label || 'Not assigned';
+
+                  return (
+                    <div key={index} className="p-4 border rounded-lg">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <h4 className="font-medium">{event.name || 'Unnamed Event'}</h4>
+                          {event.description && (
+                            <p className="text-sm text-muted-foreground mt-1">{event.description}</p>
+                          )}
+                          <div className="mt-2 space-y-1 text-sm text-muted-foreground">
+                            <p><span className="font-medium">Inspector:</span> {inspectorName}</p>
+                            <p><span className="font-medium">Start:</span> {startDateTime}</p>
+                            <p><span className="font-medium">End:</span> {endDateTime}</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 ml-4">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleOpenEventModal(index)}
+                            className="h-8 w-8"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDeleteEvent(index)}
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <Dialog open={isEventModalOpen} onOpenChange={setIsEventModalOpen}>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>{editingEventIndex !== null ? 'Edit Event' : 'Add Event'}</DialogTitle>
+                <DialogDescription>
+                  Add an event to this inspection. Events can be scheduled with specific dates and assigned to inspectors.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label htmlFor="eventName">Name *</Label>
+                  <Input
+                    id="eventName"
+                    value={currentEvent.name}
+                    onChange={(e) => setCurrentEvent({ ...currentEvent, name: e.target.value })}
+                    placeholder="Enter event name..."
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="eventDescription">Description</Label>
+                  <Textarea
+                    id="eventDescription"
+                    value={currentEvent.description}
+                    onChange={(e) => setCurrentEvent({ ...currentEvent, description: e.target.value })}
+                    placeholder="Enter event description..."
+                    rows={3}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Inspector</Label>
+                  <Select
+                    value={currentEvent.inspector}
+                    onChange={(option) => setCurrentEvent({ ...currentEvent, inspector: option })}
+                    options={inspectors}
+                    isClearable
+                    placeholder="Select an inspector..."
+                    className="react-select-container"
+                    classNamePrefix="react-select"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Start Date *</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className={cn(
+                            "w-full justify-start text-left font-normal",
+                            !currentEvent.startDate && "text-muted-foreground"
+                          )}
+                        >
+                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          {currentEvent.startDate ? format(currentEvent.startDate, "PPP") : "Pick a date"}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={currentEvent.startDate}
+                          onSelect={(date) => setCurrentEvent({ ...currentEvent, startDate: date })}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Start Time</Label>
+                    <Input
+                      type="time"
+                      value={currentEvent.startTime}
+                      onChange={(e) => setCurrentEvent({ ...currentEvent, startTime: e.target.value })}
+                      className="w-full"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>End Date *</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className={cn(
+                            "w-full justify-start text-left font-normal",
+                            !currentEvent.endDate && "text-muted-foreground"
+                          )}
+                        >
+                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          {currentEvent.endDate ? format(currentEvent.endDate, "PPP") : "Pick a date"}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={currentEvent.endDate}
+                          onSelect={(date) => setCurrentEvent({ ...currentEvent, endDate: date })}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>End Time</Label>
+                    <Input
+                      type="time"
+                      value={currentEvent.endTime}
+                      onChange={(e) => setCurrentEvent({ ...currentEvent, endTime: e.target.value })}
+                      className="w-full"
+                    />
+                  </div>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setIsEventModalOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button onClick={handleSaveEvent}>
+                  {editingEventIndex !== null ? 'Update Event' : 'Add Event'}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <div className="border-t pt-4">
+            <h3 className="text-lg font-semibold mb-4">Payment</h3>
+            <div className="space-y-4">
+              <div className="flex items-center space-x-2">
+                <Controller
+                  name="requirePaymentToReleaseReports"
+                  control={form.control}
+                  render={({ field }) => (
+                    <Checkbox
+                      id="requirePaymentToReleaseReports"
+                      checked={field.value}
+                      onCheckedChange={(checked) => field.onChange(checked === true)}
+                    />
+                  )}
+                />
+                <div className="flex items-center gap-2">
+                  <Label
+                    htmlFor="requirePaymentToReleaseReports"
+                    className="text-sm font-normal cursor-pointer"
+                  >
+                    Require payment to release reports(s)
+                  </Label>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>If checked, reports will not be viewable by the client until they have completed payment online or you have manually marked the inspection as paid.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="paymentNotes">Payment Notes</Label>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>This field can be used for internal notes regarding payment. It is private and only viewable by you.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+                <Textarea
+                  id="paymentNotes"
+                  {...form.register('paymentNotes')}
+                  placeholder="Enter payment notes..."
+                  rows={3}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t pt-4">
+            <h3 className="text-lg font-semibold mb-4">Miscellaneous</h3>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="orderId">Order ID</Label>
+                <Input
+                  id="orderId"
+                  value={form.watch('orderId') || 'Auto-generated'}
+                  disabled
+                  className="bg-muted"
+                  placeholder="Will be auto-generated..."
+                />
+                <p className="text-sm text-muted-foreground">
+                  Order ID will be automatically generated when you create the inspection.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="referralSource">Referral Source</Label>
+                <Input
+                  id="referralSource"
+                  {...form.register('referralSource')}
+                  placeholder="Enter referral source..."
+                />
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <Controller
+                  name="confirmedInspection"
+                  control={form.control}
+                  render={({ field }) => (
+                    <Checkbox
+                      id="confirmedInspection"
+                      checked={field.value}
+                      onCheckedChange={(checked) => {
+                        field.onChange(checked === true);
+                        // If unchecked, automatically set disableAutomatedNotifications to true
+                        if (checked === false) {
+                          form.setValue('disableAutomatedNotifications', true);
+                        }
+                      }}
+                    />
+                  )}
+                />
+                <Label
+                  htmlFor="confirmedInspection"
+                  className="text-sm font-normal cursor-pointer"
+                >
+                  Confirmed Inspection
+                </Label>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <Controller
+                  name="disableAutomatedNotifications"
+                  control={form.control}
+                  render={({ field }) => (
+                    <Checkbox
+                      id="disableAutomatedNotifications"
+                      checked={field.value}
+                      onCheckedChange={(checked) => field.onChange(checked === true)}
+                    />
+                  )}
+                />
+                <Label
+                  htmlFor="disableAutomatedNotifications"
+                  className="text-sm font-normal cursor-pointer"
+                >
+                  Disable Automated Notifications
+                </Label>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="internalNotes">Internal Notes</Label>
+                <Textarea
+                  id="internalNotes"
+                  {...form.register('internalNotes')}
+                  placeholder="Enter internal notes..."
+                  rows={3}
+                />
+              </div>
+
+              <CustomFields 
+                control={form.control} 
+                customData={form.watch('customData')}
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-4 border-t">
+            <Button
+              variant="outline"
+              onClick={() => router.push('/inspections')}
+              disabled={isSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? 'Creating...' : 'Create Inspection'}
+            </Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+

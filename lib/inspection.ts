@@ -1,10 +1,7 @@
 // lib/inspection.ts
-import clientPromise from "./mongodb";
-import { ObjectId } from "mongodb";
-
-const DB_NAME = "agi_inspections_db"; // change this
-
-const COLLECTION_NAME = "inspections";
+import dbConnect from "./db";
+import Inspection, { IInspection } from "@/src/models/Inspection";
+import mongoose from "mongoose";
 
 type CreateInspectionParams = {
   name: string;
@@ -12,9 +9,40 @@ type CreateInspectionParams = {
   status?: string;
   date?: string | Date;
   createdBy?: string;
+  inspector?: string;
+  companyOwnerRequested?: boolean;
+  enableClientCCEmail?: boolean;
+  services?: Array<{
+    serviceId: string;
+    addOns?: Array<{
+      name: string;
+      addFee?: number;
+      addHours?: number;
+    }>;
+  }>;
+  discountCode?: string;
+  location?: {
+    address?: string;
+    unit?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
+    county?: string;
+    squareFeet?: number;
+    yearBuild?: number;
+    foundation?: 'Basement' | 'Slab' | 'Crawlspace';
+  };
+  requirePaymentToReleaseReports?: boolean;
+  paymentNotes?: string;
+  orderId?: number;
+  referralSource?: string;
+  confirmedInspection?: boolean;
+  disableAutomatedNotifications?: boolean;
+  internalNotes?: string;
+  customData?: Record<string, any>;
 };
 
-const formatInspection = (doc: any) => {
+const formatInspection = (doc: IInspection | null) => {
   if (!doc) return null;
   return {
     _id: doc._id?.toString(),
@@ -24,6 +52,21 @@ const formatInspection = (doc: any) => {
     date: doc.date ? new Date(doc.date).toISOString() : null,
     companyId: doc.companyId ? doc.companyId.toString() : null,
     createdBy: doc.createdBy ? doc.createdBy.toString() : null,
+    inspector: doc.inspector ? doc.inspector.toString() : null,
+    companyOwnerRequested: doc.companyOwnerRequested ?? false,
+    enableClientCCEmail: doc.enableClientCCEmail ?? true,
+    services: doc.services ?? null,
+    discountCode: doc.discountCode ? doc.discountCode.toString() : null,
+    location: doc.location ?? null,
+    headerImage: doc.headerImage ?? null,
+    headerText: doc.headerText ?? null,
+    headerName: doc.headerName ?? null,
+    headerAddress: doc.headerAddress ?? null,
+    pdfReportUrl: doc.pdfReportUrl ?? null,
+    htmlReportUrl: doc.htmlReportUrl ?? null,
+    pdfReportGeneratedAt: doc.pdfReportGeneratedAt ? new Date(doc.pdfReportGeneratedAt).toISOString() : null,
+    htmlReportGeneratedAt: doc.htmlReportGeneratedAt ? new Date(doc.htmlReportGeneratedAt).toISOString() : null,
+    hidePricing: doc.hidePricing ?? false,
     createdAt: doc.createdAt ? new Date(doc.createdAt).toISOString() : null,
     updatedAt: doc.updatedAt ? new Date(doc.updatedAt).toISOString() : null,
   };
@@ -36,32 +79,108 @@ export async function createInspection({
   status,
   date,
   createdBy,
+  inspector,
+  companyOwnerRequested,
+  enableClientCCEmail,
+  services,
+  discountCode,
+  location,
+  requirePaymentToReleaseReports,
+  paymentNotes,
+  orderId,
+  referralSource,
+  confirmedInspection,
+  disableAutomatedNotifications,
+  internalNotes,
+  customData,
 }: CreateInspectionParams) {
   if (!name || !companyId) {
     throw new Error("Missing required inspection fields");
   }
 
-  const client = await clientPromise;
-  const db = client.db(DB_NAME);
+  await dbConnect();
 
-  const now = new Date();
-  const document: Record<string, any> = {
-    name,
+  const inspectionData: any = {
+    name: String(name).trim(),
     status: status ?? "Pending",
-    date: date ? new Date(date) : now,
-    companyId: new ObjectId(companyId),
-    createdAt: now,
-    updatedAt: now,
+    date: date ? new Date(date) : new Date(),
+    companyId: new mongoose.Types.ObjectId(companyId),
   };
 
-  if (createdBy) {
-    document.createdBy = ObjectId.isValid(createdBy)
-      ? new ObjectId(createdBy)
-      : createdBy;
+  if (createdBy && mongoose.Types.ObjectId.isValid(createdBy)) {
+    inspectionData.createdBy = new mongoose.Types.ObjectId(createdBy);
   }
 
-  const result = await db.collection(COLLECTION_NAME).insertOne(document);
-  return formatInspection({ ...document, _id: result.insertedId });
+  if (inspector && mongoose.Types.ObjectId.isValid(inspector)) {
+    inspectionData.inspector = new mongoose.Types.ObjectId(inspector);
+  }
+
+  if (companyOwnerRequested !== undefined) {
+    inspectionData.companyOwnerRequested = companyOwnerRequested;
+  }
+
+  if (enableClientCCEmail !== undefined) {
+    inspectionData.enableClientCCEmail = enableClientCCEmail;
+  }
+
+  if (services && Array.isArray(services)) {
+    inspectionData.services = services.map(service => ({
+      serviceId: new mongoose.Types.ObjectId(service.serviceId),
+      addOns: service.addOns || [],
+    }));
+  }
+
+  if (discountCode && mongoose.Types.ObjectId.isValid(discountCode)) {
+    inspectionData.discountCode = new mongoose.Types.ObjectId(discountCode);
+  }
+
+  if (location) {
+    inspectionData.location = {};
+    if (location.address) inspectionData.location.address = String(location.address).trim();
+    if (location.unit) inspectionData.location.unit = String(location.unit).trim();
+    if (location.city) inspectionData.location.city = String(location.city).trim();
+    if (location.state) inspectionData.location.state = String(location.state).trim();
+    if (location.zip) inspectionData.location.zip = String(location.zip).trim();
+    if (location.county) inspectionData.location.county = String(location.county).trim();
+    if (location.squareFeet !== undefined) inspectionData.location.squareFeet = Number(location.squareFeet);
+    if (location.yearBuild !== undefined) inspectionData.location.yearBuild = Number(location.yearBuild);
+    if (location.foundation) inspectionData.location.foundation = location.foundation;
+  }
+
+  if (requirePaymentToReleaseReports !== undefined) {
+    inspectionData.requirePaymentToReleaseReports = requirePaymentToReleaseReports;
+  }
+
+  if (paymentNotes !== undefined && paymentNotes.trim()) {
+    inspectionData.paymentNotes = String(paymentNotes).trim();
+  }
+
+  if (orderId !== undefined) {
+    inspectionData.orderId = orderId;
+  }
+
+  if (referralSource !== undefined && referralSource.trim()) {
+    inspectionData.referralSource = String(referralSource).trim();
+  }
+
+  if (confirmedInspection !== undefined) {
+    inspectionData.confirmedInspection = confirmedInspection;
+  }
+
+  if (disableAutomatedNotifications !== undefined) {
+    inspectionData.disableAutomatedNotifications = disableAutomatedNotifications;
+  }
+
+  if (internalNotes !== undefined && internalNotes.trim()) {
+    inspectionData.internalNotes = String(internalNotes).trim();
+  }
+
+  if (customData !== undefined && Object.keys(customData).length > 0) {
+    inspectionData.customData = customData;
+  }
+
+  const inspection = await Inspection.create(inspectionData);
+  return formatInspection(inspection);
 }
 
 // 2. Get all inspections for a company
@@ -70,36 +189,48 @@ export async function getAllInspections(companyId: string) {
     return [];
   }
 
-  const client = await clientPromise;
-  const db = client.db(DB_NAME);
+  await dbConnect();
 
-  const cursor = db
-    .collection(COLLECTION_NAME)
-    .find({ companyId: new ObjectId(companyId) })
-    .sort({ updatedAt: -1 });
+  const inspections = await Inspection.find({
+    companyId: new mongoose.Types.ObjectId(companyId),
+  })
+    .sort({ updatedAt: -1 })
+    .lean();
 
-  const results = await cursor.toArray();
-  return results.map(formatInspection).filter(Boolean);
+  return inspections.map((inspection) => formatInspection(inspection as IInspection)).filter(Boolean);
 }
 
-
-export async function deleteInspection(inspectionId: string) {
-  const client = await clientPromise;
-  const db = client.db(DB_NAME);
-
-  // Validate if inspectionId is a valid ObjectId
-  if (!ObjectId.isValid(inspectionId)) {
+// 3. Get single inspection by ID
+export async function getInspection(inspectionId: string) {
+  if (!mongoose.Types.ObjectId.isValid(inspectionId)) {
     throw new Error('Invalid inspection ID format');
   }
 
-  const result = await db.collection(COLLECTION_NAME).deleteOne({
-    _id: new ObjectId(inspectionId)
-  });
+  await dbConnect();
 
-  return result;
+  const inspection = await Inspection.findById(inspectionId).lean();
+  return formatInspection(inspection as IInspection);
 }
 
-// 4. Update inspection - can update any inspection field including headerImage and headerText
+// 4. Delete inspection
+export async function deleteInspection(inspectionId: string) {
+  if (!mongoose.Types.ObjectId.isValid(inspectionId)) {
+    throw new Error('Invalid inspection ID format');
+  }
+
+  await dbConnect();
+
+  const result = await Inspection.deleteOne({
+    _id: new mongoose.Types.ObjectId(inspectionId)
+  });
+
+  return {
+    deletedCount: result.deletedCount,
+    acknowledged: result.acknowledged,
+  };
+}
+
+// 5. Update inspection - can update any inspection field including headerImage and headerText
 export async function updateInspection(inspectionId: string, data: Partial<{
   name: string;
   status: string;
@@ -114,13 +245,11 @@ export async function updateInspection(inspectionId: string, data: Partial<{
   htmlReportGeneratedAt: Date; // timestamp when HTML was generated
   hidePricing: boolean; // hide cost estimates in all report formats
 }>) {
-  const client = await clientPromise;
-  const db = client.db(DB_NAME);
-
-  // Validate if inspectionId is a valid ObjectId
-  if (!ObjectId.isValid(inspectionId)) {
+  if (!mongoose.Types.ObjectId.isValid(inspectionId)) {
     throw new Error('Invalid inspection ID format');
   }
+
+  await dbConnect();
 
   // Filter out undefined values to only update fields that are provided
   const updateData = Object.entries(data).reduce((acc, [key, value]) => {
@@ -134,12 +263,14 @@ export async function updateInspection(inspectionId: string, data: Partial<{
     return { matchedCount: 0, modifiedCount: 0 };
   }
 
-  updateData.updatedAt = new Date();
-
-  const result = await db.collection(COLLECTION_NAME).updateOne(
-    { _id: new ObjectId(inspectionId) },
+  const result = await Inspection.updateOne(
+    { _id: new mongoose.Types.ObjectId(inspectionId) },
     { $set: updateData }
   );
 
-  return result;
+  return {
+    matchedCount: result.matchedCount,
+    modifiedCount: result.modifiedCount,
+    acknowledged: result.acknowledged,
+  };
 }

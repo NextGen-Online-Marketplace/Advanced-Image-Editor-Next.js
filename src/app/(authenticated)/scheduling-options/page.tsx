@@ -1036,7 +1036,7 @@ export default function SchedulingOptionsPage() {
                   render={({ field }) =>
                     renderCheckboxField(
                       'displayOnSpectoraApp',
-                      'Display on Spectora app',
+                      'Display on app',
                       field
                     )
                   }

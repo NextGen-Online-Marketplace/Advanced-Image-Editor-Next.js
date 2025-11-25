@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { deleteInspection, updateInspection } from "@/lib/inspection";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { deleteInspection, updateInspection, getInspection } from "@/lib/inspection";
+import dbConnect from "@/lib/db";
+import Inspection from "@/src/models/Inspection";
+import mongoose from "mongoose";
 import { extractR2KeyFromUrl, deleteFromR2 } from "@/lib/r2";
 
 export async function GET(
@@ -9,6 +10,8 @@ export async function GET(
   { params }: { params: Promise<{ inspectionId: string }> }
 ) {
   try {
+    await dbConnect();
+    
     const { inspectionId } = await params;
     
     if (!inspectionId) {
@@ -18,22 +21,14 @@ export async function GET(
       );
     }
 
-    // Import client directly since we don't have a getInspection function yet
-    const { default: clientPromise } = await import("@/lib/mongodb");
-    const client = await clientPromise;
-    const db = client.db("agi_inspections_db");
-    
-    const { ObjectId } = await import("mongodb");
-    if (!ObjectId.isValid(inspectionId)) {
+    if (!mongoose.Types.ObjectId.isValid(inspectionId)) {
       return NextResponse.json(
         { error: "Invalid inspection ID format" },
         { status: 400 }
       );
     }
 
-    const inspection = await db.collection("inspections").findOne({
-      _id: new ObjectId(inspectionId)
-    });
+    const inspection = await getInspection(inspectionId);
 
     if (!inspection) {
       return NextResponse.json(
@@ -58,6 +53,8 @@ export async function PUT(
   { params }: { params: Promise<{ inspectionId: string }> }
 ) {
   try {
+    await dbConnect();
+    
     const { inspectionId } = await params;
     
     console.log('Updating inspection ID:', inspectionId);
@@ -108,6 +105,8 @@ export async function DELETE(
   { params }: { params: Promise<{ inspectionId: string }> }
 ) {
   try {
+    await dbConnect();
+    
     const { inspectionId } = await params;
     
     console.log('Deleting inspection ID:', inspectionId);
@@ -119,32 +118,40 @@ export async function DELETE(
       );
     }
 
-    // Optional cascade cleanup for R2 and related documents
-    const cleanupEnabled = process.env.ENABLE_R2_CASCADE_CLEANUP === 'true';
-    const client = await clientPromise;
-    const db = client.db("agi_inspections_db");
-    
-    if (!ObjectId.isValid(inspectionId)) {
+    if (!mongoose.Types.ObjectId.isValid(inspectionId)) {
       return NextResponse.json(
         { error: "Invalid inspection ID format" },
         { status: 400 }
       );
     }
-    const oid = new ObjectId(inspectionId);
 
-    // Fetch related docs to gather URLs
-    const [inspectionDoc, defects, infoBlocks] = await Promise.all([
-      db.collection("inspections").findOne({ _id: oid }),
-      db.collection("defects").find({ inspection_id: oid }).toArray(),
-      db.collection("inspectioninformationblocks").find({ inspection_id: oid }).project({ images: 1 }).toArray(),
-    ]);
+    const oid = new mongoose.Types.ObjectId(inspectionId);
 
+    // Optional cascade cleanup for R2 and related documents
+    const cleanupEnabled = process.env.ENABLE_R2_CASCADE_CLEANUP === 'true';
+
+    // Fetch inspection and related docs to gather URLs
+    const inspectionDoc = await Inspection.findById(oid).lean();
+    
     if (!inspectionDoc) {
       return NextResponse.json(
         { error: "Inspection not found" },
         { status: 404 }
       );
     }
+
+    // Import MongoDB client for related collections (defects, info blocks)
+    // These might not be migrated to Mongoose yet, so we'll use native driver for them
+    const { default: clientPromise } = await import("@/lib/mongodb");
+    const client = await clientPromise;
+    const db = client.db("agi_inspections_db");
+    const { ObjectId } = await import("mongodb");
+    const mongoOid = new ObjectId(inspectionId);
+
+    const [defects, infoBlocks] = await Promise.all([
+      db.collection("defects").find({ inspection_id: mongoOid }).toArray(),
+      db.collection("inspectioninformationblocks").find({ inspection_id: mongoOid }).project({ images: 1 }).toArray(),
+    ]);
 
     // Build list of URLs to delete from R2 (exclude reports/* to preserve permanent report links)
     const urls: string[] = [];
@@ -185,8 +192,8 @@ export async function DELETE(
 
     // Delete related DB records (defects and information blocks), then the inspection itself
     await Promise.all([
-      db.collection("defects").deleteMany({ inspection_id: oid }),
-      db.collection("inspectioninformationblocks").deleteMany({ inspection_id: oid }),
+      db.collection("defects").deleteMany({ inspection_id: mongoOid }),
+      db.collection("inspectioninformationblocks").deleteMany({ inspection_id: mongoOid }),
     ]);
 
     const result = await deleteInspection(inspectionId);

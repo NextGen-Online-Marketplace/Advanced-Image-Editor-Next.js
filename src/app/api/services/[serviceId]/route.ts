@@ -82,6 +82,7 @@ export async function PUT(request: NextRequest, context: RouteParams) {
       baseDurationHours,
       defaultInspectionEvents,
       organizationServiceId,
+      agreementIds,
       modifiers,
     } = body;
 
@@ -166,6 +167,17 @@ export async function PUT(request: NextRequest, context: RouteParams) {
 
     if (organizationServiceId !== undefined) {
       service.organizationServiceId = organizationServiceId?.trim() || undefined;
+    }
+
+    if (agreementIds !== undefined) {
+      if (Array.isArray(agreementIds)) {
+        service.agreementIds = agreementIds
+          .filter((id: any) => mongoose.Types.ObjectId.isValid(id))
+          .map((id: any) => new mongoose.Types.ObjectId(id));
+      } else {
+        service.agreementIds = [];
+      }
+      service.markModified('agreementIds');
     }
 
     if (modifiers !== undefined) {
