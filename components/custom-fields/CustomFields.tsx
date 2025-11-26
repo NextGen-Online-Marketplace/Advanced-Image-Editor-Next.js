@@ -81,7 +81,6 @@ export default function CustomFields({ control, customData = {} }: CustomFieldsP
 
   return (
     <div className="space-y-4">
-      <h4 className="font-medium text-base">Custom Fields</h4>
       {customFields.map((field) => {
         if (!field.fieldKey) return null;
 

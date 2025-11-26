@@ -27,8 +27,6 @@ const OrderIdCounterSchema = new Schema<IOrderIdCounter>(
   }
 );
 
-OrderIdCounterSchema.index({ company: 1 });
-
 const OrderIdCounter: Model<IOrderIdCounter> =
   mongoose.models.OrderIdCounter || mongoose.model<IOrderIdCounter>('OrderIdCounter', OrderIdCounterSchema);
 

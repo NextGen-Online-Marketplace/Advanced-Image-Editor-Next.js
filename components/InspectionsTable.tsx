@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 
 interface Inspection {
   id: string;
-  inspectionName: string;
   date: string;
   status: string;
 }
@@ -20,7 +19,6 @@ const mapInspection = (item: any): Inspection => ({
   id:
     (item && (item.id || item._id))?.toString?.() ||
     Math.random().toString(36).slice(2, 9),
-  inspectionName: item?.name || item?.inspectionName || "Unnamed Inspection",
   date: item?.date
     ? new Date(item.date).toLocaleDateString()
     : new Date().toLocaleDateString(),
@@ -35,7 +33,6 @@ export default function InspectionsTable({
 }: InspectionsTableProps) {
   const [inspections, setInspections] = useState<Inspection[]>([]);
   const [showAddInspectionPopup, setShowAddInspectionPopup] = useState(false);
-  const [newInspectionName, setNewInspectionName] = useState('');
   const [loading, setLoading] = useState(true);
 
   // Fetch inspections on component mount
@@ -72,12 +69,9 @@ export default function InspectionsTable({
 
   const handleCancelInspection = () => {
     setShowAddInspectionPopup(false);
-    setNewInspectionName('');
   };
 
   const handleSaveInspection = async () => {
-    if (!newInspectionName.trim()) return;
-
     try {
       const response = await fetch('/api/inspections', {
         method: 'POST',
@@ -85,16 +79,13 @@ export default function InspectionsTable({
           'Content-Type': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify({
-          inspectionName: newInspectionName.trim(),
-        }),
+        body: JSON.stringify({}),
       });
 
       if (response.ok) {
         const createdInspection = await response.json();
         setInspections(prev => [...prev, mapInspection(createdInspection)]);
         setShowAddInspectionPopup(false);
-        setNewInspectionName('');
       } else {
         console.error('Failed to create inspection');
       }
@@ -148,7 +139,6 @@ export default function InspectionsTable({
               <thead>
                 <tr>
                   <th>ID</th>
-                  <th>Inspection Name</th>
                   <th>Date</th>
                   <th>Status</th>
                   <th>Actions</th>
@@ -158,7 +148,6 @@ export default function InspectionsTable({
                 {inspections.map((inspection) => {
                   // Safety checks to prevent runtime errors
                   const safeId = inspection?.id?.toString() || 'unknown';
-                  const safeName = inspection?.inspectionName || 'Unnamed Inspection';
                   const safeDate = inspection?.date || 'Unknown Date';
                   const safeStatus = inspection?.status || 'Unknown';
                   
@@ -172,9 +161,6 @@ export default function InspectionsTable({
                         <span className="id-badge">
                           {safeId.slice(-4)}
                         </span>
-                      </td>
-                      <td className="name-cell">
-                        <span className="inspection-name">{safeName}</span>
                       </td>
                       <td className="date-cell">
                         <span className="date-text">{safeDate}</span>
@@ -248,18 +234,7 @@ export default function InspectionsTable({
             </div>
             
             <div className="popup-body">
-              <div className="form-group">
-                <label htmlFor="inspectionName">Inspection Name</label>
-                <input
-                  type="text"
-                  id="inspectionName"
-                  value={newInspectionName}
-                  onChange={(e) => setNewInspectionName(e.target.value)}
-                  placeholder="Enter inspection name..."
-                  className="form-input"
-                  autoFocus
-                />
-              </div>
+              <p>Creating a new inspection without a name field.</p>
             </div>
             
             <div className="popup-footer">
@@ -272,9 +247,8 @@ export default function InspectionsTable({
               <button 
                 className="popup-btn save-btn"
                 onClick={handleSaveInspection}
-                disabled={!newInspectionName.trim()}
               >
-                Save
+                Create
               </button>
             </div>
           </div>

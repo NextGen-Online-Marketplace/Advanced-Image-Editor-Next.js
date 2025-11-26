@@ -2,9 +2,10 @@
 import dbConnect from "./db";
 import Inspection, { IInspection } from "@/src/models/Inspection";
 import mongoose from "mongoose";
+import Client from "@/src/models/Client";
+import Agent from "@/src/models/Agent";
 
 type CreateInspectionParams = {
-  name: string;
   companyId: string;
   status?: string;
   date?: string | Date;
@@ -44,10 +45,93 @@ type CreateInspectionParams = {
 
 const formatInspection = (doc: IInspection | null) => {
   if (!doc) return null;
+  
+  // Format client names
+  const formatClientName = (client: any): string => {
+    if (!client) return '';
+    if (typeof client === 'string') return ''; // If it's just an ID, return empty
+    if (client.isCompany) {
+      return client.companyName || '';
+    }
+    const name = `${client.firstName || ''} ${client.lastName || ''}`.trim();
+    return name || '';
+  };
+
+  // Format agent names
+  const formatAgentName = (agent: any): string => {
+    if (!agent) return '';
+    if (typeof agent === 'string') return ''; // If it's just an ID, return empty
+    const name = `${agent.firstName || ''} ${agent.lastName || ''}`.trim();
+    return name || '';
+  };
+
+  // Format clients array
+  const formattedClients = doc.clients && Array.isArray(doc.clients)
+    ? doc.clients.map((client: any) => {
+        if (typeof client === 'object' && client !== null) {
+          return {
+            _id: client._id?.toString() || client.toString(),
+            firstName: client.firstName || '',
+            lastName: client.lastName || '',
+            companyName: client.companyName || '',
+            isCompany: client.isCompany || false,
+            formattedName: formatClientName(client),
+          };
+        }
+        return {
+          _id: client?.toString() || '',
+          formattedName: '',
+        };
+      })
+    : [];
+
+  // Format agents array
+  const formattedAgents = doc.agents && Array.isArray(doc.agents)
+    ? doc.agents.map((agent: any) => {
+        if (typeof agent === 'object' && agent !== null) {
+          return {
+            _id: agent._id?.toString() || agent.toString(),
+            firstName: agent.firstName || '',
+            lastName: agent.lastName || '',
+            formattedName: formatAgentName(agent),
+          };
+        }
+        return {
+          _id: agent?.toString() || '',
+          formattedName: '',
+        };
+      })
+    : [];
+
+  // Format listingAgent array (handle both singular and array)
+  const listingAgentField = (doc as any).listingAgent;
+  const formattedListingAgents = listingAgentField
+    ? (Array.isArray(listingAgentField)
+        ? listingAgentField.map((agent: any) => {
+            if (typeof agent === 'object' && agent !== null) {
+              return {
+                _id: agent._id?.toString() || agent.toString(),
+                firstName: agent.firstName || '',
+                lastName: agent.lastName || '',
+                formattedName: formatAgentName(agent),
+              };
+            }
+            return {
+              _id: agent?.toString() || '',
+              formattedName: '',
+            };
+          })
+        : [{
+            _id: listingAgentField._id?.toString() || listingAgentField.toString(),
+            firstName: listingAgentField.firstName || '',
+            lastName: listingAgentField.lastName || '',
+            formattedName: formatAgentName(listingAgentField),
+          }])
+    : [];
+
   return {
     _id: doc._id?.toString(),
     id: doc._id?.toString(),
-    name: doc.name ?? "",
     status: doc.status ?? "Pending",
     date: doc.date ? new Date(doc.date).toISOString() : null,
     companyId: doc.companyId ? doc.companyId.toString() : null,
@@ -67,6 +151,9 @@ const formatInspection = (doc: IInspection | null) => {
     pdfReportGeneratedAt: doc.pdfReportGeneratedAt ? new Date(doc.pdfReportGeneratedAt).toISOString() : null,
     htmlReportGeneratedAt: doc.htmlReportGeneratedAt ? new Date(doc.htmlReportGeneratedAt).toISOString() : null,
     hidePricing: doc.hidePricing ?? false,
+    clients: formattedClients,
+    agents: formattedAgents,
+    listingAgent: formattedListingAgents,
     createdAt: doc.createdAt ? new Date(doc.createdAt).toISOString() : null,
     updatedAt: doc.updatedAt ? new Date(doc.updatedAt).toISOString() : null,
   };
@@ -74,7 +161,6 @@ const formatInspection = (doc: IInspection | null) => {
 
 // 1. Create inspection scoped to a company
 export async function createInspection({
-  name,
   companyId,
   status,
   date,
@@ -94,14 +180,13 @@ export async function createInspection({
   internalNotes,
   customData,
 }: CreateInspectionParams) {
-  if (!name || !companyId) {
+  if (!companyId) {
     throw new Error("Missing required inspection fields");
   }
 
   await dbConnect();
 
   const inspectionData: any = {
-    name: String(name).trim(),
     status: status ?? "Pending",
     date: date ? new Date(date) : new Date(),
     companyId: new mongoose.Types.ObjectId(companyId),
@@ -183,21 +268,155 @@ export async function createInspection({
   return formatInspection(inspection);
 }
 
-// 2. Get all inspections for a company
-export async function getAllInspections(companyId: string) {
+// 2. Get all inspections for a company with filters and search
+export async function getAllInspections(
+  companyId: string,
+  options?: {
+    filter?: 'all' | 'today' | 'tomorrow' | 'pending' | 'in-progress' | 'trash';
+    search?: string;
+  }
+) {
   if (!companyId) {
     return [];
   }
 
   await dbConnect();
 
-  const inspections = await Inspection.find({
-    companyId: new mongoose.Types.ObjectId(companyId),
-  })
+  const filter = options?.filter || 'all';
+  const search = options?.search?.trim() || '';
+
+  // Build base query
+  const queryConditions: any[] = [
+    { companyId: new mongoose.Types.ObjectId(companyId) }
+  ];
+
+  // Handle soft delete filter
+  if (filter === 'trash') {
+    queryConditions.push({ deletedAt: { $ne: null, $exists: true } });
+  } else {
+    // Exclude soft-deleted inspections by default
+    queryConditions.push({
+      $or: [
+        { deletedAt: null },
+        { deletedAt: { $exists: false } }
+      ]
+    });
+  }
+
+  // Handle date filters
+  if (filter === 'today' || filter === 'tomorrow') {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    if (filter === 'today') {
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      queryConditions.push({
+        date: {
+          $gte: today,
+          $lt: tomorrow
+        }
+      });
+    } else if (filter === 'tomorrow') {
+      const dayAfterTomorrow = new Date(today);
+      dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
+      queryConditions.push({
+        date: {
+          $gte: new Date(today.getTime() + 24 * 60 * 60 * 1000),
+          $lt: dayAfterTomorrow
+        }
+      });
+    }
+  }
+
+  // Handle status filters
+  if (filter === 'pending') {
+    queryConditions.push({ status: 'Pending' });
+  } else if (filter === 'in-progress') {
+    queryConditions.push({ status: 'In-Progress' });
+  }
+
+  // Combine all conditions with $and
+  const query = queryConditions.length > 1 ? { $and: queryConditions } : queryConditions[0];
+
+  // Execute base query
+  let inspections = await Inspection.find(query)
+    .populate('agents', 'firstName lastName')
+    .populate('clients', 'firstName lastName companyName isCompany')
+    .populate('listingAgent', 'firstName lastName')
     .sort({ updatedAt: -1 })
     .lean();
 
-  return inspections.map((inspection) => formatInspection(inspection as IInspection)).filter(Boolean);
+  // Apply search filter if provided
+  if (search) {
+    const searchLower = search.toLowerCase();
+    const searchRegex = new RegExp(searchLower, 'i');
+
+    // Get client emails that match the search
+    const matchingClients = await Client.find({
+      company: new mongoose.Types.ObjectId(companyId),
+      $or: [
+        { firstName: searchRegex },
+        { lastName: searchRegex },
+        { companyName: searchRegex },
+        { email: searchRegex }
+      ]
+    }).select('email').lean();
+
+    const clientEmails = new Set(matchingClients.map((c: any) => c.email?.toLowerCase()));
+
+    // Get agent IDs that match the search
+    const matchingAgents = await Agent.find({
+      company: new mongoose.Types.ObjectId(companyId),
+      $or: [
+        { firstName: searchRegex },
+        { lastName: searchRegex },
+        { email: searchRegex }
+      ]
+    }).select('_id').lean();
+
+    const agentIds = new Set(matchingAgents.map((a: any) => a._id.toString()));
+
+    // Filter inspections by search criteria
+    inspections = inspections.filter((inspection: any) => {
+      // Search in location fields
+      if (inspection.location) {
+        if (
+          (inspection.location.address && searchRegex.test(inspection.location.address)) ||
+          (inspection.location.city && searchRegex.test(inspection.location.city)) ||
+          (inspection.location.state && searchRegex.test(inspection.location.state)) ||
+          (inspection.location.zip && searchRegex.test(inspection.location.zip))
+        ) {
+          return true;
+        }
+      }
+
+      // Search in agent names (populated)
+      if (inspection.agents && Array.isArray(inspection.agents)) {
+        for (const agent of inspection.agents) {
+          if (agent && typeof agent === 'object') {
+            const agentId = agent._id?.toString() || agent.toString();
+            if (agentIds.has(agentId)) {
+              return true;
+            }
+            const fullName = `${agent.firstName || ''} ${agent.lastName || ''}`.toLowerCase();
+            if (fullName.includes(searchLower)) {
+              return true;
+            }
+          } else if (agentIds.has(agent.toString())) {
+            return true;
+          }
+        }
+      }
+
+      // Note: Client search by email matching would require storing client emails in inspection
+      // For now, we skip client search as there's no direct relationship
+
+      return false;
+    });
+  }
+
+  return inspections.map((inspection) => formatInspection(inspection as any)).filter(Boolean);
 }
 
 // 3. Get single inspection by ID
@@ -209,10 +428,10 @@ export async function getInspection(inspectionId: string) {
   await dbConnect();
 
   const inspection = await Inspection.findById(inspectionId).lean();
-  return formatInspection(inspection as IInspection);
+  return formatInspection(inspection as any);
 }
 
-// 4. Delete inspection
+// 4. Soft delete inspection
 export async function deleteInspection(inspectionId: string) {
   if (!mongoose.Types.ObjectId.isValid(inspectionId)) {
     throw new Error('Invalid inspection ID format');
@@ -220,19 +439,23 @@ export async function deleteInspection(inspectionId: string) {
 
   await dbConnect();
 
-  const result = await Inspection.deleteOne({
-    _id: new mongoose.Types.ObjectId(inspectionId)
-  });
+  const result = await Inspection.updateOne(
+    {
+      _id: new mongoose.Types.ObjectId(inspectionId)
+    },
+    {
+      $set: { deletedAt: new Date() }
+    }
+  );
 
   return {
-    deletedCount: result.deletedCount,
+    deletedCount: result.modifiedCount,
     acknowledged: result.acknowledged,
   };
 }
 
 // 5. Update inspection - can update any inspection field including headerImage and headerText
 export async function updateInspection(inspectionId: string, data: Partial<{
-  name: string;
   status: string;
   date: string | Date;
   headerImage: string;

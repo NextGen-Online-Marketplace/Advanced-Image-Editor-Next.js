@@ -56,7 +56,6 @@ const ModifierFieldSchema = new Schema<IModifierField>(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Company',
       required: true,
-      index: true,
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

@@ -38,7 +38,6 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const name = body.inspectionName ?? body.name ?? "";
     const status = body.status ?? "Pending";
     const date = body.date ?? body.dateTime;
     const inspector = body.inspector;
@@ -75,7 +74,6 @@ export async function POST(req: NextRequest) {
     }
 
     const inspection = await createInspection({
-      name: String(name).trim(),
       status,
       date,
       companyId: currentUser.company.toString(),
@@ -97,6 +95,8 @@ export async function POST(req: NextRequest) {
     });
 
     // Handle clients creation/update
+    const clientIds: mongoose.Types.ObjectId[] = [];
+    
     if (clients.length > 0) {
       for (const clientData of clients) {
         if (!clientData.email || !clientData.email.trim()) {
@@ -139,6 +139,7 @@ export async function POST(req: NextRequest) {
         });
 
         const isCompany = Boolean(clientData.isCompany);
+        let clientId: mongoose.Types.ObjectId;
         
         if (existingClient) {
           // Update existing client
@@ -163,6 +164,7 @@ export async function POST(req: NextRequest) {
           }
 
           await Client.findByIdAndUpdate(existingClient._id, updateData);
+          clientId = existingClient._id as mongoose.Types.ObjectId;
         } else {
           // Create new client
           const createData: any = {
@@ -185,8 +187,18 @@ export async function POST(req: NextRequest) {
             createData.lastName = clientData.lastName?.trim();
           }
 
-          await Client.create(createData);
+          const newClient = await Client.create(createData);
+          clientId = newClient._id as mongoose.Types.ObjectId;
         }
+
+        clientIds.push(clientId);
+      }
+
+      // Update inspection with all client IDs
+      if (inspection?._id && clientIds.length > 0) {
+        await Inspection.findByIdAndUpdate(inspection._id, {
+          clients: clientIds,
+        });
       }
     }
 
@@ -588,7 +600,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// GET /api/inspections → list all
+// GET /api/inspections → list all with filters and search
 export async function GET(req: NextRequest) {
   try {
     await dbConnect();
@@ -602,7 +614,16 @@ export async function GET(req: NextRequest) {
       return NextResponse.json([], { status: 200 });
     }
 
-    const inspections = await getAllInspections(currentUser.company.toString());
+    // Get query parameters
+    const { searchParams } = new URL(req.url);
+    const filter = searchParams.get('filter') as 'all' | 'today' | 'tomorrow' | 'pending' | 'in-progress' | 'trash' || 'all';
+    const search = searchParams.get('search') || '';
+
+    const inspections = await getAllInspections(currentUser.company.toString(), {
+      filter,
+      search,
+    });
+    
     return NextResponse.json(
       inspections.map((inspection: any) => mapInspectionResponse(inspection))
     );

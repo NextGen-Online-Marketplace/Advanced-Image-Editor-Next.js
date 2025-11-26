@@ -25,7 +25,12 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Info } from 'lucide-react';
 import { ImageUpload } from '@/components/ui/image-upload';
 import CustomFields from '@/components/custom-fields/CustomFields';
+import { AddressAutocomplete } from '@/components/ui/address-autocomplete';
 import { toast } from 'sonner';
+import { checkInspectorAvailability, type InspectorAvailability, getDayKeyFromDate } from '@/src/lib/inspection-availability';
+import { formatTimeLabel, timeToMinutes } from '@/src/lib/availability-utils';
+import { DAY_LABELS } from '@/src/constants/availability';
+import { TimeBlock } from '@/src/models/Availability';
 
 const getDefaultDate = () => {
   const tomorrow = new Date();
@@ -39,13 +44,12 @@ const isValidObjectId = (str: string): boolean => {
 };
 
 const inspectionFormSchema = z.object({
-  inspectionName: z.string().min(1, 'Inspection name is required'),
   inspector: z.string().optional(),
   companyOwnerRequested: z.boolean(),
   date: z.date().optional(),
   time: z.string(),
   location: z.object({
-    address: z.string().optional(),
+    address: z.string().min(1, 'Address is required'),
     unit: z.string().optional(),
     city: z.string().optional(),
     state: z.string().optional(),
@@ -54,7 +58,7 @@ const inspectionFormSchema = z.object({
     squareFeet: z.string().optional(),
     yearBuild: z.string().optional(),
     foundation: z.enum(['Basement', 'Slab', 'Crawlspace']).optional(),
-  }).optional(),
+  }),
   enableClientCCEmail: z.boolean(),
   clients: z.array(z.object({
     isCompany: z.boolean(),
@@ -132,23 +136,22 @@ export default function CreateInspectionPage() {
   
   const form = useForm<InspectionFormData>({
     resolver: zodResolver(inspectionFormSchema),
-    mode: 'onSubmit',
+    mode: 'onChange',
     reValidateMode: 'onChange',
     defaultValues: {
-      inspectionName: '',
       inspector: undefined,
       companyOwnerRequested: false,
       date: getDefaultDate(),
       time: '00:00',
       location: {
-    address: '',
-    unit: '',
-    city: '',
-    state: '',
-    zip: '',
-    county: '',
-    squareFeet: '',
-    yearBuild: '',
+        address: '',
+        unit: '',
+        city: '',
+        state: '',
+        zip: '',
+        county: '',
+        squareFeet: '',
+        yearBuild: '',
         foundation: undefined,
       },
       enableClientCCEmail: true,
@@ -258,6 +261,10 @@ export default function CreateInspectionPage() {
     endDate: undefined,
     endTime: '00:00',
   });
+  const [inspectorAvailability, setInspectorAvailability] = useState<InspectorAvailability | null>(null);
+  const [viewMode, setViewMode] = useState<'openSchedule' | 'timeSlots'>('openSchedule');
+  const [inspectorName, setInspectorName] = useState<string>('');
+  const [referralSourceOptions, setReferralSourceOptions] = useState<Array<{ value: string; label: string }>>([]);
 
   useEffect(() => {
     fetchFormData();
@@ -360,11 +367,12 @@ export default function CreateInspectionPage() {
   const fetchFormData = async () => {
     try {
       setLoadingFormData(true);
-      const [formDataRes, servicesRes, discountCodesRes, agreementsRes] = await Promise.all([
+      const [formDataRes, servicesRes, discountCodesRes, agreementsRes, schedulingOptionsRes] = await Promise.all([
         fetch('/api/inspections/form-data', { credentials: 'include' }),
         fetch('/api/services', { credentials: 'include' }),
         fetch('/api/discount-codes', { credentials: 'include' }),
         fetch('/api/agreements', { credentials: 'include' }),
+        fetch('/api/scheduling-options', { credentials: 'include' }),
       ]);
 
       if (formDataRes.ok) {
@@ -388,12 +396,241 @@ export default function CreateInspectionPage() {
         const data = await agreementsRes.json();
         setAgreements(data.agreements || []);
       }
+
+      if (schedulingOptionsRes.ok) {
+        const data = await schedulingOptionsRes.json();
+        const referralSources = data.referralSources || '';
+        // Parse comma-separated referral sources into react-select format
+        const parsedOptions = referralSources
+          .split(',')
+          .map((source: string) => source.trim())
+          .filter((source: string) => source.length > 0)
+          .map((source: string) => ({
+            value: source,
+            label: source,
+          }));
+        setReferralSourceOptions(parsedOptions);
+      }
     } catch (error) {
       console.error('Error fetching form data:', error);
     } finally {
       setLoadingFormData(false);
     }
   };
+
+  // Set company owner as default inspector if they are in the inspectors list
+  useEffect(() => {
+    if (companyOwner && inspectors.length > 0) {
+      const currentInspector = form.getValues('inspector');
+      // Only set default if no inspector is currently selected
+      if (!currentInspector) {
+        const companyOwnerInInspectors = inspectors.find(
+          (inspector) => inspector.value === companyOwner.id
+        );
+        if (companyOwnerInInspectors) {
+          form.setValue('inspector', companyOwner.id);
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyOwner, inspectors]);
+
+  // Check inspector availability when inspector or date changes
+  useEffect(() => {
+    const checkAvailability = async () => {
+      const inspectorId = form.getValues('inspector');
+      const date = form.getValues('date');
+      const time = form.getValues('time');
+
+      // Skip check if no inspector or date selected
+      if (!inspectorId || !date) {
+        setInspectorAvailability(null);
+        setInspectorName('');
+        return;
+      }
+
+      try {
+        // Format date to YYYY-MM-DD
+        const dateString = format(date, 'yyyy-MM-dd');
+        
+        // Fetch availability data
+        const response = await fetch(
+          `/api/inspections/check-availability?inspectorId=${encodeURIComponent(inspectorId)}&date=${encodeURIComponent(dateString)}`,
+          { credentials: 'include' }
+        );
+
+        if (!response.ok) {
+          console.error('Failed to fetch availability');
+          return;
+        }
+
+        const data = await response.json();
+        setInspectorAvailability(data.availability);
+        setViewMode(data.viewMode);
+        setInspectorName(data.inspectorName || '');
+
+        // Check availability for the selected date and time
+        if (!data.availability) {
+          // No availability data for inspector
+          toast.error(
+            `${data.inspectorName} is not available for this date`,
+            { duration: 5000 }
+          );
+          return;
+        }
+
+        // Get available times for the day
+        const result = checkInspectorAvailability(
+          date,
+          time || '00:00', // Use selected time or dummy time to get available times
+          data.viewMode,
+          data.availability
+        );
+
+        // Get day name for the selected date
+        const dayKey = getDayKeyFromDate(date);
+        const dayName = DAY_LABELS[dayKey];
+
+        // Helper function to format schedule blocks for Open Schedule mode
+        const formatScheduleBlocks = () => {
+          const dayData = data.availability.days[dayKey];
+          if (!dayData || !dayData.openSchedule || dayData.openSchedule.length === 0) {
+            return '';
+          }
+          
+          const blocks = dayData.openSchedule
+            .map((block: TimeBlock) => `${formatTimeLabel(block.start)}-${formatTimeLabel(block.end)}`)
+            .join(', ');
+          
+          return blocks;
+        };
+
+        // If time is selected, check if it's available
+        if (time) {
+          // If selected time is not available, show toast with available times
+          if (!result.available) {
+            if (result.availableTimes.length > 0) {
+              if (data.viewMode === 'openSchedule') {
+                // For Open Schedule, show regular schedule
+                const scheduleBlocks = formatScheduleBlocks();
+                if (scheduleBlocks) {
+                  toast.error(
+                    `${data.inspectorName}'s regular schedule of ${scheduleBlocks} on ${dayName}s.`,
+                    { duration: 5000 }
+                  );
+                } else {
+                  toast.error(
+                    `${data.inspectorName} is not available for this date`,
+                    { duration: 5000 }
+                  );
+                }
+              } else {
+                // For Time Slots, show available time slots with day name
+                const formattedTimes = result.availableTimes.map(formatTimeLabel);
+                
+                // Join times with commas and "or" for last item
+                let timesText = '';
+                if (formattedTimes.length === 1) {
+                  timesText = formattedTimes[0];
+                } else if (formattedTimes.length === 2) {
+                  timesText = `${formattedTimes[0]} or ${formattedTimes[1]}`;
+                } else {
+                  const lastTime = formattedTimes.pop();
+                  timesText = `${formattedTimes.join(', ')}, or ${lastTime}`;
+                }
+
+                toast.error(
+                  `${data.inspectorName} available at ${timesText} on ${dayName}s`,
+                  { duration: 5000 }
+                );
+              }
+            } else {
+              toast.error(
+                `${data.inspectorName} is not available for this date`,
+                { duration: 5000 }
+              );
+            }
+          } else {
+            // Inspector is available, check if date is in the past
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const selectedDate = new Date(date);
+            selectedDate.setHours(0, 0, 0, 0);
+            
+            if (selectedDate < today) {
+              toast.warning(
+                'Date is in the past, no confirmation email will be sent',
+                { duration: 5000 }
+              );
+            }
+            // If available and not in past, silently allow (no toast)
+          }
+        } else {
+          // No time selected yet, show available times so user knows what's available
+          // This helps user know availability when they first select the date
+          if (result.availableTimes.length > 0) {
+            if (data.viewMode === 'openSchedule') {
+              // For Open Schedule, show regular schedule
+              const scheduleBlocks = formatScheduleBlocks();
+              if (scheduleBlocks) {
+                toast.info(
+                  `${data.inspectorName}'s regular schedule of ${scheduleBlocks} on ${dayName}s.`,
+                  { duration: 5000 }
+                );
+              } else {
+                toast.info(
+                  `${data.inspectorName} available on ${dayName}s`,
+                  { duration: 5000 }
+                );
+              }
+            } else {
+              // For Time Slots, show available time slots with day name
+              const formattedTimes = result.availableTimes.map(formatTimeLabel);
+              
+              // Join times with commas and "or" for last item
+              let timesText = '';
+              if (formattedTimes.length === 1) {
+                timesText = formattedTimes[0];
+              } else if (formattedTimes.length === 2) {
+                timesText = `${formattedTimes[0]} or ${formattedTimes[1]}`;
+              } else {
+                const lastTime = formattedTimes.pop();
+                timesText = `${formattedTimes.join(', ')}, or ${lastTime}`;
+              }
+
+              toast.info(
+                `${data.inspectorName} available at ${timesText} on ${dayName}s`,
+                { duration: 5000 }
+              );
+            }
+          } else {
+            toast.error(
+              `${data.inspectorName} is not available for this date`,
+              { duration: 5000 }
+            );
+          }
+          
+          // Also check if date is in the past (even if no time selected)
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const selectedDate = new Date(date);
+          selectedDate.setHours(0, 0, 0, 0);
+          
+          if (selectedDate < today) {
+            toast.warning(
+              'Date is in the past, no confirmation email will be sent',
+              { duration: 5000 }
+            );
+          }
+        }
+      } catch (error) {
+        console.error('Error checking availability:', error);
+      }
+    };
+
+    checkAvailability();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.watch('inspector'), form.watch('date')]);
 
   const handleOpenEventModal = (index?: number) => {
     if (index !== undefined) {
@@ -458,6 +695,15 @@ export default function CreateInspectionPage() {
   };
 
   const onSubmit = async (data: InspectionFormData, e?: React.BaseSyntheticEvent) => {
+    // Validate that at least one service is selected
+    if (selectedServices.length === 0) {
+      toast.error('Please select at least one service', {
+        duration: 5000,
+      });
+      setIsSubmitting(false);
+      return;
+    }
+
     // Validate all custom fields before submission
     const customFieldsResponse = await fetch('/api/scheduling-options/custom-fields', {
       credentials: 'include',
@@ -572,6 +818,9 @@ export default function CreateInspectionPage() {
         };
       });
 
+      // Set status based on confirmedInspection
+      const status = data.confirmedInspection ? 'Approved' : 'Pending';
+
       const response = await fetch('/api/inspections', {
         method: 'POST',
         headers: {
@@ -579,7 +828,6 @@ export default function CreateInspectionPage() {
         },
         credentials: 'include',
         body: JSON.stringify({
-          inspectionName: data.inspectionName.trim(),
           inspector: data.inspector,
           companyOwnerRequested: data.companyOwnerRequested,
           enableClientCCEmail: data.enableClientCCEmail,
@@ -602,6 +850,7 @@ export default function CreateInspectionPage() {
           disableAutomatedNotifications: data.disableAutomatedNotifications,
           internalNotes: data.internalNotes?.trim() || undefined,
           customData: data.customData || {},
+          status: status,
         }),
       });
 
@@ -640,19 +889,6 @@ export default function CreateInspectionPage() {
         </div>
 
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 bg-card border rounded-lg p-6">
-          <div className="space-y-2">
-            <Label htmlFor="inspectionName">Inspection Name *</Label>
-            <Input
-              id="inspectionName"
-              {...form.register('inspectionName')}
-              placeholder="Enter inspection name..."
-              autoFocus
-            />
-            {form.formState.errors.inspectionName && (
-              <p className="text-sm text-destructive">{form.formState.errors.inspectionName.message}</p>
-            )}
-          </div>
-
           <div className="space-y-2">
             <Label>Inspector</Label>
             <Controller
@@ -697,61 +933,127 @@ export default function CreateInspectionPage() {
 
           <div className="space-y-2">
             <Label>Date/Time</Label>
-            <div className="flex gap-2">
-              <Controller
-                name="date"
-                control={form.control}
-                render={({ field }) => (
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                        type="button"
-                    variant="outline"
-                    className={cn(
-                      "w-full justify-start text-left font-normal",
-                          !field.value && "text-muted-foreground"
-                    )}
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                        {field.value ? format(field.value, "PPP") : "Pick a date"}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                        selected={field.value}
-                        onSelect={field.onChange}
-                    initialFocus
-                  />
-                </PopoverContent>
-              </Popover>
-                )}
-              />
-              <Input
-                type="time"
-                {...form.register('time')}
-                className="w-32"
-                placeholder="Time"
-              />
+            <div className="flex gap-4 items-end">
+              <div className="flex-1">
+                <Controller
+                  name="date"
+                  control={form.control}
+                  render={({ field }) => (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                          type="button"
+                      variant="outline"
+                      className={cn(
+                        "w-full justify-start text-left font-normal",
+                            !field.value && "text-muted-foreground"
+                      )}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                          {field.value ? format(field.value, "PPP") : "Pick a date"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                          selected={field.value}
+                          onSelect={field.onChange}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+                  )}
+                />
+              </div>
+              <div className="w-32">
+                <Input
+                  type="time"
+                  {...form.register('time')}
+                  className="w-full cursor-pointer"
+                  placeholder="Time"
+                  onClick={(e) => {
+                    // Ensure the time picker opens when clicking anywhere on the input
+                    if (e.currentTarget.showPicker) {
+                      e.currentTarget.showPicker();
+                    }
+                  }}
+                  onFocus={(e) => {
+                    // Also open picker on focus for better UX
+                    if (e.currentTarget.showPicker) {
+                      e.currentTarget.showPicker();
+                    }
+                  }}
+                />
+              </div>
             </div>
           </div>
 
-          <Accordion type="single" collapsible className="border-t pt-4">
+          <Accordion type="single" collapsible defaultValue="location" className="border-t pt-4">
             <AccordionItem value="location" className="border-none">
               <AccordionTrigger className="text-lg font-semibold py-2">
                 Location
               </AccordionTrigger>
               <AccordionContent className="space-y-4 pt-4">
                 <div className="space-y-2">
-                  <Label htmlFor="address">Address</Label>
-                  <Input
-                    id="address"
-                    {...form.register('location.address')}
-                    placeholder="Enter address..."
+                  <Label htmlFor="address">
+                    Address <span className="text-destructive">*</span>
+                  </Label>
+                  <Controller
+                    name="location.address"
+                    control={form.control}
+                    render={({ field }) => {
+                      const handleSelect = async (placeId: string, description: string) => {
+                        try {
+                          // Fetch address details using place_id
+                          const response = await fetch(
+                            `/api/addresses/details?placeId=${encodeURIComponent(placeId)}`,
+                            { credentials: 'include' }
+                          );
+
+                          if (!response.ok) {
+                            console.error('Failed to fetch address details');
+                            return;
+                          }
+
+                          const data = await response.json();
+                          // Use streetAddress instead of formattedAddress
+                          const streetAddress = data.streetAddress || description.split(',')[0].trim();
+                          
+                          // Update the address field with just the street address
+                          field.onChange(streetAddress);
+                          
+                          // Update all other location fields
+                          const currentLocation = form.getValues('location');
+                          form.setValue('location', {
+                            ...currentLocation,
+                            address: streetAddress,
+                            city: data.city || currentLocation.city || '',
+                            state: data.state || currentLocation.state || '',
+                            zip: data.zip || currentLocation.zip || '',
+                            county: data.county || currentLocation.county || '',
+                          });
+                        } catch (error) {
+                          console.error('Error fetching address details:', error);
+                        }
+                      };
+
+                      return (
+                        <AddressAutocomplete
+                          id="address"
+                          value={field.value || ''}
+                          onChange={field.onChange}
+                          onSelect={handleSelect}
+                          placeholder="Type to search addresses..."
+                        />
+                      );
+                    }}
                   />
+                  {form.formState.errors.location?.address && (
+                    <p className="text-sm text-destructive">{form.formState.errors.location.address.message}</p>
+                  )}
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="unit">Unit</Label>
                     <Input
@@ -770,7 +1072,7 @@ export default function CreateInspectionPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="state">State</Label>
                     <Input
@@ -789,16 +1091,40 @@ export default function CreateInspectionPage() {
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="county">County</Label>
-                  <Input
-                    id="county"
-                    {...form.register('location.county')}
-                    placeholder="County..."
-                  />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="county">County</Label>
+                    <Input
+                      id="county"
+                      {...form.register('location.county')}
+                      placeholder="County..."
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="foundation">Foundation</Label>
+                    <Controller
+                      name="location.foundation"
+                      control={form.control}
+                      render={({ field }) => (
+                    <Select
+                          value={field.value ? { value: field.value, label: field.value } : null}
+                          onChange={(option) => field.onChange(option?.value || undefined)}
+                      options={[
+                        { value: 'Basement', label: 'Basement' },
+                        { value: 'Slab', label: 'Slab' },
+                        { value: 'Crawlspace', label: 'Crawlspace' },
+                      ]}
+                      isClearable
+                      placeholder="Select foundation type..."
+                      className="react-select-container"
+                      classNamePrefix="react-select"
+                        />
+                      )}
+                    />
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="squareFeet">Square Feet</Label>
                     <Input
@@ -819,29 +1145,6 @@ export default function CreateInspectionPage() {
                       placeholder="Year..."
                     />
                   </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="foundation">Foundation</Label>
-                  <Controller
-                    name="location.foundation"
-                    control={form.control}
-                    render={({ field }) => (
-                  <Select
-                        value={field.value ? { value: field.value, label: field.value } : null}
-                        onChange={(option) => field.onChange(option?.value || undefined)}
-                    options={[
-                      { value: 'Basement', label: 'Basement' },
-                      { value: 'Slab', label: 'Slab' },
-                      { value: 'Crawlspace', label: 'Crawlspace' },
-                    ]}
-                    isClearable
-                    placeholder="Select foundation type..."
-                    className="react-select-container"
-                    classNamePrefix="react-select"
-                      />
-                    )}
-                  />
                 </div>
               </AccordionContent>
             </AccordionItem>
@@ -1012,7 +1315,7 @@ export default function CreateInspectionPage() {
                         />
                       </div>
                     ) : (
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor={`firstName-${index}`}>First Name</Label>
                           <Input
@@ -1044,36 +1347,37 @@ export default function CreateInspectionPage() {
                       </div>
                     )}
 
-                    <div className="space-y-2">
-                      <Label htmlFor={`email-${index}`}>Email</Label>
-                      <Input
-                        id={`email-${index}`}
-                        type="email"
-                        value={client.email || ''}
-                        onChange={(e) => {
-                          const currentClients = form.getValues('clients');
-                          const newClients = [...currentClients];
-                          newClients[index].email = e.target.value;
-                          form.setValue('clients', newClients);
-                        }}
-                        placeholder="Email..."
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor={`ccEmail-${index}`}>CC Email</Label>
-                      <Input
-                        id={`ccEmail-${index}`}
-                        type="email"
-                        value={client.ccEmail || ''}
-                        onChange={(e) => {
-                          const currentClients = form.getValues('clients');
-                          const newClients = [...currentClients];
-                          newClients[index].ccEmail = e.target.value;
-                          form.setValue('clients', newClients);
-                        }}
-                        placeholder="CC email..."
-                      />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor={`email-${index}`}>Email</Label>
+                        <Input
+                          id={`email-${index}`}
+                          type="email"
+                          value={client.email || ''}
+                          onChange={(e) => {
+                            const currentClients = form.getValues('clients');
+                            const newClients = [...currentClients];
+                            newClients[index].email = e.target.value;
+                            form.setValue('clients', newClients);
+                          }}
+                          placeholder="Email..."
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor={`ccEmail-${index}`}>CC Email</Label>
+                        <Input
+                          id={`ccEmail-${index}`}
+                          type="email"
+                          value={client.ccEmail || ''}
+                          onChange={(e) => {
+                            const currentClients = form.getValues('clients');
+                            const newClients = [...currentClients];
+                            newClients[index].ccEmail = e.target.value;
+                            form.setValue('clients', newClients);
+                          }}
+                          placeholder="CC email..."
+                        />
+                      </div>
                     </div>
 
                     <div className="space-y-2">
@@ -1118,36 +1422,38 @@ export default function CreateInspectionPage() {
                       />
                     </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor={`notes-${index}`}>Notes</Label>
-                      <Textarea
-                        id={`notes-${index}`}
-                        value={client.notes || ''}
-                        onChange={(e) => {
-                          const currentClients = form.getValues('clients');
-                          const newClients = [...currentClients];
-                          newClients[index].notes = e.target.value;
-                          form.setValue('clients', newClients);
-                        }}
-                        placeholder="Notes..."
-                        rows={3}
-                      />
-                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor={`notes-${index}`}>Notes</Label>
+                        <Textarea
+                          id={`notes-${index}`}
+                          value={client.notes || ''}
+                          onChange={(e) => {
+                            const currentClients = form.getValues('clients');
+                            const newClients = [...currentClients];
+                            newClients[index].notes = e.target.value;
+                            form.setValue('clients', newClients);
+                          }}
+                          placeholder="Notes..."
+                          rows={3}
+                        />
+                      </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor={`privateNotes-${index}`}>Private Notes</Label>
-                      <Textarea
-                        id={`privateNotes-${index}`}
-                        value={client.privateNotes || ''}
-                        onChange={(e) => {
-                          const currentClients = form.getValues('clients');
-                          const newClients = [...currentClients];
-                          newClients[index].privateNotes = e.target.value;
-                          form.setValue('clients', newClients);
-                        }}
-                        placeholder="Private notes..."
-                        rows={3}
-                      />
+                      <div className="space-y-2">
+                        <Label htmlFor={`privateNotes-${index}`}>Private Notes</Label>
+                        <Textarea
+                          id={`privateNotes-${index}`}
+                          value={client.privateNotes || ''}
+                          onChange={(e) => {
+                            const currentClients = form.getValues('clients');
+                            const newClients = [...currentClients];
+                            newClients[index].privateNotes = e.target.value;
+                            form.setValue('clients', newClients);
+                          }}
+                          placeholder="Private notes..."
+                          rows={3}
+                        />
+                      </div>
                     </div>
                   </div>
                   );
@@ -1330,7 +1636,7 @@ export default function CreateInspectionPage() {
                         />
                       </div>
                     ) : (
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor={`personFirstName-${index}`}>First Name</Label>
                           <Input
@@ -1362,36 +1668,37 @@ export default function CreateInspectionPage() {
                       </div>
                     )}
 
-                    <div className="space-y-2">
-                      <Label htmlFor={`personEmail-${index}`}>Email</Label>
-                      <Input
-                        id={`personEmail-${index}`}
-                        type="email"
-                        value={person.email || ''}
-                        onChange={(e) => {
-                          const currentPeople = form.getValues('people');
-                          const newPeople = [...currentPeople];
-                          newPeople[index].email = e.target.value;
-                          form.setValue('people', newPeople);
-                        }}
-                        placeholder="Email..."
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor={`personCCEmail-${index}`}>CC Email</Label>
-                      <Input
-                        id={`personCCEmail-${index}`}
-                        type="email"
-                        value={person.ccEmail || ''}
-                        onChange={(e) => {
-                          const currentPeople = form.getValues('people');
-                          const newPeople = [...currentPeople];
-                          newPeople[index].ccEmail = e.target.value;
-                          form.setValue('people', newPeople);
-                        }}
-                        placeholder="CC email..."
-                      />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor={`personEmail-${index}`}>Email</Label>
+                        <Input
+                          id={`personEmail-${index}`}
+                          type="email"
+                          value={person.email || ''}
+                          onChange={(e) => {
+                            const currentPeople = form.getValues('people');
+                            const newPeople = [...currentPeople];
+                            newPeople[index].email = e.target.value;
+                            form.setValue('people', newPeople);
+                          }}
+                          placeholder="Email..."
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor={`personCCEmail-${index}`}>CC Email</Label>
+                        <Input
+                          id={`personCCEmail-${index}`}
+                          type="email"
+                          value={person.ccEmail || ''}
+                          onChange={(e) => {
+                            const currentPeople = form.getValues('people');
+                            const newPeople = [...currentPeople];
+                            newPeople[index].ccEmail = e.target.value;
+                            form.setValue('people', newPeople);
+                          }}
+                          placeholder="CC email..."
+                        />
+                      </div>
                     </div>
 
                     <div className="space-y-2">
@@ -1410,44 +1717,45 @@ export default function CreateInspectionPage() {
                       />
                     </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor={`personRole-${index}`}>Role</Label>
-                      <Controller
-                        name={`people.${index}.role`}
-                        control={form.control}
-                        render={({ field }) => (
-                          <Select
-                            value={field.value ? { value: field.value, label: field.value } : null}
-                            onChange={(option) => field.onChange(option?.value || undefined)}
-                            options={[
-                              { value: 'Attorney', label: 'Attorney' },
-                              { value: 'Insurance agent', label: 'Insurance agent' },
-                              { value: 'Transaction coordinator', label: 'Transaction coordinator' },
-                              { value: 'Title company', label: 'Title company' },
-                              { value: 'Other', label: 'Other' },
-                            ]}
-                            isClearable
-                            placeholder="Select role..."
-                            className="react-select-container"
-                            classNamePrefix="react-select"
-                          />
-                        )}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor={`personPersonCompany-${index}`}>Company Name</Label>
-                      <Input
-                        id={`personPersonCompany-${index}`}
-                        value={person.personCompany || ''}
-                        onChange={(e) => {
-                          const currentPeople = form.getValues('people');
-                          const newPeople = [...currentPeople];
-                          newPeople[index].personCompany = e.target.value;
-                          form.setValue('people', newPeople);
-                        }}
-                        placeholder="Company name..."
-                      />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor={`personRole-${index}`}>Role</Label>
+                        <Controller
+                          name={`people.${index}.role`}
+                          control={form.control}
+                          render={({ field }) => (
+                            <Select
+                              value={field.value ? { value: field.value, label: field.value } : null}
+                              onChange={(option) => field.onChange(option?.value || undefined)}
+                              options={[
+                                { value: 'Attorney', label: 'Attorney' },
+                                { value: 'Insurance agent', label: 'Insurance agent' },
+                                { value: 'Transaction coordinator', label: 'Transaction coordinator' },
+                                { value: 'Title company', label: 'Title company' },
+                                { value: 'Other', label: 'Other' },
+                              ]}
+                              isClearable
+                              placeholder="Select role..."
+                              className="react-select-container"
+                              classNamePrefix="react-select"
+                            />
+                          )}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor={`personPersonCompany-${index}`}>Company Name</Label>
+                        <Input
+                          id={`personPersonCompany-${index}`}
+                          value={person.personCompany || ''}
+                          onChange={(e) => {
+                            const currentPeople = form.getValues('people');
+                            const newPeople = [...currentPeople];
+                            newPeople[index].personCompany = e.target.value;
+                            form.setValue('people', newPeople);
+                          }}
+                          placeholder="Company name..."
+                        />
+                      </div>
                     </div>
 
                     <div className="space-y-2">
@@ -1476,36 +1784,38 @@ export default function CreateInspectionPage() {
                       />
                     </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor={`personNotes-${index}`}>Notes</Label>
-                      <Textarea
-                        id={`personNotes-${index}`}
-                        value={person.notes || ''}
-                        onChange={(e) => {
-                          const currentPeople = form.getValues('people');
-                          const newPeople = [...currentPeople];
-                          newPeople[index].notes = e.target.value;
-                          form.setValue('people', newPeople);
-                        }}
-                        placeholder="Notes..."
-                        rows={3}
-                      />
-                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor={`personNotes-${index}`}>Notes</Label>
+                        <Textarea
+                          id={`personNotes-${index}`}
+                          value={person.notes || ''}
+                          onChange={(e) => {
+                            const currentPeople = form.getValues('people');
+                            const newPeople = [...currentPeople];
+                            newPeople[index].notes = e.target.value;
+                            form.setValue('people', newPeople);
+                          }}
+                          placeholder="Notes..."
+                          rows={3}
+                        />
+                      </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor={`personPrivateNotes-${index}`}>Private Notes</Label>
-                      <Textarea
-                        id={`personPrivateNotes-${index}`}
-                        value={person.privateNotes || ''}
-                        onChange={(e) => {
-                          const currentPeople = form.getValues('people');
-                          const newPeople = [...currentPeople];
-                          newPeople[index].privateNotes = e.target.value;
-                          form.setValue('people', newPeople);
-                        }}
-                        placeholder="Private notes..."
-                        rows={3}
-                      />
+                      <div className="space-y-2">
+                        <Label htmlFor={`personPrivateNotes-${index}`}>Private Notes</Label>
+                        <Textarea
+                          id={`personPrivateNotes-${index}`}
+                          value={person.privateNotes || ''}
+                          onChange={(e) => {
+                            const currentPeople = form.getValues('people');
+                            const newPeople = [...currentPeople];
+                            newPeople[index].privateNotes = e.target.value;
+                            form.setValue('people', newPeople);
+                          }}
+                          placeholder="Private notes..."
+                          rows={3}
+                        />
+                      </div>
                     </div>
                   </div>
                   );
@@ -1644,7 +1954,7 @@ export default function CreateInspectionPage() {
                         />
                       </div>
 
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor={`agentFirstName-${index}`}>First Name</Label>
                           <Input
@@ -1683,44 +1993,45 @@ export default function CreateInspectionPage() {
                         </div>
                       </div>
 
-                      <div className="space-y-2">
-                        <Label htmlFor={`agentEmail-${index}`}>Email</Label>
-                        <Input
-                          id={`agentEmail-${index}`}
-                          type="email"
-                          value={agent.email || ''}
-                          onChange={(e) => {
-                            const currentAgents = form.getValues('agents');
-                            const newAgents = [...currentAgents];
-                            newAgents[index] = {
-                              ...newAgents[index],
-                              tags: newAgents[index].tags || [],
-                              email: e.target.value,
-                            };
-                            form.setValue('agents', newAgents);
-                          }}
-                          placeholder="Email..."
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor={`agentCCEmail-${index}`}>CC Email</Label>
-                        <Input
-                          id={`agentCCEmail-${index}`}
-                          type="email"
-                          value={agent.ccEmail || ''}
-                          onChange={(e) => {
-                            const currentAgents = form.getValues('agents');
-                            const newAgents = [...currentAgents];
-                            newAgents[index] = {
-                              ...newAgents[index],
-                              tags: newAgents[index].tags || [],
-                              ccEmail: e.target.value,
-                            };
-                            form.setValue('agents', newAgents);
-                          }}
-                          placeholder="CC email..."
-                        />
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor={`agentEmail-${index}`}>Email</Label>
+                          <Input
+                            id={`agentEmail-${index}`}
+                            type="email"
+                            value={agent.email || ''}
+                            onChange={(e) => {
+                              const currentAgents = form.getValues('agents');
+                              const newAgents = [...currentAgents];
+                              newAgents[index] = {
+                                ...newAgents[index],
+                                tags: newAgents[index].tags || [],
+                                email: e.target.value,
+                              };
+                              form.setValue('agents', newAgents);
+                            }}
+                            placeholder="Email..."
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`agentCCEmail-${index}`}>CC Email</Label>
+                          <Input
+                            id={`agentCCEmail-${index}`}
+                            type="email"
+                            value={agent.ccEmail || ''}
+                            onChange={(e) => {
+                              const currentAgents = form.getValues('agents');
+                              const newAgents = [...currentAgents];
+                              newAgents[index] = {
+                                ...newAgents[index],
+                                tags: newAgents[index].tags || [],
+                                ccEmail: e.target.value,
+                              };
+                              form.setValue('agents', newAgents);
+                            }}
+                            placeholder="CC email..."
+                          />
+                        </div>
                       </div>
 
                       <div className="space-y-2">
@@ -1906,44 +2217,46 @@ export default function CreateInspectionPage() {
                         />
                       </div>
 
-                      <div className="space-y-2">
-                        <Label htmlFor={`agentNotes-${index}`}>Notes</Label>
-                        <Textarea
-                          id={`agentNotes-${index}`}
-                          value={agent.notes || ''}
-                          onChange={(e) => {
-                            const currentAgents = form.getValues('agents');
-                            const newAgents = [...currentAgents];
-                            newAgents[index] = {
-                              ...newAgents[index],
-                              tags: newAgents[index].tags || [],
-                              notes: e.target.value,
-                            };
-                            form.setValue('agents', newAgents);
-                          }}
-                          placeholder="Notes..."
-                          rows={3}
-                        />
-                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor={`agentNotes-${index}`}>Notes</Label>
+                          <Textarea
+                            id={`agentNotes-${index}`}
+                            value={agent.notes || ''}
+                            onChange={(e) => {
+                              const currentAgents = form.getValues('agents');
+                              const newAgents = [...currentAgents];
+                              newAgents[index] = {
+                                ...newAgents[index],
+                                tags: newAgents[index].tags || [],
+                                notes: e.target.value,
+                              };
+                              form.setValue('agents', newAgents);
+                            }}
+                            placeholder="Notes..."
+                            rows={3}
+                          />
+                        </div>
 
-                      <div className="space-y-2">
-                        <Label htmlFor={`agentPrivateNotes-${index}`}>Private Notes</Label>
-                        <Textarea
-                          id={`agentPrivateNotes-${index}`}
-                          value={agent.privateNotes || ''}
-                          onChange={(e) => {
-                            const currentAgents = form.getValues('agents');
-                            const newAgents = [...currentAgents];
-                            newAgents[index] = {
-                              ...newAgents[index],
-                              tags: newAgents[index].tags || [],
-                              privateNotes: e.target.value,
-                            };
-                            form.setValue('agents', newAgents);
-                          }}
-                          placeholder="Private notes..."
-                          rows={3}
-                        />
+                        <div className="space-y-2">
+                          <Label htmlFor={`agentPrivateNotes-${index}`}>Private Notes</Label>
+                          <Textarea
+                            id={`agentPrivateNotes-${index}`}
+                            value={agent.privateNotes || ''}
+                            onChange={(e) => {
+                              const currentAgents = form.getValues('agents');
+                              const newAgents = [...currentAgents];
+                              newAgents[index] = {
+                                ...newAgents[index],
+                                tags: newAgents[index].tags || [],
+                                privateNotes: e.target.value,
+                              };
+                              form.setValue('agents', newAgents);
+                            }}
+                            placeholder="Private notes..."
+                            rows={3}
+                          />
+                        </div>
                       </div>
                     </div>
                   );
@@ -2080,7 +2393,7 @@ export default function CreateInspectionPage() {
                         />
                       </div>
 
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor={`listingAgentFirstName-${index}`}>First Name</Label>
                           <Input
@@ -2119,44 +2432,45 @@ export default function CreateInspectionPage() {
                         </div>
                       </div>
 
-                      <div className="space-y-2">
-                        <Label htmlFor={`listingAgentEmail-${index}`}>Email</Label>
-                        <Input
-                          id={`listingAgentEmail-${index}`}
-                          type="email"
-                          value={agent.email || ''}
-                          onChange={(e) => {
-                            const currentAgents = form.getValues('listingAgents');
-                            const newAgents = [...currentAgents];
-                            newAgents[index] = {
-                              ...newAgents[index],
-                              tags: newAgents[index].tags || [],
-                              email: e.target.value,
-                            };
-                            form.setValue('listingAgents', newAgents);
-                          }}
-                          placeholder="Email..."
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor={`listingAgentCCEmail-${index}`}>CC Email</Label>
-                        <Input
-                          id={`listingAgentCCEmail-${index}`}
-                          type="email"
-                          value={agent.ccEmail || ''}
-                          onChange={(e) => {
-                            const currentAgents = form.getValues('listingAgents');
-                            const newAgents = [...currentAgents];
-                            newAgents[index] = {
-                              ...newAgents[index],
-                              tags: newAgents[index].tags || [],
-                              ccEmail: e.target.value,
-                            };
-                            form.setValue('listingAgents', newAgents);
-                          }}
-                          placeholder="CC email..."
-                        />
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor={`listingAgentEmail-${index}`}>Email</Label>
+                          <Input
+                            id={`listingAgentEmail-${index}`}
+                            type="email"
+                            value={agent.email || ''}
+                            onChange={(e) => {
+                              const currentAgents = form.getValues('listingAgents');
+                              const newAgents = [...currentAgents];
+                              newAgents[index] = {
+                                ...newAgents[index],
+                                tags: newAgents[index].tags || [],
+                                email: e.target.value,
+                              };
+                              form.setValue('listingAgents', newAgents);
+                            }}
+                            placeholder="Email..."
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`listingAgentCCEmail-${index}`}>CC Email</Label>
+                          <Input
+                            id={`listingAgentCCEmail-${index}`}
+                            type="email"
+                            value={agent.ccEmail || ''}
+                            onChange={(e) => {
+                              const currentAgents = form.getValues('listingAgents');
+                              const newAgents = [...currentAgents];
+                              newAgents[index] = {
+                                ...newAgents[index],
+                                tags: newAgents[index].tags || [],
+                                ccEmail: e.target.value,
+                              };
+                              form.setValue('listingAgents', newAgents);
+                            }}
+                            placeholder="CC email..."
+                          />
+                        </div>
                       </div>
 
                       <div className="space-y-2">
@@ -2342,44 +2656,46 @@ export default function CreateInspectionPage() {
                         />
                       </div>
 
-                      <div className="space-y-2">
-                        <Label htmlFor={`listingAgentNotes-${index}`}>Notes</Label>
-                        <Textarea
-                          id={`listingAgentNotes-${index}`}
-                          value={agent.notes || ''}
-                          onChange={(e) => {
-                            const currentAgents = form.getValues('listingAgents');
-                            const newAgents = [...currentAgents];
-                            newAgents[index] = {
-                              ...newAgents[index],
-                              tags: newAgents[index].tags || [],
-                              notes: e.target.value,
-                            };
-                            form.setValue('listingAgents', newAgents);
-                          }}
-                          placeholder="Notes..."
-                          rows={3}
-                        />
-                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor={`listingAgentNotes-${index}`}>Notes</Label>
+                          <Textarea
+                            id={`listingAgentNotes-${index}`}
+                            value={agent.notes || ''}
+                            onChange={(e) => {
+                              const currentAgents = form.getValues('listingAgents');
+                              const newAgents = [...currentAgents];
+                              newAgents[index] = {
+                                ...newAgents[index],
+                                tags: newAgents[index].tags || [],
+                                notes: e.target.value,
+                              };
+                              form.setValue('listingAgents', newAgents);
+                            }}
+                            placeholder="Notes..."
+                            rows={3}
+                          />
+                        </div>
 
-                      <div className="space-y-2">
-                        <Label htmlFor={`listingAgentPrivateNotes-${index}`}>Private Notes</Label>
-                        <Textarea
-                          id={`listingAgentPrivateNotes-${index}`}
-                          value={agent.privateNotes || ''}
-                          onChange={(e) => {
-                            const currentAgents = form.getValues('listingAgents');
-                            const newAgents = [...currentAgents];
-                            newAgents[index] = {
-                              ...newAgents[index],
-                              tags: newAgents[index].tags || [],
-                              privateNotes: e.target.value,
-                            };
-                            form.setValue('listingAgents', newAgents);
-                          }}
-                          placeholder="Private notes..."
-                          rows={3}
-                        />
+                        <div className="space-y-2">
+                          <Label htmlFor={`listingAgentPrivateNotes-${index}`}>Private Notes</Label>
+                          <Textarea
+                            id={`listingAgentPrivateNotes-${index}`}
+                            value={agent.privateNotes || ''}
+                            onChange={(e) => {
+                              const currentAgents = form.getValues('listingAgents');
+                              const newAgents = [...currentAgents];
+                              newAgents[index] = {
+                                ...newAgents[index],
+                                tags: newAgents[index].tags || [],
+                                privateNotes: e.target.value,
+                              };
+                              form.setValue('listingAgents', newAgents);
+                            }}
+                            placeholder="Private notes..."
+                            rows={3}
+                          />
+                        </div>
                       </div>
                     </div>
                   );
@@ -2416,7 +2732,12 @@ export default function CreateInspectionPage() {
           </Accordion>
 
           <div className="border-t pt-4">
-            <h3 className="text-lg font-semibold py-2">Services</h3>
+            <h3 className="text-lg font-semibold py-2">
+              Services <span className="text-destructive">*</span>
+            </h3>
+            {selectedServices.length === 0 && (
+              <p className="text-sm text-destructive mb-2">Please select at least one service</p>
+            )}
             <div className="space-y-4 pt-4">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   <div className="space-y-4">
@@ -2781,7 +3102,7 @@ export default function CreateInspectionPage() {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Start Date *</Label>
                     <Popover>
@@ -2818,7 +3139,7 @@ export default function CreateInspectionPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>End Date *</Label>
                     <Popover>
@@ -2947,10 +3268,21 @@ export default function CreateInspectionPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="referralSource">Referral Source</Label>
-                <Input
-                  id="referralSource"
-                  {...form.register('referralSource')}
-                  placeholder="Enter referral source..."
+                <Controller
+                  name="referralSource"
+                  control={form.control}
+                  render={({ field }) => (
+                    <Select
+                      value={field.value ? { value: field.value, label: field.value } : null}
+                      onChange={(option) => field.onChange(option?.value || undefined)}
+                      options={referralSourceOptions}
+                      isClearable
+                      placeholder="Select referral source..."
+                      isLoading={loadingFormData}
+                      className="react-select-container"
+                      classNamePrefix="react-select"
+                    />
+                  )}
                 />
               </div>
 
@@ -3027,7 +3359,7 @@ export default function CreateInspectionPage() {
             </Button>
             <Button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || !form.formState.isValid || selectedServices.length === 0}
             >
               {isSubmitting ? 'Creating...' : 'Create Inspection'}
             </Button>

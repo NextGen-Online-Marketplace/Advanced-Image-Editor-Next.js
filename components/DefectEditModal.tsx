@@ -87,11 +87,10 @@ interface DefectEditModalProps {
   isOpen: boolean;
   onClose: () => void;
   inspectionId: string;
-  inspectionName: string;
   _isPlaying?: boolean; 
 }
 
-export default function DefectEditModal({ isOpen, onClose, inspectionId, inspectionName }: DefectEditModalProps) {
+export default function DefectEditModal({ isOpen, onClose, inspectionId }: DefectEditModalProps) {
   const [defects, setDefects] = useState<Defect[]>([]);
   const [loading, setLoading] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -904,7 +903,7 @@ export default function DefectEditModal({ isOpen, onClose, inspectionId, inspect
       >
         <div className="modal-body" ref={modalBodyRef}>
           <div className="modal-header">
-            <h2>Edit Inspection - {inspectionName}</h2>
+            <h2>Edit Inspection - {inspectionId.slice(-4)}</h2>
             <button className="modal-close-btn" onClick={onClose}>
               <i className="fas fa-times"></i>
             </button>

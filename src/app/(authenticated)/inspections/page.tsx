@@ -15,23 +15,49 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { FileText, Edit, Trash2, Plus } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { FileText, Edit, Trash2, Plus, RotateCcw, Search } from 'lucide-react';
 
 interface Inspection {
   id: string;
-  name: string;
   date: string;
-  status: string;
+  location?: {
+    address?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
+  };
+  clients?: Array<{
+    _id: string;
+    firstName?: string;
+    lastName?: string;
+    companyName?: string;
+    isCompany?: boolean;
+    formattedName?: string;
+  }>;
+  agents?: Array<{
+    _id: string;
+    firstName?: string;
+    lastName?: string;
+    formattedName?: string;
+  }>;
+  listingAgent?: Array<{
+    _id: string;
+    firstName?: string;
+    lastName?: string;
+    formattedName?: string;
+  }>;
 }
 
 const mapInspection = (item: any): Inspection => ({
   id: (item && (item.id || item._id))?.toString?.() || Math.random().toString(36).slice(2, 9),
-  name: item?.name || item?.inspectionName || "Unnamed Inspection",
   date: item?.date
     ? new Date(item.date).toLocaleDateString()
     : new Date().toLocaleDateString(),
-  status: item?.status || "Pending",
+  location: item?.location || undefined,
+  clients: item?.clients || [],
+  agents: item?.agents || [],
+  listingAgent: item?.listingAgent || [],
 });
 
 export default function InspectionsPage() {
@@ -40,20 +66,30 @@ export default function InspectionsPage() {
   const [loading, setLoading] = useState(true);
   const [defectModalOpen, setDefectModalOpen] = useState(false);
   const [selectedInspectionId, setSelectedInspectionId] = useState<string>('');
-  const [selectedInspectionName, setSelectedInspectionName] = useState<string>('');
   const [inspectionPendingDelete, setInspectionPendingDelete] = useState<string | null>(null);
   const [deleteInFlight, setDeleteInFlight] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<'all' | 'today' | 'tomorrow' | 'pending' | 'in-progress' | 'trash'>('all');
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
-  // Fetch inspections on component mount
+  // Fetch inspections on component mount and when filter/search changes
   useEffect(() => {
     fetchInspections();
-  }, []);
+  }, [filter, searchQuery]);
 
   const fetchInspections = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/inspections', {
+      const params = new URLSearchParams();
+      if (filter !== 'all') {
+        params.append('filter', filter);
+      }
+      if (searchQuery.trim()) {
+        params.append('search', searchQuery.trim());
+      }
+      
+      const url = `/api/inspections${params.toString() ? `?${params.toString()}` : ''}`;
+      const response = await fetch(url, {
         credentials: 'include',
       });
       if (response.ok) {
@@ -85,7 +121,6 @@ export default function InspectionsPage() {
   // Handle edit click to edit inspection defects
   const handleEditClick = (inspectionId: string) => {
     setSelectedInspectionId(inspectionId);
-    setSelectedInspectionName(`Inspection ${inspectionId.slice(-4)}`);
     setDefectModalOpen(true);
   };
 
@@ -93,7 +128,6 @@ export default function InspectionsPage() {
   const handleCloseDefectModal = () => {
     setDefectModalOpen(false);
     setSelectedInspectionId('');
-    setSelectedInspectionName('');
   };
 
   // Check for pending annotations when page loads or receives focus
@@ -109,7 +143,6 @@ export default function InspectionsPage() {
           if (annotation.inspectionId) {
             console.log('🚀 Auto-opening modal for inspection:', annotation.inspectionId);
             setSelectedInspectionId(annotation.inspectionId);
-            setSelectedInspectionName(`Inspection ${annotation.inspectionId.slice(-4)}`);
             setDefectModalOpen(true);
             // Note: Don't clear localStorage here - let InformationSections handle it
           }
@@ -177,52 +210,120 @@ export default function InspectionsPage() {
     router.push('/inspections/create');
   };
 
-  const getStatusBadgeVariant = (status: string) => {
-    const normalizedStatus = status.toLowerCase().replace(' ', '-');
-    switch (normalizedStatus) {
-      case 'completed':
-      case 'done':
-        return 'default';
-      case 'pending':
-        return 'secondary';
-      case 'in-progress':
-        return 'outline';
-      default:
-        return 'outline';
+  // Helper function to format client names (comma-separated)
+  const formatClientNames = (clients: Inspection['clients']): string => {
+    if (!clients || !Array.isArray(clients) || clients.length === 0) return '';
+    return clients
+      .map((client) => {
+        if (client.formattedName) return client.formattedName;
+        if (client.isCompany) return client.companyName || '';
+        const name = `${client.firstName || ''} ${client.lastName || ''}`.trim();
+        return name || '';
+      })
+      .filter((name) => name)
+      .join(', ');
+  };
+
+  // Helper function to format agent names (comma-separated)
+  const formatAgentNames = (agents: Inspection['agents']): string => {
+    if (!agents || !Array.isArray(agents) || agents.length === 0) return '';
+    return agents
+      .map((agent) => {
+        if (agent.formattedName) return agent.formattedName;
+        const name = `${agent.firstName || ''} ${agent.lastName || ''}`.trim();
+        return name || '';
+      })
+      .filter((name) => name)
+      .join(', ');
+  };
+
+  // Helper function to format listing agent names (comma-separated)
+  const formatListingAgentNames = (listingAgents: Inspection['listingAgent']): string => {
+    if (!listingAgents || !Array.isArray(listingAgents) || listingAgents.length === 0) return '';
+    return listingAgents
+      .map((agent) => {
+        if (agent.formattedName) return agent.formattedName;
+        const name = `${agent.firstName || ''} ${agent.lastName || ''}`.trim();
+        return name || '';
+      })
+      .filter((name) => name)
+      .join(', ');
+  };
+
+  // Handle undelete click to restore inspection
+  const handleUndeleteClick = async (inspectionId: string) => {
+    try {
+      setDeleteInFlight(true);
+      setDeleteError(null);
+
+      const response = await fetch(`/api/inspections/${inspectionId}`, {
+        method: 'PATCH',
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to restore inspection');
+      }
+
+      // Refresh the inspections list
+      await fetchInspections();
+    } catch (error: any) {
+      console.error('Error restoring inspection:', error);
+      setDeleteError(error.message || 'Failed to restore inspection');
+    } finally {
+      setDeleteInFlight(false);
     }
   };
 
   const columns: Column<Inspection>[] = [
     {
-      id: 'id',
-      header: 'ID',
+      id: 'address',
+      header: 'Address',
       cell: (row) => (
-        <span className="font-mono text-xs text-muted-foreground">
-          {row.id.slice(-4)}
-        </span>
+        <span className="text-muted-foreground">{row.location?.address || ''}</span>
       ),
     },
     {
-      id: 'name',
-      header: 'Inspection Name',
+      id: 'city',
+      header: 'City',
       cell: (row) => (
-        <span className="font-medium">{row.name}</span>
+        <span className="text-muted-foreground">{row.location?.city || ''}</span>
       ),
     },
     {
-      id: 'date',
-      header: 'Date',
+      id: 'state',
+      header: 'State',
       cell: (row) => (
-        <span className="text-muted-foreground">{row.date}</span>
+        <span className="text-muted-foreground">{row.location?.state || ''}</span>
       ),
     },
     {
-      id: 'status',
-      header: 'Status',
+      id: 'zip',
+      header: 'Zip',
       cell: (row) => (
-        <Badge variant={getStatusBadgeVariant(row.status)}>
-          {row.status}
-        </Badge>
+        <span className="text-muted-foreground">{row.location?.zip || ''}</span>
+      ),
+    },
+    {
+      id: 'clientName',
+      header: 'Client Name',
+      cell: (row) => (
+        <span className="text-muted-foreground">{formatClientNames(row.clients)}</span>
+      ),
+    },
+    {
+      id: 'agentName',
+      header: 'Agent Name',
+      cell: (row) => (
+        <span className="text-muted-foreground">{formatAgentNames(row.agents)}</span>
+      ),
+    },
+    {
+      id: 'listingAgentName',
+      header: 'Listing Agent Name',
+      cell: (row) => (
+        <span className="text-muted-foreground">{formatListingAgentNames(row.listingAgent)}</span>
       ),
     },
     {
@@ -230,42 +331,60 @@ export default function InspectionsPage() {
       header: 'Actions',
       cell: (row) => (
         <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleDocumentClick(row.id);
-            }}
-            className="h-8 w-8"
-            title="View Document"
-          >
-            <FileText className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleEditClick(row.id);
-            }}
-            className="h-8 w-8"
-            title="Edit Inspection"
-          >
-            <Edit className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleDeleteClick(row.id);
-            }}
-            className="h-8 w-8 text-destructive hover:text-destructive"
-            title="Delete Inspection"
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
+          {filter !== 'trash' ? (
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDocumentClick(row.id);
+                }}
+                className="h-8 w-8"
+                title="View Document"
+              >
+                <FileText className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleEditClick(row.id);
+                }}
+                className="h-8 w-8"
+                title="Edit Inspection"
+              >
+                <Edit className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDeleteClick(row.id);
+                }}
+                className="h-8 w-8 text-destructive hover:text-destructive"
+                title="Delete Inspection"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </>
+          ) : (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleUndeleteClick(row.id);
+              }}
+              className="h-8 w-8"
+              title="Restore Inspection"
+              disabled={deleteInFlight}
+            >
+              <RotateCcw className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       ),
     },
@@ -287,6 +406,67 @@ export default function InspectionsPage() {
         </Button>
       </div>
 
+      {/* Filters and Search */}
+      <div className="space-y-4">
+        {/* Filter Buttons */}
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant={filter === 'all' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setFilter('all')}
+          >
+            All
+          </Button>
+          <Button
+            variant={filter === 'today' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setFilter('today')}
+          >
+            Today
+          </Button>
+          <Button
+            variant={filter === 'tomorrow' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setFilter('tomorrow')}
+          >
+            Tomorrow
+          </Button>
+          <Button
+            variant={filter === 'pending' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setFilter('pending')}
+          >
+            Pending
+          </Button>
+          <Button
+            variant={filter === 'in-progress' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setFilter('in-progress')}
+          >
+            In Progress
+          </Button>
+          <Button
+            variant={filter === 'trash' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setFilter('trash')}
+          >
+            Trash
+          </Button>
+        </div>
+
+        {/* Search Input */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            type="text"
+            placeholder="Search by address, city, state, zip, client name, agent name..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10"
+          />
+        </div>
+      </div>
+
       {/* Data Table */}
       <DataTable
         columns={columns}
@@ -301,7 +481,6 @@ export default function InspectionsPage() {
         isOpen={defectModalOpen}
         onClose={handleCloseDefectModal}
         inspectionId={selectedInspectionId}
-        inspectionName={selectedInspectionName}
       />
 
       {/* Delete Confirmation Dialog */}
@@ -310,8 +489,7 @@ export default function InspectionsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete inspection?</AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. The inspection and all related data will be permanently
-              removed.
+              This inspection will be moved to trash. You can restore it later if needed.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {deleteError && (

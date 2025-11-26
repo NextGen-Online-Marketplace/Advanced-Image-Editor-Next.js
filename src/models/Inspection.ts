@@ -1,7 +1,6 @@
 import mongoose, { Schema, Document, Model } from 'mongoose';
 
 export interface IInspection extends Document {
-  name: string;
   status: string;
   date: Date;
   companyId: mongoose.Types.ObjectId;
@@ -41,24 +40,22 @@ export interface IInspection extends Document {
   requirePaymentToReleaseReports?: boolean;
   paymentNotes?: string;
   agents?: mongoose.Types.ObjectId[];
+  listingAgent?: mongoose.Types.ObjectId[];
   people?: mongoose.Types.ObjectId[];
+  clients?: mongoose.Types.ObjectId[];
   orderId?: number;
   referralSource?: string;
   confirmedInspection?: boolean;
   disableAutomatedNotifications?: boolean;
   internalNotes?: string;
   customData?: Record<string, any>;
+  deletedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
 
 const InspectionSchema = new Schema<IInspection>(
   {
-    name: {
-      type: String,
-      required: [true, 'Inspection name is required'],
-      trim: true,
-    },
     status: {
       type: String,
       default: 'Pending',
@@ -196,9 +193,17 @@ const InspectionSchema = new Schema<IInspection>(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Agent',
     }],
+    listingAgent: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Agent',
+    }],
     people: [{
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Person',
+    }],
+    clients: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Client',
     }],
     orderId: {
       type: Number,
@@ -225,6 +230,10 @@ const InspectionSchema = new Schema<IInspection>(
     customData: {
       type: mongoose.Schema.Types.Mixed,
       default: {},
+    },
+    deletedAt: {
+      type: Date,
+      default: null,
     },
   },
   {

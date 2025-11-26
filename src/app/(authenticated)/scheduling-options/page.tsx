@@ -1024,7 +1024,7 @@ export default function SchedulingOptionsPage() {
                   render={({ field }) =>
                     renderCheckboxField(
                       'requiredForOnlineScheduler',
-                      'Required answer for Online Scheduler',
+                      'Required answer for Scheduler',
                       field
                     )
                   }

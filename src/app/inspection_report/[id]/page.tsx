@@ -206,7 +206,7 @@ export default function Page() {
 
   const handleOpenSampleModal = useCallback(() => {
     setSampleError(null);
-    setSampleName(inspection?.name || "");
+    setSampleName(inspection?.orderId ? `Order #${inspection.orderId}` : inspection?.id ? `Inspection ${inspection.id.slice(-4)}` : "");
     setSampleDescription("");
     setSampleModalOpen(true);
   }, [inspection]);

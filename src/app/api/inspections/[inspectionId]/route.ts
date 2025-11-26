@@ -100,6 +100,62 @@ export async function PUT(
   }
 }
 
+export async function PATCH(
+  req: Request,
+  { params }: { params: Promise<{ inspectionId: string }> }
+) {
+  try {
+    await dbConnect();
+    
+    const { inspectionId } = await params;
+    
+    if (!inspectionId) {
+      return NextResponse.json(
+        { error: "Inspection ID is required" },
+        { status: 400 }
+      );
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(inspectionId)) {
+      return NextResponse.json(
+        { error: "Invalid inspection ID format" },
+        { status: 400 }
+      );
+    }
+
+    const result = await Inspection.updateOne(
+      {
+        _id: new mongoose.Types.ObjectId(inspectionId)
+      },
+      {
+        $set: { deletedAt: null }
+      }
+    );
+
+    if (result.matchedCount === 0) {
+      return NextResponse.json(
+        { error: "Inspection not found" },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json(
+      { 
+        message: "Inspection restored successfully",
+        modifiedCount: result.modifiedCount 
+      },
+      { status: 200 }
+    );
+  } catch (error: any) {
+    console.error("Error restoring inspection:", error);
+    
+    return NextResponse.json(
+      { error: error.message || "Failed to restore inspection" },
+      { status: 500 }
+    );
+  }
+}
+
 export async function DELETE(
   req: Request,
   { params }: { params: Promise<{ inspectionId: string }> }
@@ -190,12 +246,8 @@ export async function DELETE(
       }));
     }
 
-    // Delete related DB records (defects and information blocks), then the inspection itself
-    await Promise.all([
-      db.collection("defects").deleteMany({ inspection_id: mongoOid }),
-      db.collection("inspectioninformationblocks").deleteMany({ inspection_id: mongoOid }),
-    ]);
-
+    // Note: For soft delete, we keep related records (defects and information blocks) intact for recovery
+    // Only soft delete the inspection itself
     const result = await deleteInspection(inspectionId);
 
     if (result.deletedCount === 0) {
