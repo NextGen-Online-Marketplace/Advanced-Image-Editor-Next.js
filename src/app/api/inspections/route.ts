@@ -7,7 +7,6 @@ import Tag from "@/src/models/Tag";
 import Event from "@/src/models/Event";
 import Agent from "@/src/models/Agent";
 import Agency from "@/src/models/Agency";
-import Person from "@/src/models/Person";
 import OrderIdCounter from "@/src/models/OrderIdCounter";
 import Inspection from "@/src/models/Inspection";
 import mongoose from "mongoose";
@@ -51,7 +50,6 @@ export async function POST(req: NextRequest) {
     const paymentNotes = body.paymentNotes;
     const agents = body.agents || [];
     const listingAgents = body.listingAgents || [];
-    const people = body.people || [];
     const referralSource = body.referralSource;
     const confirmedInspection = body.confirmedInspection ?? true;
     const disableAutomatedNotifications = body.disableAutomatedNotifications ?? false;
@@ -475,115 +473,6 @@ export async function POST(req: NextRequest) {
       if (inspection?._id && listingAgentIds.length > 0) {
         await Inspection.findByIdAndUpdate(inspection._id, {
           listingAgent: listingAgentIds,
-        });
-      }
-    }
-
-    // Handle people creation/update
-    const personIds: mongoose.Types.ObjectId[] = [];
-    
-    if (people.length > 0) {
-      for (const personData of people) {
-        if (!personData.email || !personData.email.trim()) {
-          continue;
-        }
-
-        const email = personData.email.trim().toLowerCase();
-        const tagNames = personData.tags || [];
-        const tagIds: mongoose.Types.ObjectId[] = [];
-
-        // Create or get tags
-        for (const tagName of tagNames) {
-          if (!tagName || !tagName.trim()) continue;
-          
-          const trimmedTagName = tagName.trim();
-          let tag = await Tag.findOne({
-            name: trimmedTagName,
-            company: currentUser.company,
-          });
-
-          if (!tag) {
-            tag = await Tag.create({
-              name: trimmedTagName,
-              color: '#3b82f6',
-              company: currentUser.company,
-              createdBy: currentUser._id,
-              autoTagging: false,
-              rules: [],
-              removeTagOnRuleFail: false,
-            });
-          }
-
-          tagIds.push(tag._id as mongoose.Types.ObjectId);
-        }
-
-        // Check if person exists by email
-        const existingPerson = await Person.findOne({
-          email,
-          company: currentUser.company,
-        });
-
-        const isCompany = Boolean(personData.isCompany);
-        
-        if (existingPerson) {
-          // Update existing person
-          const updateData: any = {
-            isCompany,
-            ccEmail: personData.ccEmail?.trim() || existingPerson.ccEmail,
-            phone: personData.phone?.trim() || existingPerson.phone,
-            role: personData.role || existingPerson.role,
-            personCompany: personData.personCompany?.trim() || existingPerson.personCompany,
-            tags: tagIds.length > 0 ? tagIds : existingPerson.tags,
-            internalNotes: personData.notes?.trim() || existingPerson.internalNotes,
-            internalAdminNotes: personData.privateNotes?.trim() || existingPerson.internalAdminNotes,
-            updatedBy: currentUser._id,
-          };
-
-          if (isCompany) {
-            updateData.companyName = personData.companyName?.trim() || existingPerson.companyName;
-            updateData.firstName = undefined;
-            updateData.lastName = undefined;
-          } else {
-            updateData.firstName = personData.firstName?.trim() || existingPerson.firstName;
-            updateData.lastName = personData.lastName?.trim() || existingPerson.lastName;
-            updateData.companyName = undefined;
-          }
-
-          await Person.findByIdAndUpdate(existingPerson._id, updateData);
-          personIds.push(existingPerson._id as mongoose.Types.ObjectId);
-        } else {
-          // Create new person
-          const createData: any = {
-            isCompany,
-            email,
-            ccEmail: personData.ccEmail?.trim(),
-            phone: personData.phone?.trim(),
-            role: personData.role,
-            personCompany: personData.personCompany?.trim(),
-            tags: tagIds,
-            internalNotes: personData.notes?.trim(),
-            internalAdminNotes: personData.privateNotes?.trim(),
-            company: currentUser.company,
-            createdBy: currentUser._id,
-            updatedBy: currentUser._id,
-          };
-
-          if (isCompany) {
-            createData.companyName = personData.companyName?.trim();
-          } else {
-            createData.firstName = personData.firstName?.trim();
-            createData.lastName = personData.lastName?.trim();
-          }
-
-          const newPerson = await Person.create(createData);
-          personIds.push(newPerson._id as mongoose.Types.ObjectId);
-        }
-      }
-
-      // Update inspection with all person IDs
-      if (inspection?._id && personIds.length > 0) {
-        await Inspection.findByIdAndUpdate(inspection._id, {
-          people: personIds,
         });
       }
     }
