@@ -61,8 +61,6 @@ import {
 
 const schedulingOptionsSchema = z.object({
   inProgressBookingsBlockSchedule: z.boolean(),
-  restrictReferralSources: z.boolean(),
-  referralSources: z.string().optional(),
   defaultConfirmed: z.boolean(),
   allowClientCcEmails: z.boolean(),
   captureBuyerAddress: z.boolean(),
@@ -231,8 +229,6 @@ export default function SchedulingOptionsPage() {
     resolver: zodResolver(schedulingOptionsSchema),
     defaultValues: {
       inProgressBookingsBlockSchedule: false,
-      restrictReferralSources: false,
-      referralSources: '',
       defaultConfirmed: false,
       allowClientCcEmails: false,
       captureBuyerAddress: false,
@@ -248,8 +244,6 @@ export default function SchedulingOptionsPage() {
     watch,
     formState: { errors },
   } = form;
-
-  const restrictReferralSources = watch('restrictReferralSources');
 
   const customFieldForm = useForm<CustomFieldFormValues>({
     resolver: zodResolver(customFieldSchema),
@@ -294,8 +288,6 @@ export default function SchedulingOptionsPage() {
 
         reset({
           inProgressBookingsBlockSchedule: data.inProgressBookingsBlockSchedule ?? false,
-          restrictReferralSources: data.restrictReferralSources ?? false,
-          referralSources: data.referralSources || '',
           defaultConfirmed: data.defaultConfirmed ?? false,
           allowClientCcEmails: data.allowClientCcEmails ?? false,
           captureBuyerAddress: data.captureBuyerAddress ?? false,
@@ -334,8 +326,6 @@ export default function SchedulingOptionsPage() {
 
       reset({
         inProgressBookingsBlockSchedule: data.inProgressBookingsBlockSchedule ?? false,
-        restrictReferralSources: data.restrictReferralSources ?? false,
-        referralSources: data.referralSources || '',
         defaultConfirmed: data.defaultConfirmed ?? false,
         allowClientCcEmails: data.allowClientCcEmails ?? false,
         captureBuyerAddress: data.captureBuyerAddress ?? false,
@@ -647,55 +637,6 @@ export default function SchedulingOptionsPage() {
                     )
                   }
                 />
-
-                <Controller
-                  name="restrictReferralSources"
-                  control={control}
-                  render={({ field }) =>
-                    renderCheckboxField(
-                      'restrictReferralSources',
-                      'Restrict Referral Sources',
-                      field,
-                      'Restricts possible referral source value to a list of sources that you define.'
-                    )
-                  }
-                />
-
-                {restrictReferralSources && (
-                  <div className="space-y-2 pl-4">
-                    <div className="flex items-center gap-2">
-                      <Label htmlFor="referralSources">Referral Sources</Label>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            className="text-muted-foreground hover:text-foreground"
-                            aria-label="It will show as a dropdown, separate the options by comma (e.g., Google, Facebook)"
-                          >
-                            <Info className="h-4 w-4" />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent className="max-w-xs text-left">
-                          It will show as a dropdown, separate the options by comma (e.g., Google, Facebook)
-                        </TooltipContent>
-                      </Tooltip>
-                    </div>
-                    <Controller
-                      name="referralSources"
-                      control={control}
-                      render={({ field }) => (
-                        <Input
-                          id="referralSources"
-                          placeholder="Google, Facebook, Referral, etc."
-                          {...field}
-                        />
-                      )}
-                    />
-                    <p className="text-sm text-muted-foreground">
-                      It will show as a dropdown, separate the options by comma (e.g., Google, Facebook)
-                    </p>
-                  </div>
-                )}
 
                 <Controller
                   name="defaultConfirmed"

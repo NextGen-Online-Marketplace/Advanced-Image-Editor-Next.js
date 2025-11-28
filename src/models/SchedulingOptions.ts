@@ -16,8 +16,6 @@ export interface ICustomField {
 export interface ISchedulingOptions extends Document {
   company: mongoose.Types.ObjectId;
   inProgressBookingsBlockSchedule: boolean;
-  restrictReferralSources: boolean;
-  referralSources?: string;
   defaultConfirmed: boolean;
   allowClientCcEmails: boolean;
   captureBuyerAddress: boolean;
@@ -39,14 +37,6 @@ const SchedulingOptionsSchema = new Schema<ISchedulingOptions>(
     inProgressBookingsBlockSchedule: {
       type: Boolean,
       default: false,
-    },
-    restrictReferralSources: {
-      type: Boolean,
-      default: false,
-    },
-    referralSources: {
-      type: String,
-      trim: true,
     },
     defaultConfirmed: {
       type: Boolean,

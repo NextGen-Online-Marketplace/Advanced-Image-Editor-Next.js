@@ -3,12 +3,6 @@ import dbConnect from '../../../../lib/db';
 import { getCurrentUser } from '../../../../lib/auth-helpers';
 import SchedulingOptions from '../../../../src/models/SchedulingOptions';
 
-const sanitizeString = (value?: string | null) => {
-  if (value === undefined || value === null) return undefined;
-  const trimmed = value.trim();
-  return trimmed.length ? trimmed : undefined;
-};
-
 export async function GET(request: NextRequest) {
   try {
     await dbConnect();
@@ -21,8 +15,6 @@ export async function GET(request: NextRequest) {
     if (!currentUser.company) {
       return NextResponse.json({
         inProgressBookingsBlockSchedule: false,
-        restrictReferralSources: false,
-        referralSources: '',
         defaultConfirmed: false,
         allowClientCcEmails: false,
         captureBuyerAddress: false,
@@ -35,8 +27,6 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       inProgressBookingsBlockSchedule: optionsDoc?.inProgressBookingsBlockSchedule ?? false,
-      restrictReferralSources: optionsDoc?.restrictReferralSources ?? false,
-      referralSources: optionsDoc?.referralSources || '',
       defaultConfirmed: optionsDoc?.defaultConfirmed ?? false,
       allowClientCcEmails: optionsDoc?.allowClientCcEmails ?? false,
       captureBuyerAddress: optionsDoc?.captureBuyerAddress ?? false,
@@ -71,14 +61,9 @@ export async function PUT(request: NextRequest) {
 
     const body = await request.json();
 
-    // Sanitize string fields
-    const sanitizedReferralSources = sanitizeString(body.referralSources);
-
     // Build update object
     const updateData: Record<string, any> = {
       inProgressBookingsBlockSchedule: Boolean(body.inProgressBookingsBlockSchedule),
-      restrictReferralSources: Boolean(body.restrictReferralSources),
-      referralSources: sanitizedReferralSources ?? '',
       defaultConfirmed: Boolean(body.defaultConfirmed),
       allowClientCcEmails: Boolean(body.allowClientCcEmails),
       captureBuyerAddress: Boolean(body.captureBuyerAddress),
@@ -116,8 +101,6 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({
       message: 'Scheduling options updated successfully',
       inProgressBookingsBlockSchedule: updatedOptions.inProgressBookingsBlockSchedule ?? false,
-      restrictReferralSources: updatedOptions.restrictReferralSources ?? false,
-      referralSources: updatedOptions.referralSources || '',
       defaultConfirmed: updatedOptions.defaultConfirmed ?? false,
       allowClientCcEmails: updatedOptions.allowClientCcEmails ?? false,
       captureBuyerAddress: updatedOptions.captureBuyerAddress ?? false,
