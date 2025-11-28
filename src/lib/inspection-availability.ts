@@ -57,19 +57,31 @@ export function getAvailableTimesForDay(
     return [...dayData.timeSlots].sort((a, b) => timeToMinutes(a) - timeToMinutes(b));
   } else {
     // For open schedule, we need to generate all times within the blocks
+    // Includes start time, times at 30-minute intervals, and end time
     const availableTimes: string[] = [];
     
     dayData.openSchedule.forEach((block) => {
       const startMinutes = timeToMinutes(block.start);
       const endMinutes = timeToMinutes(block.end);
+      const blockTimes: string[] = [];
       
       // Generate times at 30-minute intervals within the block
       for (let minutes = startMinutes; minutes < endMinutes; minutes += 30) {
         const hours = Math.floor(minutes / 60);
         const mins = minutes % 60;
         const timeString = `${hours.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}`;
-        availableTimes.push(timeString);
+        blockTimes.push(timeString);
       }
+      
+      // Include the end time if it's not already included (not at a 30-minute interval from start)
+      // Check if end time is different from the last generated time in this block
+      const lastGeneratedTime = blockTimes[blockTimes.length - 1];
+      if (block.end !== lastGeneratedTime) {
+        blockTimes.push(block.end);
+      }
+      
+      // Add all times from this block to the available times
+      availableTimes.push(...blockTimes);
     });
     
     return availableTimes.sort((a, b) => timeToMinutes(a) - timeToMinutes(b));
@@ -163,10 +175,115 @@ export function checkInspectorAvailability(
 /**
  * Format date to ISO string (YYYY-MM-DD)
  */
-function formatDateToISO(date: Date): string {
+export function formatDateToISO(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+/**
+ * Get all available times for a specific date, considering both weekly schedule and date-specific blocks.
+ * 
+ * IMPORTANT: Date-specific availability entries indicate when the inspector is NOT available.
+ * They block out times from the weekly schedule.
+ * 
+ * @param date - The date to check availability for
+ * @param viewMode - Either "timeSlots" or "openSchedule"
+ * @param availability - The inspector's availability data
+ * @returns Array of available time strings (HH:MM format), sorted and deduplicated
+ */
+export function getAvailableTimesForDate(
+  date: Date,
+  viewMode: "openSchedule" | "timeSlots",
+  availability: InspectorAvailability
+): string[] {
+  const dayKey = getDayKeyFromDate(date);
+  const dateString = formatDateToISO(date);
+  
+  // Get weekly schedule times for this day
+  const dayData = availability.days[dayKey];
+  
+  if (!dayData) {
+    // No weekly schedule for this day - check if there are any date-specific entries
+    // Note: Date-specific entries block times, so if there's no weekly schedule,
+    // there are no available times
+    return [];
+  }
+  
+  // Get available times from weekly schedule
+  let weeklyAvailableTimes: string[] = [];
+  
+  if (viewMode === "timeSlots") {
+    // For time slots, return the time slots for this day
+    weeklyAvailableTimes = [...dayData.timeSlots].sort((a, b) => timeToMinutes(a) - timeToMinutes(b));
+  } else {
+    // For open schedule, generate all times at 30-minute intervals within blocks
+    weeklyAvailableTimes = getAvailableTimesForDay(dayKey, viewMode, availability);
+  }
+  
+  // Check for date-specific entries that block times
+  const dateSpecificEntries = availability.dateSpecific.filter(
+    (entry) => entry.date === dateString
+  );
+  
+  // If no date-specific blocks, return weekly schedule as-is
+  if (dateSpecificEntries.length === 0) {
+    // Remove duplicates and sort
+    return Array.from(new Set(weeklyAvailableTimes)).sort((a, b) => timeToMinutes(a) - timeToMinutes(b));
+  }
+  
+  // Date-specific entries exist - they indicate times when inspector is NOT available
+  // Filter out blocked times
+  let availableTimes: string[] = [];
+  
+  if (viewMode === "timeSlots") {
+    // For time slots, date-specific entries indicate unavailable time slots
+    const unavailableTimeSlots = new Set(dateSpecificEntries.map(entry => entry.start));
+    
+    // Filter out unavailable time slots
+    availableTimes = weeklyAvailableTimes.filter(slot => !unavailableTimeSlots.has(slot));
+  } else {
+    // For open schedule, date-specific entries indicate unavailable time blocks
+    const unavailableBlocks = dateSpecificEntries.map(entry => ({
+      start: entry.start,
+      end: entry.end,
+    }));
+    
+    // Remove times that fall within unavailable blocks
+    availableTimes = weeklyAvailableTimes.filter(slot => {
+      return !checkOpenScheduleAvailability(slot, unavailableBlocks);
+    });
+  }
+  
+  // Remove duplicates and sort
+  return Array.from(new Set(availableTimes)).sort((a, b) => timeToMinutes(a) - timeToMinutes(b));
+}
+
+/**
+ * Check if a date has any availability at all.
+ * 
+ * A date is considered available if:
+ * 1. There's a weekly schedule for that day of week with available times, OR
+ * 2. There are date-specific entries that don't block all times
+ * 
+ * IMPORTANT: Date-specific entries block times. If they block all times from the weekly schedule,
+ * the date is not available.
+ * 
+ * @param date - The date to check
+ * @param viewMode - Either "timeSlots" or "openSchedule"
+ * @param availability - The inspector's availability data
+ * @returns true if the date has any available times, false otherwise
+ */
+export function isDateAvailable(
+  date: Date,
+  viewMode: "openSchedule" | "timeSlots",
+  availability: InspectorAvailability
+): boolean {
+  // Get available times for this date
+  const availableTimes = getAvailableTimesForDate(date, viewMode, availability);
+  
+  // Date is available if there are any available times
+  return availableTimes.length > 0;
 }
 

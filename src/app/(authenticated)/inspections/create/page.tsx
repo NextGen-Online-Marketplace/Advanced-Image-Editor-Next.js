@@ -12,7 +12,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import Select from 'react-select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import ReactSelect from 'react-select';
 import AsyncSelect from 'react-select/async';
 import CreatableSelect from 'react-select/creatable';
 import AsyncCreatableSelect from 'react-select/async-creatable';
@@ -27,7 +28,7 @@ import { ImageUpload } from '@/components/ui/image-upload';
 import CustomFields from '@/components/custom-fields/CustomFields';
 import { AddressAutocomplete } from '@/components/ui/address-autocomplete';
 import { toast } from 'sonner';
-import { checkInspectorAvailability, type InspectorAvailability, getDayKeyFromDate } from '@/src/lib/inspection-availability';
+import { checkInspectorAvailability, type InspectorAvailability, getDayKeyFromDate, getAvailableTimesForDate, isDateAvailable } from '@/src/lib/inspection-availability';
 import { formatTimeLabel, timeToMinutes } from '@/src/lib/availability-utils';
 import { DAY_LABELS } from '@/src/constants/availability';
 import { TimeBlock } from '@/src/models/Availability';
@@ -234,6 +235,7 @@ export default function CreateInspectionPage() {
   const [inspectorAvailability, setInspectorAvailability] = useState<InspectorAvailability | null>(null);
   const [viewMode, setViewMode] = useState<'openSchedule' | 'timeSlots'>('openSchedule');
   const [inspectorName, setInspectorName] = useState<string>('');
+  const [availableTimes, setAvailableTimes] = useState<string[]>([]);
   const [referralSourceOptions, setReferralSourceOptions] = useState<Array<{ value: string; label: string }>>([]);
   const [foundationOptions, setFoundationOptions] = useState<Array<{ value: string; label: string }>>([]);
 
@@ -424,6 +426,7 @@ export default function CreateInspectionPage() {
       if (!inspectorId || !date) {
         setInspectorAvailability(null);
         setInspectorName('');
+        setAvailableTimes([]); // Clear available times when no inspector/date
         return;
       }
 
@@ -450,6 +453,7 @@ export default function CreateInspectionPage() {
         // Check availability for the selected date and time
         if (!data.availability) {
           // No availability data for inspector
+          setAvailableTimes([]); // No available times
           toast.error(
             `${data.inspectorName} is not available for this date`,
             { duration: 5000 }
@@ -457,7 +461,42 @@ export default function CreateInspectionPage() {
           return;
         }
 
-        // Get available times for the day
+        // Compute available times for this date using the helper function
+        // This considers both weekly schedule and date-specific blocks
+        // IMPORTANT: Date-specific entries indicate when inspector is NOT available (they block times)
+        // The helper function filters out blocked times from the weekly schedule
+        const computedAvailableTimes = getAvailableTimesForDate(
+          date,
+          data.viewMode,
+          data.availability
+        );
+        setAvailableTimes(computedAvailableTimes);
+
+        // Handle time selection logic
+        if (computedAvailableTimes.length > 0) {
+          // If selected time is not in available times, set the first available time
+          // This handles the case where date-specific blocks make the selected time unavailable
+          // or when a date is first selected and no time is set yet
+          const currentTime = form.getValues('time');
+          if (!currentTime || !computedAvailableTimes.includes(currentTime)) {
+            // Set the first available time and trigger validation/update
+            form.setValue('time', computedAvailableTimes[0], {
+              shouldValidate: true,
+              shouldDirty: false,
+            });
+          }
+        } else {
+          // No available times, clear the selected time
+          const currentTime = form.getValues('time');
+          if (currentTime) {
+            form.setValue('time', '', {
+              shouldValidate: true,
+              shouldDirty: false,
+            });
+          }
+        }
+
+        // Get available times for the day (for validation and toast messages)
         const result = checkInspectorAvailability(
           date,
           time || '00:00', // Use selected time or dummy time to get available times
@@ -609,6 +648,22 @@ export default function CreateInspectionPage() {
     checkAvailability();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.watch('inspector'), form.watch('date')]);
+
+  // Auto-set first available time when availableTimes changes and no time is selected
+  useEffect(() => {
+    const currentTime = form.getValues('time');
+    const currentDate = form.getValues('date');
+    const currentInspector = form.getValues('inspector');
+    
+    // Only auto-set if we have a date, inspector, available times, and no time is currently set
+    if (currentDate && currentInspector && availableTimes.length > 0 && !currentTime) {
+      form.setValue('time', availableTimes[0], {
+        shouldValidate: true,
+        shouldDirty: false,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availableTimes]);
 
   const handleOpenEventModal = (index?: number) => {
     if (index !== undefined) {
@@ -871,7 +926,7 @@ export default function CreateInspectionPage() {
               name="inspector"
               control={form.control}
               render={({ field }) => (
-            <Select
+            <ReactSelect
                   value={inspectors.find(opt => opt.value === field.value) || null}
                   onChange={(option) => field.onChange(option?.value || undefined)}
               options={inspectors}
@@ -909,58 +964,114 @@ export default function CreateInspectionPage() {
 
           <div className="space-y-2">
             <Label>Date/Time</Label>
-            <div className="flex gap-4 items-end">
-              <div className="flex-1">
-                <Controller
-                  name="date"
-                  control={form.control}
-                  render={({ field }) => (
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                          type="button"
-                      variant="outline"
-                      className={cn(
-                        "w-full justify-start text-left font-normal",
-                            !field.value && "text-muted-foreground"
-                      )}
-                    >
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                          {field.value ? format(field.value, "PPP") : "Pick a date"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                          selected={field.value}
-                          onSelect={field.onChange}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
-                  )}
-                />
+            <Popover></Popover>
+            <div className='flex'>
+              <div className="flex gap-4 items-end">
+                <div className="flex-1">
+                  <Controller
+                    name="date"
+                    control={form.control}
+                    render={({ field }) => (
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className={cn(
+                              "w-full justify-start text-left font-normal",
+                              !field.value && "text-muted-foreground"
+                            )}
+                          >
+                            <CalendarIcon className="mr-2 h-4 w-4" />
+                            {field.value ? format(field.value, "PPP") : "Pick a date"}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <Calendar
+                            mode="single"
+                            selected={field.value}
+                            onSelect={field.onChange}
+                            initialFocus
+                            disabled={(date: Date) => {
+                              // If no inspector selected, don't disable any dates
+                              // User can select date first, then inspector
+                              const inspectorId = form.getValues('inspector');
+                              if (!inspectorId) {
+                                return false;
+                              }
+
+                              // If no availability data, disable all dates
+                              // Inspector exists but has no availability configured
+                              if (!inspectorAvailability) {
+                                return true;
+                              }
+
+                              // Check if this date has any availability
+                              // IMPORTANT: Date-specific entries block times from weekly schedule
+                              // If all times are blocked by date-specific entries, date is unavailable
+                              // The isDateAvailable function checks if any times remain after filtering
+                              return !isDateAvailable(date, viewMode, inspectorAvailability);
+                            }}
+                          />
+                        </PopoverContent>
+                      </Popover>
+                    )}
+                  />
+                </div>
+                <div className="w-32">
+                  <Controller
+                    name="time"
+                    control={form.control}
+                    render={({ field }) => {
+                      // Determine if time picker should be disabled
+                      // Disable if: no date selected, no inspector selected, or no available times
+                      // Available times are computed considering weekly schedule and date-specific blocks
+                      const isDisabled = !form.getValues('date') ||
+                        !form.getValues('inspector') ||
+                        availableTimes.length === 0;
+
+                      return (
+                        <Select
+                          value={field.value && availableTimes.includes(field.value) ? field.value : ''}
+                          onValueChange={field.onChange}
+                          disabled={isDisabled}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder={isDisabled ? "No times" : "Select time"} />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-60 overflow-y-auto">
+                            {availableTimes.length === 0 ? (
+                              // No SelectItem needed when disabled - placeholder will be shown
+                              // The Select is already disabled when there are no available times
+                              <div className="px-2 py-1.5 text-sm text-muted-foreground text-center">
+                                {form.getValues('inspector') && form.getValues('date')
+                                  ? "No available times"
+                                  : "Select inspector and date"}
+                              </div>
+                            ) : (
+                              // Show only available times for the selected date
+                              // For Time Slots mode: shows specific time slots (excluding blocked ones)
+                              // For Open Schedule mode: shows all times at 30-min intervals within blocks (excluding blocked times)
+                              availableTimes.map((timeOption) => (
+                                <SelectItem
+                                  key={timeOption}
+                                  value={timeOption}
+                                  className={cn(
+                                    field.value === timeOption && "bg-[#8230c9] text-white font-medium aria-selected:bg-[#8230c9] aria-selected:text-white"
+                                  )}
+                                >
+                                  {formatTimeLabel(timeOption)}
+                                </SelectItem>
+                              ))
+                            )}
+                          </SelectContent>
+                        </Select>
+                      );
+                    }}
+                  />
+                </div>
               </div>
-              <div className="w-32">
-                <Input
-                  type="time"
-                  {...form.register('time')}
-                  className="w-full cursor-pointer"
-                  placeholder="Time"
-                  onClick={(e) => {
-                    // Ensure the time picker opens when clicking anywhere on the input
-                    if (e.currentTarget.showPicker) {
-                      e.currentTarget.showPicker();
-                    }
-                  }}
-                  onFocus={(e) => {
-                    // Also open picker on focus for better UX
-                    if (e.currentTarget.showPicker) {
-                      e.currentTarget.showPicker();
-                    }
-                  }}
-                />
-              </div>
+              <div></div>
             </div>
           </div>
 
@@ -1082,7 +1193,7 @@ export default function CreateInspectionPage() {
                       name="location.foundation"
                       control={form.control}
                       render={({ field }) => (
-                    <Select
+                    <ReactSelect
                           value={field.value ? { value: field.value, label: field.value } : null}
                           onChange={(option) => field.onChange(option?.value || undefined)}
                       options={foundationOptions}
@@ -2334,7 +2445,7 @@ export default function CreateInspectionPage() {
                   <div className="space-y-4">
                     <div className="space-y-2">
                       <Label>Service</Label>
-                      <Select
+                      <ReactSelect
                         value={null}
                         onChange={(option: any) => {
                           if (option && option.service) {
@@ -2395,7 +2506,7 @@ export default function CreateInspectionPage() {
                           {availableAddOns.length > 0 && (
                             <div className="space-y-2 mt-3">
                               <Label>Add-ons</Label>
-                              <Select
+                              <ReactSelect
                                 isMulti
                                 value={selectedService.addOns.map(addOn => ({
                                   value: addOn.name,
@@ -2429,7 +2540,7 @@ export default function CreateInspectionPage() {
 
                     <div className="space-y-2">
                       <Label>Discount Code</Label>
-                      <Select
+                      <ReactSelect
                         value={selectedDiscountCode}
                         onChange={setSelectedDiscountCode}
                         options={discountCodes.map(code => ({
@@ -2682,7 +2793,7 @@ export default function CreateInspectionPage() {
 
                 <div className="space-y-2">
                   <Label>Inspector</Label>
-                  <Select
+                  <ReactSelect
                     value={currentEvent.inspector}
                     onChange={(option) => setCurrentEvent({ ...currentEvent, inspector: option })}
                     options={inspectors}
@@ -2863,7 +2974,7 @@ export default function CreateInspectionPage() {
                   name="referralSource"
                   control={form.control}
                   render={({ field }) => (
-                    <Select
+                    <ReactSelect
                       value={field.value ? { value: field.value, label: field.value } : null}
                       onChange={(option) => field.onChange(option?.value || undefined)}
                       options={referralSourceOptions}
