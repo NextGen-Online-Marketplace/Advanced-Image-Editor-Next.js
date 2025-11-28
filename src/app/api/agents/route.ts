@@ -189,7 +189,7 @@ export async function POST(request: NextRequest) {
     const categoryIds = await getOrCreateCategories(
       Array.isArray(categories) ? categories : [],
       currentUser.company,
-      currentUser._id
+      currentUser._id as mongoose.Types.ObjectId
     );
 
     const agent = await Agent.create({
@@ -383,7 +383,7 @@ export async function PUT(request: NextRequest) {
     const categoryIds = await getOrCreateCategories(
       Array.isArray(categories) ? categories : [],
       currentUser.company,
-      currentUser._id
+      currentUser._id as mongoose.Types.ObjectId
     );
 
     // Find which team the agent currently belongs to

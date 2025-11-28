@@ -145,7 +145,7 @@ export async function POST(request: NextRequest) {
     const categoryIds = await getOrCreateCategories(
       Array.isArray(categories) ? categories : [],
       currentUser.company,
-      currentUser._id
+      currentUser._id as mongoose.Types.ObjectId
     );
 
     const client = await Client.create({
@@ -255,7 +255,7 @@ export async function PUT(request: NextRequest) {
     const categoryIds = await getOrCreateCategories(
       Array.isArray(categories) ? categories : [],
       currentUser.company,
-      currentUser._id
+      currentUser._id as mongoose.Types.ObjectId
     );
 
     const client = await Client.findOneAndUpdate(

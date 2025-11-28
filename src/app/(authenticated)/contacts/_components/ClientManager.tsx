@@ -185,9 +185,9 @@ function CategorySearchInput({
               onValueChange={setSearchQuery}
             />
             <CommandList>
-              {filteredCategorys.length > 0 ? (
+              {selectedCategories.length > 0 ? (
                 <CommandGroup>
-                  {filteredCategorys.map((tag) => (
+                  {selectedCategories.map((tag) => (
                     <CommandItem
                       key={tag._id}
                       value={tag.name}
@@ -213,9 +213,9 @@ function CategorySearchInput({
         </PopoverContent>
       </Popover>
 
-      {selectedCategorys.length > 0 && (
+      {selectedCategories.length > 0 && (
         <div className="flex flex-wrap gap-2 mt-2">
-          {selectedCategorys.map((tag) => (
+          {selectedCategories.map((tag) => (
             <div
               key={tag._id}
               className="flex items-center gap-1 px-2 py-1 bg-muted rounded text-sm"
