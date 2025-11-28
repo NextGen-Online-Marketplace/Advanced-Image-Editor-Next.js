@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import dbConnect from '../../../../../lib/db';
 import User from '../../../../../src/models/User';
 import Company from '../../../../../src/models/Company';
+import ReusableDropdown from '../../../../../src/models/ReusableDropdown';
 import { sendVerificationEmail } from '../../../../../lib/email';
 import { ensureDefaultModifiersForCompany } from '../../../../../lib/modifier-service';
 
@@ -118,6 +119,15 @@ export async function POST(request: NextRequest) {
 
     //@ts-ignore
     await ensureDefaultModifiersForCompany(company._id, user._id);
+
+    // Step 4: Create default reusable dropdowns
+    await ReusableDropdown.create({
+      company: company._id,
+      createdBy: user._id,
+      foundation: 'Crawlspace, Slab, Grade',
+      role: 'Buyer, Seller, Attorney',
+      referralSources: 'Real Estate Agent, Previous Client, Friend/Family Member, Lender, Google Search, Social Media, Our Website, Google Ad',
+    });
 
     // Send verification email
     await sendVerificationEmail(email, emailVerificationToken);

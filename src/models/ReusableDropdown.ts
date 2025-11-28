@@ -1,0 +1,58 @@
+import mongoose, { Schema, Document, Model } from 'mongoose';
+
+export interface IReusableDropdown extends Document {
+  foundation: string;
+  role: string;
+  referralSources: string;
+  company: mongoose.Types.ObjectId;
+  createdBy: mongoose.Types.ObjectId;
+  updatedBy?: mongoose.Types.ObjectId;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const ReusableDropdownSchema = new Schema<IReusableDropdown>(
+  {
+    foundation: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    role: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    referralSources: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    company: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Company',
+      required: true,
+      index: true,
+    },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
+
+ReusableDropdownSchema.index({ company: 1 }, { unique: true });
+
+const ReusableDropdown: Model<IReusableDropdown> =
+  mongoose.models.ReusableDropdown || mongoose.model<IReusableDropdown>('ReusableDropdown', ReusableDropdownSchema);
+
+export default ReusableDropdown;
+

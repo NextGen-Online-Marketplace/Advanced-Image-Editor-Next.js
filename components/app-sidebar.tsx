@@ -23,6 +23,7 @@ import {
 	Share2,
 	CalendarCheck,
 	Contact,
+	ListChecks,
 } from "lucide-react";
 
 import {
@@ -116,36 +117,41 @@ const data = {
 				},
 			],
 		},
-		{
-			title: "Settings",
-			items: [
-				{
-					title: "Team",
-					url: "/team",
-					icon: UserCog,
-				},
-				{
-					title: "Company",
-					url: "/company",
-					icon: Users,
-				},
-				{
-					title: "Social Links",
-					url: "/social-links",
-					icon: Share2,
-				},
-				{
-					title: "Online Scheduler",
-					url: "/online-scheduler",
-					icon: CalendarCheck,
-				},
-				{
-					title: "Scheduling Options",
-					url: "/scheduling-options",
-					icon: Settings,
-				},
-			],
-		},
+			{
+				title: "Settings",
+				items: [
+					{
+						title: "Team",
+						url: "/team",
+						icon: UserCog,
+					},
+					{
+						title: "Company",
+						url: "/company",
+						icon: Users,
+					},
+					{
+						title: "Social Links",
+						url: "/social-links",
+						icon: Share2,
+					},
+					{
+						title: "Online Scheduler",
+						url: "/online-scheduler",
+						icon: CalendarCheck,
+					},
+					{
+						title: "Scheduling Options",
+						url: "/scheduling-options",
+						icon: Settings,
+					},
+					{
+						title: "Reusable Dropdowns",
+						url: "/reusable-dropdowns",
+						icon: ListChecks,
+					},
+				],
+			},
 	],
 }
 

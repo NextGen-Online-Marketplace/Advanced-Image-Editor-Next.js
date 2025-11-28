@@ -18,7 +18,7 @@ import CreatableSelect from 'react-select/creatable';
 import AsyncCreatableSelect from 'react-select/async-creatable';
 import { format } from 'date-fns';
 import { CalendarIcon, ArrowLeft, Plus, X, Pencil } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, splitCommaSeparated } from '@/lib/utils';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -57,7 +57,7 @@ const inspectionFormSchema = z.object({
     county: z.string().optional(),
     squareFeet: z.string().optional(),
     yearBuild: z.string().optional(),
-    foundation: z.enum(['Basement', 'Slab', 'Crawlspace']).optional(),
+    foundation: z.string().optional(),
   }),
   clients: z.array(z.object({
     isCompany: z.boolean(),
@@ -235,6 +235,7 @@ export default function CreateInspectionPage() {
   const [viewMode, setViewMode] = useState<'openSchedule' | 'timeSlots'>('openSchedule');
   const [inspectorName, setInspectorName] = useState<string>('');
   const [referralSourceOptions, setReferralSourceOptions] = useState<Array<{ value: string; label: string }>>([]);
+  const [foundationOptions, setFoundationOptions] = useState<Array<{ value: string; label: string }>>([]);
 
   useEffect(() => {
     fetchFormData();
@@ -337,12 +338,12 @@ export default function CreateInspectionPage() {
   const fetchFormData = async () => {
     try {
       setLoadingFormData(true);
-      const [formDataRes, servicesRes, discountCodesRes, agreementsRes, schedulingOptionsRes] = await Promise.all([
+      const [formDataRes, servicesRes, discountCodesRes, agreementsRes, reusableDropdownsRes] = await Promise.all([
         fetch('/api/inspections/form-data', { credentials: 'include' }),
         fetch('/api/services', { credentials: 'include' }),
         fetch('/api/discount-codes', { credentials: 'include' }),
         fetch('/api/agreements', { credentials: 'include' }),
-        fetch('/api/scheduling-options', { credentials: 'include' }),
+        fetch('/api/reusable-dropdowns', { credentials: 'include' }),
       ]);
 
       if (formDataRes.ok) {
@@ -367,19 +368,26 @@ export default function CreateInspectionPage() {
         setAgreements(data.agreements || []);
       }
 
-      if (schedulingOptionsRes.ok) {
-        const data = await schedulingOptionsRes.json();
-        const referralSources = data.referralSources || '';
-        // Parse comma-separated referral sources into react-select format
-        const parsedOptions = referralSources
-          .split(',')
-          .map((source: string) => source.trim())
-          .filter((source: string) => source.length > 0)
-          .map((source: string) => ({
-            value: source,
-            label: source,
-          }));
-        setReferralSourceOptions(parsedOptions);
+      if (reusableDropdownsRes.ok) {
+        const data = await reusableDropdownsRes.json();
+        
+        // Parse foundation options
+        const foundationValues = splitCommaSeparated(data.foundation || '');
+        setFoundationOptions(
+          foundationValues.map((value) => ({
+            value,
+            label: value,
+          }))
+        );
+
+        // Parse referral source options
+        const referralSourceValues = splitCommaSeparated(data.referralSources || '');
+        setReferralSourceOptions(
+          referralSourceValues.map((value) => ({
+            value,
+            label: value,
+          }))
+        );
       }
     } catch (error) {
       console.error('Error fetching form data:', error);
@@ -1077,15 +1085,14 @@ export default function CreateInspectionPage() {
                     <Select
                           value={field.value ? { value: field.value, label: field.value } : null}
                           onChange={(option) => field.onChange(option?.value || undefined)}
-                      options={[
-                        { value: 'Basement', label: 'Basement' },
-                        { value: 'Slab', label: 'Slab' },
-                        { value: 'Crawlspace', label: 'Crawlspace' },
-                      ]}
+                      options={foundationOptions}
                       isClearable
                       placeholder="Select foundation type..."
+                      isLoading={loadingFormData}
                       className="react-select-container"
                       classNamePrefix="react-select"
+                      menuPortalTarget={typeof document !== 'undefined' ? document.body : null}
+                      menuPosition="fixed"
                         />
                       )}
                     />
@@ -2865,6 +2872,8 @@ export default function CreateInspectionPage() {
                       isLoading={loadingFormData}
                       className="react-select-container"
                       classNamePrefix="react-select"
+                      menuPortalTarget={typeof document !== 'undefined' ? document.body : null}
+                      menuPosition="fixed"
                     />
                   )}
                 />
