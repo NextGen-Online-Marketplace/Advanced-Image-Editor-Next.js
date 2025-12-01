@@ -37,6 +37,7 @@ import {
 	SidebarMenuButton,
 	SidebarMenuItem,
 	SidebarRail,
+	useSidebar,
 } from "@/components/ui/sidebar";
 
 // Navigation data for ReportWriter AI Inspection App
@@ -157,6 +158,13 @@ const data = {
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 	const pathname = usePathname();
+	const { setOpenMobile, isMobile } = useSidebar();
+
+	const handleLinkClick = () => {
+		if (isMobile) {
+			setOpenMobile(false);
+		}
+	};
 
 	return (
 		<Sidebar {...props}>
@@ -183,7 +191,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 									return (
 										<SidebarMenuItem key={item.title}>
 											<SidebarMenuButton asChild isActive={isActive}>
-												<Link href={item.url}>
+												<Link href={item.url} onClick={handleLinkClick}>
 													<Icon className="h-4 w-4" />
 													<span>{item.title}</span>
 												</Link>
