@@ -85,7 +85,6 @@ const CategorySchema = new Schema<ICategory>(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Company',
       required: true,
-      index: true,
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

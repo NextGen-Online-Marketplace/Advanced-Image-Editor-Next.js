@@ -47,7 +47,25 @@ export interface IInspection extends Document {
   confirmedInspection?: boolean;
   disableAutomatedNotifications?: boolean;
   internalNotes?: string;
+  clientNote?: string;
+  clientAgreedToTerms?: boolean;
   customData?: Record<string, any>;
+  closingDate?: {
+    date?: Date;
+    lastModifiedBy?: mongoose.Types.ObjectId;
+    lastModifiedAt?: Date;
+  };
+  endOfInspectionPeriod?: {
+    date?: Date;
+    lastModifiedBy?: mongoose.Types.ObjectId;
+    lastModifiedAt?: Date;
+  };
+  officeNotes?: Array<{
+    _id: mongoose.Types.ObjectId;
+    content: string;
+    createdBy: mongoose.Types.ObjectId;
+    createdAt: Date;
+  }>;
   deletedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -222,10 +240,58 @@ const InspectionSchema = new Schema<IInspection>(
       type: String,
       trim: true,
     },
+    clientNote: {
+      type: String,
+      trim: true,
+    },
+    clientAgreedToTerms: {
+      type: Boolean,
+      default: false,
+    },
     customData: {
       type: mongoose.Schema.Types.Mixed,
       default: {},
     },
+    closingDate: {
+      date: {
+        type: Date,
+      },
+      lastModifiedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+      lastModifiedAt: {
+        type: Date,
+      },
+    },
+    endOfInspectionPeriod: {
+      date: {
+        type: Date,
+      },
+      lastModifiedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+      lastModifiedAt: {
+        type: Date,
+      },
+    },
+    officeNotes: [{
+      content: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+      createdBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true,
+      },
+      createdAt: {
+        type: Date,
+        default: Date.now,
+      },
+    }],
     deletedAt: {
       type: Date,
       default: null,

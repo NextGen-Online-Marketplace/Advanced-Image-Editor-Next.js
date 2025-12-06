@@ -230,7 +230,6 @@ const ServiceSchema = new Schema<IService>(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Company',
       required: true,
-      index: true,
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

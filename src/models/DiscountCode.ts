@@ -103,7 +103,6 @@ const DiscountCodeSchema = new Schema<IDiscountCode>(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Company',
       required: true,
-      index: true,
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

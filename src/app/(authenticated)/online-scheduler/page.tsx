@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
+import { useRouter } from 'next/navigation';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { Info } from 'lucide-react';
+import { Info, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -50,8 +51,10 @@ const schedulerSchema = z.object({
 type SchedulerFormValues = z.infer<typeof schedulerSchema>;
 
 export default function OnlineSchedulerPage() {
+  const router = useRouter();
   const [initialLoading, setInitialLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [company, setCompany] = useState<{ id: string; name: string } | null>(null);
 
   const form = useForm<SchedulerFormValues>({
     resolver: zodResolver(schedulerSchema),
@@ -83,6 +86,7 @@ export default function OnlineSchedulerPage() {
     formState: { errors },
   } = form;
 
+  const onlineSchedulerEnabled = watch('onlineSchedulerEnabled');
   const emailForCompleteBooking = watch('emailForCompleteBooking');
   const emailForInProgressBooking = watch('emailForInProgressBooking');
   const smsForCompleteBooking = watch('smsForCompleteBooking');
@@ -105,34 +109,48 @@ export default function OnlineSchedulerPage() {
     const loadSchedulerSettings = async () => {
       try {
         setInitialLoading(true);
-        const response = await fetch('/api/online-scheduler', {
-          credentials: 'include',
-        });
+        
+        // Load company data and scheduler settings in parallel
+        const [schedulerResponse, profileResponse] = await Promise.all([
+          fetch('/api/online-scheduler', { credentials: 'include' }),
+          fetch('/api/profile', { credentials: 'include' }),
+        ]);
 
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
+        if (!schedulerResponse.ok) {
+          const errorData = await schedulerResponse.json().catch(() => ({}));
           throw new Error(errorData.error || 'Failed to load scheduler settings');
         }
 
-        const data = await response.json();
+        const schedulerData = await schedulerResponse.json();
+
+        // Load company data if profile response is ok
+        if (profileResponse.ok) {
+          const profileData = await profileResponse.json();
+          if (profileData.company) {
+            setCompany({
+              id: profileData.company.id,
+              name: profileData.company.name,
+            });
+          }
+        }
 
         reset({
-          onlineSchedulerEnabled: data.onlineSchedulerEnabled ?? false,
-          displayContactInfoBeforeDateSelection: data.displayContactInfoBeforeDateSelection ?? false,
-          schedulingMinimumHours: data.schedulingMinimumHours ?? 0,
-          allowChoiceOfInspectors: data.allowChoiceOfInspectors ?? false,
-          hidePricing: data.hidePricing ?? false,
-          showClientPricingDetails: data.showClientPricingDetails ?? false,
-          allowRequestNotes: data.allowRequestNotes ?? false,
-          requireConfirmation: data.requireConfirmation ?? true,
-          confirmationText: data.confirmationText || '',
-          googleAnalyticsNumber: data.googleAnalyticsNumber || '',
-          emailForCompleteBooking: data.emailForCompleteBooking ?? false,
-          emailForInProgressBooking: data.emailForInProgressBooking ?? false,
-          emailNotificationAddress: data.emailNotificationAddress || '',
-          smsForCompleteBooking: data.smsForCompleteBooking ?? false,
-          smsForInProgressBooking: data.smsForInProgressBooking ?? false,
-          smsNotificationNumber: data.smsNotificationNumber || '',
+          onlineSchedulerEnabled: schedulerData.onlineSchedulerEnabled ?? false,
+          displayContactInfoBeforeDateSelection: schedulerData.displayContactInfoBeforeDateSelection ?? false,
+          schedulingMinimumHours: schedulerData.schedulingMinimumHours ?? 0,
+          allowChoiceOfInspectors: schedulerData.allowChoiceOfInspectors ?? false,
+          hidePricing: schedulerData.hidePricing ?? false,
+          showClientPricingDetails: schedulerData.showClientPricingDetails ?? false,
+          allowRequestNotes: schedulerData.allowRequestNotes ?? false,
+          requireConfirmation: schedulerData.requireConfirmation ?? true,
+          confirmationText: schedulerData.confirmationText || '',
+          googleAnalyticsNumber: schedulerData.googleAnalyticsNumber || '',
+          emailForCompleteBooking: schedulerData.emailForCompleteBooking ?? false,
+          emailForInProgressBooking: schedulerData.emailForInProgressBooking ?? false,
+          emailNotificationAddress: schedulerData.emailNotificationAddress || '',
+          smsForCompleteBooking: schedulerData.smsForCompleteBooking ?? false,
+          smsForInProgressBooking: schedulerData.smsForInProgressBooking ?? false,
+          smsNotificationNumber: schedulerData.smsNotificationNumber || '',
         });
       } catch (error: any) {
         console.error(error);
@@ -144,6 +162,21 @@ export default function OnlineSchedulerPage() {
 
     loadSchedulerSettings();
   }, [reset]);
+
+  const handleViewScheduler = () => {
+    if (!company) {
+      toast.error('Company information not available');
+      return;
+    }
+
+    // Create URL slug: company-name-company-id
+    const companyNameSlug = company.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    const schedulerUrl = `/schedule/${companyNameSlug}-${company.id}`;
+    window.open(schedulerUrl, '_blank');
+  };
 
   const onSubmit = async (values: SchedulerFormValues) => {
     try {
@@ -258,9 +291,22 @@ export default function OnlineSchedulerPage() {
   return (
     <TooltipProvider>
       <div className="space-y-6">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">Online Scheduler</h2>
-          <p className="text-muted-foreground">Configure your online booking system settings</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-3xl font-bold tracking-tight">Online Scheduler</h2>
+            <p className="text-muted-foreground">Configure your online booking system settings</p>
+          </div>
+          {company && onlineSchedulerEnabled && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleViewScheduler}
+              className="flex items-center gap-2"
+            >
+              <ExternalLink className="h-4 w-4" />
+              View Scheduler
+            </Button>
+          )}
         </div>
 
         {initialLoading ? (
@@ -292,18 +338,20 @@ export default function OnlineSchedulerPage() {
                   }
                 />
 
-                <Controller
-                  name="displayContactInfoBeforeDateSelection"
-                  control={control}
-                  render={({ field }) =>
-                    renderCheckboxField(
-                      'displayContactInfoBeforeDateSelection',
-                      'Display Contact Info before Date Selection',
-                      field,
-                      'If disabled, schedulers will be able to select the date and time of the inspection before having to add contact information for clients/agents.'
-                    )
-                  }
-                />
+                {onlineSchedulerEnabled && (
+                  <>
+                    {/* <Controller
+                      name="displayContactInfoBeforeDateSelection"
+                      control={control}
+                      render={({ field }) =>
+                        renderCheckboxField(
+                          'displayContactInfoBeforeDateSelection',
+                          'Display Contact Info before Date Selection',
+                          field,
+                          'If disabled, schedulers will be able to select the date and time of the inspection before having to add contact information for clients/agents.'
+                        )
+                      }
+                    /> */}
 
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
@@ -483,9 +531,13 @@ export default function OnlineSchedulerPage() {
                     Your GA property to post a page view to
                   </p>
                 </div>
+                  </>
+                )}
               </CardContent>
             </Card>
 
+            {onlineSchedulerEnabled && (
+              <>
             <Card>
               <CardHeader>
                 <CardTitle>Email Notifications</CardTitle>
@@ -598,6 +650,8 @@ export default function OnlineSchedulerPage() {
                 </div>
               </CardContent>
             </Card>
+              </>
+            )}
 
             <div className="flex justify-end">
               <Button type="submit" disabled={saving}>

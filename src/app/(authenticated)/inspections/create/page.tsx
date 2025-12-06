@@ -32,6 +32,7 @@ import { checkInspectorAvailability, type InspectorAvailability, getDayKeyFromDa
 import { formatTimeLabel, timeToMinutes } from '@/src/lib/availability-utils';
 import { DAY_LABELS } from '@/src/constants/availability';
 import { TimeBlock } from '@/src/models/Availability';
+import EventsManager from '@/components/EventsManager';
 
 const getDefaultDate = () => {
   const tomorrow = new Date();
@@ -205,6 +206,7 @@ export default function CreateInspectionPage() {
   const [agencyNames, setAgencyNames] = useState<Record<string, string>>({});
   const [listingAgencyNames, setListingAgencyNames] = useState<Record<string, string>>({});
   const [events, setEvents] = useState<Array<{
+    _id?: string;
     name: string;
     description: string;
     inspector: { value: string; label: string } | null;
@@ -213,25 +215,6 @@ export default function CreateInspectionPage() {
     endDate: Date | undefined;
     endTime: string;
   }>>([]);
-  const [isEventModalOpen, setIsEventModalOpen] = useState(false);
-  const [editingEventIndex, setEditingEventIndex] = useState<number | null>(null);
-  const [currentEvent, setCurrentEvent] = useState<{
-    name: string;
-    description: string;
-    inspector: { value: string; label: string } | null;
-    startDate: Date | undefined;
-    startTime: string;
-    endDate: Date | undefined;
-    endTime: string;
-  }>({
-    name: '',
-    description: '',
-    inspector: null,
-    startDate: undefined,
-    startTime: '00:00',
-    endDate: undefined,
-    endTime: '00:00',
-  });
   const [inspectorAvailability, setInspectorAvailability] = useState<InspectorAvailability | null>(null);
   const [viewMode, setViewMode] = useState<'openSchedule' | 'timeSlots'>('openSchedule');
   const [inspectorName, setInspectorName] = useState<string>('');
@@ -665,68 +648,6 @@ export default function CreateInspectionPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [availableTimes]);
-
-  const handleOpenEventModal = (index?: number) => {
-    if (index !== undefined) {
-      const event = events[index];
-      setCurrentEvent({
-        name: event.name,
-        description: event.description,
-        inspector: event.inspector,
-        startDate: event.startDate,
-        startTime: event.startTime,
-        endDate: event.endDate,
-        endTime: event.endTime,
-      });
-      setEditingEventIndex(index);
-    } else {
-      // Set default to next day: start at 12:00 AM, end at 1:00 PM
-      const tomorrow = getDefaultDate();
-      
-      setCurrentEvent({
-        name: '',
-        description: '',
-        inspector: null,
-        startDate: tomorrow,
-        startTime: '00:00',
-        endDate: tomorrow,
-        endTime: '13:00',
-      });
-      setEditingEventIndex(null);
-    }
-    setIsEventModalOpen(true);
-  };
-
-  const handleSaveEvent = () => {
-    if (!currentEvent.name.trim() || !currentEvent.startDate || !currentEvent.endDate) {
-      alert('Please fill in all required fields (Name, Start Date, End Date)');
-      return;
-    }
-
-    if (editingEventIndex !== null) {
-      const newEvents = [...events];
-      newEvents[editingEventIndex] = { ...currentEvent };
-      setEvents(newEvents);
-    } else {
-      setEvents([...events, { ...currentEvent }]);
-    }
-
-    setIsEventModalOpen(false);
-    setCurrentEvent({
-      name: '',
-      description: '',
-      inspector: null,
-      startDate: undefined,
-      startTime: '00:00',
-      endDate: undefined,
-      endTime: '00:00',
-    });
-    setEditingEventIndex(null);
-  };
-
-  const handleDeleteEvent = (index: number) => {
-    setEvents(events.filter((_, i) => i !== index));
-  };
 
   const onSubmit = async (data: InspectionFormData, e?: React.BaseSyntheticEvent) => {
     // Validate that at least one service is selected
@@ -2721,204 +2642,31 @@ export default function CreateInspectionPage() {
             </div>
 
           <div className="border-t pt-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">Events</h3>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => handleOpenEventModal()}
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Event
-              </Button>
-            </div>
-
-            {events.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No events added yet</p>
-            ) : (
-              <div className="space-y-2">
-                {events.map((event, index) => {
-                  const startDateTime = event.startDate
-                    ? `${format(event.startDate, 'PPP')} ${event.startTime}`
-                    : 'Not set';
-                  const endDateTime = event.endDate
-                    ? `${format(event.endDate, 'PPP')} ${event.endTime}`
-                    : 'Not set';
-                  const inspectorName = event.inspector?.label || 'Not assigned';
-
-                  return (
-                    <div key={index} className="p-4 border rounded-lg">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <h4 className="font-medium">{event.name || 'Unnamed Event'}</h4>
-                          {event.description && (
-                            <p className="text-sm text-muted-foreground mt-1">{event.description}</p>
-                          )}
-                          <div className="mt-2 space-y-1 text-sm text-muted-foreground">
-                            <p><span className="font-medium">Inspector:</span> {inspectorName}</p>
-                            <p><span className="font-medium">Start:</span> {startDateTime}</p>
-                            <p><span className="font-medium">End:</span> {endDateTime}</p>
-                          </div>
-                        </div>
-                        <div className="flex gap-2 ml-4">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleOpenEventModal(index)}
-                            className="h-8 w-8"
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleDeleteEvent(index)}
-                            className="h-8 w-8 text-destructive hover:text-destructive"
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            <EventsManager
+              mode="create"
+              inspectors={inspectors}
+              defaultDate={(() => {
+                const date = form.watch('date');
+                const time = form.watch('time');
+                if (date && time) {
+                  const combined = new Date(date);
+                  const [hours, minutes] = time.split(':').map(Number);
+                  combined.setHours(hours, minutes, 0, 0);
+                  return combined;
+                }
+                return date;
+              })()}
+              defaultInspector={(() => {
+                const inspectorId = form.watch('inspector');
+                if (inspectorId) {
+                  return inspectors.find(i => i.value === inspectorId) || null;
+                }
+                return null;
+              })()}
+              events={events}
+              onEventsChange={setEvents}
+            />
           </div>
-
-          <Dialog open={isEventModalOpen} onOpenChange={setIsEventModalOpen}>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>{editingEventIndex !== null ? 'Edit Event' : 'Add Event'}</DialogTitle>
-                <DialogDescription>
-                  Add an event to this inspection. Events can be scheduled with specific dates and assigned to inspectors.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <Label htmlFor="eventName">Name *</Label>
-                  <Input
-                    id="eventName"
-                    value={currentEvent.name}
-                    onChange={(e) => setCurrentEvent({ ...currentEvent, name: e.target.value })}
-                    placeholder="Enter event name..."
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="eventDescription">Description</Label>
-                  <Textarea
-                    id="eventDescription"
-                    value={currentEvent.description}
-                    onChange={(e) => setCurrentEvent({ ...currentEvent, description: e.target.value })}
-                    placeholder="Enter event description..."
-                    rows={3}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Inspector</Label>
-                  <ReactSelect
-                    value={currentEvent.inspector}
-                    onChange={(option) => setCurrentEvent({ ...currentEvent, inspector: option })}
-                    options={inspectors}
-                    isClearable
-                    placeholder="Select an inspector..."
-                    className="react-select-container"
-                    classNamePrefix="react-select"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Start Date *</Label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className={cn(
-                            "w-full justify-start text-left font-normal",
-                            !currentEvent.startDate && "text-muted-foreground"
-                          )}
-                        >
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {currentEvent.startDate ? format(currentEvent.startDate, "PPP") : "Pick a date"}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={currentEvent.startDate}
-                          onSelect={(date) => setCurrentEvent({ ...currentEvent, startDate: date })}
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Start Time</Label>
-                    <Input
-                      type="time"
-                      value={currentEvent.startTime}
-                      onChange={(e) => setCurrentEvent({ ...currentEvent, startTime: e.target.value })}
-                      className="w-full"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>End Date *</Label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className={cn(
-                            "w-full justify-start text-left font-normal",
-                            !currentEvent.endDate && "text-muted-foreground"
-                          )}
-                        >
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {currentEvent.endDate ? format(currentEvent.endDate, "PPP") : "Pick a date"}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={currentEvent.endDate}
-                          onSelect={(date) => setCurrentEvent({ ...currentEvent, endDate: date })}
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>End Time</Label>
-                    <Input
-                      type="time"
-                      value={currentEvent.endTime}
-                      onChange={(e) => setCurrentEvent({ ...currentEvent, endTime: e.target.value })}
-                      className="w-full"
-                    />
-                  </div>
-                </div>
-              </div>
-              <DialogFooter>
-                <Button
-                  variant="outline"
-                  onClick={() => setIsEventModalOpen(false)}
-                >
-                  Cancel
-                </Button>
-                <Button onClick={handleSaveEvent}>
-                  {editingEventIndex !== null ? 'Update Event' : 'Add Event'}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
 
           <div className="border-t pt-4">
             <h3 className="text-lg font-semibold mb-4">Payment</h3>

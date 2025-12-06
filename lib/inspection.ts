@@ -4,6 +4,8 @@ import Inspection, { IInspection } from "@/src/models/Inspection";
 import mongoose from "mongoose";
 import Client from "@/src/models/Client";
 import Agent from "@/src/models/Agent";
+import { IUser } from "@/src/models/User";
+import { IDiscountCode } from "@/src/models/DiscountCode";
 
 type CreateInspectionParams = {
   companyId: string;
@@ -39,6 +41,8 @@ type CreateInspectionParams = {
   confirmedInspection?: boolean;
   disableAutomatedNotifications?: boolean;
   internalNotes?: string;
+  clientNote?: string;
+  clientAgreedToTerms?: boolean;
   customData?: Record<string, any>;
 };
 
@@ -74,6 +78,8 @@ const formatInspection = (doc: IInspection | null) => {
             lastName: client.lastName || '',
             companyName: client.companyName || '',
             isCompany: client.isCompany || false,
+            email: client.email || '',
+            phone: client.phone || '',
             formattedName: formatClientName(client),
           };
         }
@@ -92,6 +98,9 @@ const formatInspection = (doc: IInspection | null) => {
             _id: agent._id?.toString() || agent.toString(),
             firstName: agent.firstName || '',
             lastName: agent.lastName || '',
+            email: agent.email || '',
+            phone: agent.phone || '',
+            photoUrl: agent.photoUrl || '',
             formattedName: formatAgentName(agent),
           };
         }
@@ -112,6 +121,9 @@ const formatInspection = (doc: IInspection | null) => {
                 _id: agent._id?.toString() || agent.toString(),
                 firstName: agent.firstName || '',
                 lastName: agent.lastName || '',
+                email: agent.email || '',
+                phone: agent.phone || '',
+                photoUrl: agent.photoUrl || '',
                 formattedName: formatAgentName(agent),
               };
             }
@@ -124,8 +136,67 @@ const formatInspection = (doc: IInspection | null) => {
             _id: listingAgentField._id?.toString() || listingAgentField.toString(),
             firstName: listingAgentField.firstName || '',
             lastName: listingAgentField.lastName || '',
+            email: listingAgentField.email || '',
+            phone: listingAgentField.phone || '',
+            photoUrl: listingAgentField.photoUrl || '',
             formattedName: formatAgentName(listingAgentField),
           }])
+    : [];
+
+  // Format inspector (could be populated or just an ID)
+  const inspectorDoc = doc.inspector as IUser | mongoose.Types.ObjectId | undefined;
+  const formattedInspector = inspectorDoc && typeof inspectorDoc === 'object' && '_id' in inspectorDoc
+    ? {
+        _id: inspectorDoc._id?.toString() || '',
+        firstName: (inspectorDoc as IUser).firstName || '',
+        lastName: (inspectorDoc as IUser).lastName || '',
+        email: (inspectorDoc as IUser).email || '',
+        phone: (inspectorDoc as IUser).phoneNumber || '',
+        photoUrl: (inspectorDoc as IUser).profileImageUrl || '',
+      }
+    : null;
+
+  // Format discount code (could be populated or just an ID)
+  const discountCodeDoc = doc.discountCode as IDiscountCode | mongoose.Types.ObjectId | undefined;
+  const formattedDiscountCode = discountCodeDoc && typeof discountCodeDoc === 'object' && '_id' in discountCodeDoc
+    ? {
+        _id: discountCodeDoc._id?.toString() || '',
+        code: (discountCodeDoc as IDiscountCode).code || '',
+        type: (discountCodeDoc as IDiscountCode).type || '',
+        value: (discountCodeDoc as IDiscountCode).value || 0,
+        active: (discountCodeDoc as IDiscountCode).active ?? false,
+      }
+    : null;
+
+  // Format office notes (sort by newest first)
+  const formattedOfficeNotes = doc.officeNotes && Array.isArray(doc.officeNotes)
+    ? doc.officeNotes
+        .map((note: any) => {
+          if (!note) return null;
+          
+          const createdBy = note.createdBy && typeof note.createdBy === 'object'
+            ? {
+                _id: note.createdBy._id?.toString() || '',
+                firstName: note.createdBy.firstName || '',
+                lastName: note.createdBy.lastName || '',
+                profileImageUrl: note.createdBy.profileImageUrl || '',
+              }
+            : null;
+
+          return {
+            _id: note._id?.toString() || '',
+            content: note.content || '',
+            createdAt: note.createdAt ? new Date(note.createdAt).toISOString() : null,
+            createdBy,
+          };
+        })
+        .filter(Boolean)
+        .sort((a: any, b: any) => {
+          // Sort by createdAt descending (newest first)
+          const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return dateB - dateA;
+        })
     : [];
 
   return {
@@ -135,10 +206,12 @@ const formatInspection = (doc: IInspection | null) => {
     date: doc.date ? new Date(doc.date).toISOString() : null,
     companyId: doc.companyId ? doc.companyId.toString() : null,
     createdBy: doc.createdBy ? doc.createdBy.toString() : null,
-    inspector: doc.inspector ? doc.inspector.toString() : null,
+    inspector: formattedInspector,
+    inspectorId: inspectorDoc ? (typeof inspectorDoc === 'object' && '_id' in inspectorDoc ? inspectorDoc._id?.toString() : (inspectorDoc as mongoose.Types.ObjectId).toString()) : null,
     companyOwnerRequested: doc.companyOwnerRequested ?? false,
     services: doc.services ?? null,
-    discountCode: doc.discountCode ? doc.discountCode.toString() : null,
+    discountCode: formattedDiscountCode,
+    discountCodeId: discountCodeDoc ? (typeof discountCodeDoc === 'object' && '_id' in discountCodeDoc ? discountCodeDoc._id?.toString() : (discountCodeDoc as mongoose.Types.ObjectId).toString()) : null,
     location: doc.location ?? null,
     headerImage: doc.headerImage ?? null,
     headerText: doc.headerText ?? null,
@@ -149,9 +222,41 @@ const formatInspection = (doc: IInspection | null) => {
     pdfReportGeneratedAt: doc.pdfReportGeneratedAt ? new Date(doc.pdfReportGeneratedAt).toISOString() : null,
     htmlReportGeneratedAt: doc.htmlReportGeneratedAt ? new Date(doc.htmlReportGeneratedAt).toISOString() : null,
     hidePricing: doc.hidePricing ?? false,
+    requirePaymentToReleaseReports: doc.requirePaymentToReleaseReports ?? true,
+    paymentNotes: doc.paymentNotes ?? null,
+    orderId: doc.orderId ?? null,
+    referralSource: doc.referralSource ?? null,
+    confirmedInspection: doc.confirmedInspection ?? true,
+    disableAutomatedNotifications: doc.disableAutomatedNotifications ?? false,
+    internalNotes: doc.internalNotes ?? null,
+    clientNote: doc.clientNote ?? null,
     clients: formattedClients,
     agents: formattedAgents,
     listingAgent: formattedListingAgents,
+    customData: doc.customData ?? {},
+    closingDate: doc.closingDate ? {
+      date: doc.closingDate.date ? new Date(doc.closingDate.date).toISOString() : null,
+      lastModifiedBy: doc.closingDate.lastModifiedBy && typeof doc.closingDate.lastModifiedBy === 'object'
+        ? {
+            _id: (doc.closingDate.lastModifiedBy as any)._id?.toString() || '',
+            firstName: (doc.closingDate.lastModifiedBy as any).firstName || '',
+            lastName: (doc.closingDate.lastModifiedBy as any).lastName || '',
+          }
+        : null,
+      lastModifiedAt: doc.closingDate.lastModifiedAt ? new Date(doc.closingDate.lastModifiedAt).toISOString() : null,
+    } : null,
+    endOfInspectionPeriod: doc.endOfInspectionPeriod ? {
+      date: doc.endOfInspectionPeriod.date ? new Date(doc.endOfInspectionPeriod.date).toISOString() : null,
+      lastModifiedBy: doc.endOfInspectionPeriod.lastModifiedBy && typeof doc.endOfInspectionPeriod.lastModifiedBy === 'object'
+        ? {
+            _id: (doc.endOfInspectionPeriod.lastModifiedBy as any)._id?.toString() || '',
+            firstName: (doc.endOfInspectionPeriod.lastModifiedBy as any).firstName || '',
+            lastName: (doc.endOfInspectionPeriod.lastModifiedBy as any).lastName || '',
+          }
+        : null,
+      lastModifiedAt: doc.endOfInspectionPeriod.lastModifiedAt ? new Date(doc.endOfInspectionPeriod.lastModifiedAt).toISOString() : null,
+    } : null,
+    officeNotes: formattedOfficeNotes,
     createdAt: doc.createdAt ? new Date(doc.createdAt).toISOString() : null,
     updatedAt: doc.updatedAt ? new Date(doc.updatedAt).toISOString() : null,
   };
@@ -175,6 +280,8 @@ export async function createInspection({
   confirmedInspection,
   disableAutomatedNotifications,
   internalNotes,
+  clientNote,
+  clientAgreedToTerms,
   customData,
 }: CreateInspectionParams) {
   if (!companyId) {
@@ -251,6 +358,14 @@ export async function createInspection({
 
   if (internalNotes !== undefined && internalNotes.trim()) {
     inspectionData.internalNotes = String(internalNotes).trim();
+  }
+
+  if (clientNote !== undefined && clientNote.trim()) {
+    inspectionData.clientNote = String(clientNote).trim();
+  }
+
+  if (clientAgreedToTerms !== undefined) {
+    inspectionData.clientAgreedToTerms = clientAgreedToTerms;
   }
 
   if (customData !== undefined && Object.keys(customData).length > 0) {
@@ -420,7 +535,16 @@ export async function getInspection(inspectionId: string) {
 
   await dbConnect();
 
-  const inspection = await Inspection.findById(inspectionId).lean();
+  const inspection = await Inspection.findById(inspectionId)
+    .populate('inspector', 'firstName lastName email phoneNumber profileImageUrl')
+    .populate('clients', 'firstName lastName companyName email phone isCompany')
+    .populate('agents', 'firstName lastName email phone photoUrl')
+    .populate('listingAgent', 'firstName lastName email phone photoUrl')
+    .populate('discountCode', 'code type value active')
+    .populate('officeNotes.createdBy', 'firstName lastName profileImageUrl')
+    .populate('closingDate.lastModifiedBy', 'firstName lastName')
+    .populate('endOfInspectionPeriod.lastModifiedBy', 'firstName lastName')
+    .lean();
   return formatInspection(inspection as any);
 }
 
@@ -460,6 +584,16 @@ export async function updateInspection(inspectionId: string, data: Partial<{
   pdfReportGeneratedAt: Date; // timestamp when PDF was generated
   htmlReportGeneratedAt: Date; // timestamp when HTML was generated
   hidePricing: boolean; // hide cost estimates in all report formats
+  inspector: string; // inspector ID
+  clients: string[]; // array of client IDs
+  agents: string[]; // array of agent IDs
+  listingAgent: string[]; // array of listing agent IDs
+  referralSource: string; // referral source
+  discountCode: string; // discount code ID
+  customData: Record<string, any>; // custom field data
+  internalNotes: string; // internal notes
+  closingDate: { date?: string | Date; lastModifiedBy?: string; lastModifiedAt?: Date }; // closing date with metadata
+  endOfInspectionPeriod: { date?: string | Date; lastModifiedBy?: string; lastModifiedAt?: Date }; // end of inspection period with metadata
 }>) {
   if (!mongoose.Types.ObjectId.isValid(inspectionId)) {
     throw new Error('Invalid inspection ID format');
@@ -470,7 +604,32 @@ export async function updateInspection(inspectionId: string, data: Partial<{
   // Filter out undefined values to only update fields that are provided
   const updateData = Object.entries(data).reduce((acc, [key, value]) => {
     if (value !== undefined) {
-      acc[key] = value;
+      // Convert IDs to ObjectId for reference fields
+      if (key === 'inspector' && value && mongoose.Types.ObjectId.isValid(value as string)) {
+        acc[key] = new mongoose.Types.ObjectId(value as string);
+      } else if (key === 'discountCode' && value && mongoose.Types.ObjectId.isValid(value as string)) {
+        acc[key] = new mongoose.Types.ObjectId(value as string);
+      } else if ((key === 'clients' || key === 'agents' || key === 'listingAgent') && Array.isArray(value)) {
+        acc[key] = value.map((id: string) => 
+          mongoose.Types.ObjectId.isValid(id) ? new mongoose.Types.ObjectId(id) : id
+        );
+      } else if (key === 'closingDate' || key === 'endOfInspectionPeriod') {
+        // Handle date fields with metadata
+        const dateField = value as { date?: string | Date; lastModifiedBy?: string; lastModifiedAt?: Date };
+        const processedField: any = {};
+        if (dateField.date !== undefined) {
+          processedField.date = dateField.date ? new Date(dateField.date) : null;
+        }
+        if (dateField.lastModifiedBy && mongoose.Types.ObjectId.isValid(dateField.lastModifiedBy)) {
+          processedField.lastModifiedBy = new mongoose.Types.ObjectId(dateField.lastModifiedBy);
+        }
+        if (dateField.lastModifiedAt !== undefined) {
+          processedField.lastModifiedAt = dateField.lastModifiedAt ? new Date(dateField.lastModifiedAt) : new Date();
+        }
+        acc[key] = processedField;
+      } else {
+        acc[key] = value;
+      }
     }
     return acc;
   }, {} as Record<string, any>);

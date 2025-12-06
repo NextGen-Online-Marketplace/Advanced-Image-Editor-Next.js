@@ -40,6 +40,7 @@ export async function GET(request: NextRequest) {
     const staff = teamMembers.filter(member => member.role === 'staff');
 
     return NextResponse.json({
+      team: teamMembers, // All team members combined
       inspectors,
       staff,
       companyCreatorId,

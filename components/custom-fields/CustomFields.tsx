@@ -31,9 +31,10 @@ type CustomField = {
 interface CustomFieldsProps {
   control: Control<any>;
   customData?: Record<string, any>;
+  companyId?: string; // Optional companyId for public access
 }
 
-export default function CustomFields({ control, customData = {} }: CustomFieldsProps) {
+export default function CustomFields({ control, customData = {}, companyId }: CustomFieldsProps) {
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -41,7 +42,12 @@ export default function CustomFields({ control, customData = {} }: CustomFieldsP
     const loadCustomFields = async () => {
       try {
         setLoading(true);
-        const response = await fetch('/api/scheduling-options/custom-fields', {
+        // Use public API if companyId is provided, otherwise use authenticated API
+        const apiUrl = companyId
+          ? `/api/public/company/${companyId}/custom-fields`
+          : '/api/scheduling-options/custom-fields';
+        
+        const response = await fetch(apiUrl, {
           credentials: 'include',
         });
 
@@ -65,7 +71,7 @@ export default function CustomFields({ control, customData = {} }: CustomFieldsP
     };
 
     loadCustomFields();
-  }, []);
+  }, [companyId]);
 
   if (loading) {
     return (

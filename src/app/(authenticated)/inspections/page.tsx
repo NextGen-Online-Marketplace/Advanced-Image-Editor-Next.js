@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { DataTable, Column } from '@/components/ui/data-table';
-import DefectEditModal from '../../../../components/DefectEditModal';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -64,8 +63,6 @@ export default function InspectionsPage() {
   const router = useRouter();
   const [inspections, setInspections] = useState<Inspection[]>([]);
   const [loading, setLoading] = useState(true);
-  const [defectModalOpen, setDefectModalOpen] = useState(false);
-  const [selectedInspectionId, setSelectedInspectionId] = useState<string>('');
   const [inspectionPendingDelete, setInspectionPendingDelete] = useState<string | null>(null);
   const [deleteInFlight, setDeleteInFlight] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -120,14 +117,7 @@ export default function InspectionsPage() {
 
   // Handle edit click to edit inspection defects
   const handleEditClick = (inspectionId: string) => {
-    setSelectedInspectionId(inspectionId);
-    setDefectModalOpen(true);
-  };
-
-  // Handle close defect modal
-  const handleCloseDefectModal = () => {
-    setDefectModalOpen(false);
-    setSelectedInspectionId('');
+    router.push(`/inspections/${inspectionId}/edit`);
   };
 
   // Check for pending annotations when page loads or receives focus
@@ -139,11 +129,10 @@ export default function InspectionsPage() {
           const annotation = JSON.parse(pending);
           console.log('🔍 Main page detected pending annotation:', annotation);
 
-          // If we have an inspectionId, auto-open the modal
+          // If we have an inspectionId, navigate to the edit page
           if (annotation.inspectionId) {
-            console.log('🚀 Auto-opening modal for inspection:', annotation.inspectionId);
-            setSelectedInspectionId(annotation.inspectionId);
-            setDefectModalOpen(true);
+            console.log('🚀 Auto-navigating to edit page for inspection:', annotation.inspectionId);
+            router.push(`/inspections/${annotation.inspectionId}/edit`);
             // Note: Don't clear localStorage here - let InformationSections handle it
           }
         } catch (e) {
@@ -164,7 +153,7 @@ export default function InspectionsPage() {
     return () => {
       window.removeEventListener('focus', handleFocus);
     };
-  }, []);
+  }, [router]);
 
   // Handle delete click to delete inspection
   const handleDeleteClick = (inspectionId: string) => {
@@ -474,13 +463,6 @@ export default function InspectionsPage() {
         loading={loading}
         emptyMessage="No inspections found. Get started by creating your first inspection."
         onRowClick={(row) => handleRowClick(row.id)}
-      />
-
-      {/* Defect Edit Modal */}
-      <DefectEditModal
-        isOpen={defectModalOpen}
-        onClose={handleCloseDefectModal}
-        inspectionId={selectedInspectionId}
       />
 
       {/* Delete Confirmation Dialog */}

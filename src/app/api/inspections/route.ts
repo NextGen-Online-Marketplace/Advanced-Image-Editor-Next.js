@@ -2,15 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { createInspection, getAllInspections } from "@/lib/inspection";
 import { getCurrentUser } from "@/lib/auth-helpers";
 import dbConnect from "@/lib/db";
-import Client from "@/src/models/Client";
-import Category from "@/src/models/Category";
 import Event from "@/src/models/Event";
-import Agent from "@/src/models/Agent";
-import Agency from "@/src/models/Agency";
 import OrderIdCounter from "@/src/models/OrderIdCounter";
 import Inspection from "@/src/models/Inspection";
 import mongoose from "mongoose";
-import { getOrCreateCategories } from "@/lib/category-utils";
+import { createOrUpdateClient, createOrUpdateAgent } from "@/lib/client-agent-utils";
 
 const mapInspectionResponse = (inspection: any) => {
   if (!inspection) return null;
@@ -96,80 +92,15 @@ export async function POST(req: NextRequest) {
     
     if (clients.length > 0) {
       for (const clientData of clients) {
-        if (!clientData.email || !clientData.email.trim()) {
-          continue;
-        }
-
-        const email = clientData.email.trim().toLowerCase();
-        const categoryNames = clientData.categories || [];
-        
-        // Create or get categories using utility function
-        const categoryIds = await getOrCreateCategories(
-          categoryNames,
+        const clientId = await createOrUpdateClient(
+          clientData,
           currentUser.company as mongoose.Types.ObjectId,
           currentUser._id as mongoose.Types.ObjectId
         );
 
-        // Check if client exists by email
-        const existingClient = await Client.findOne({
-          email,
-          company: currentUser.company,
-        });
-
-        const isCompany = Boolean(clientData.isCompany);
-        let clientId: mongoose.Types.ObjectId;
-        
-        if (existingClient) {
-          // Update existing client
-          const updateData: any = {
-            isCompany,
-            ccEmail: clientData.ccEmail?.trim() || existingClient.ccEmail,
-            phone: clientData.phone?.trim() || existingClient.phone,
-            categories: categoryIds.length > 0 ? categoryIds : existingClient.categories,
-            internalNotes: clientData.notes?.trim() || existingClient.internalNotes,
-            internalAdminNotes: clientData.privateNotes?.trim() || existingClient.internalAdminNotes,
-            updatedBy: currentUser._id,
-          };
-
-          if (isCompany) {
-            updateData.companyName = clientData.companyName?.trim() || existingClient.companyName;
-            updateData.firstName = undefined;
-            updateData.lastName = undefined;
-          } else {
-            updateData.firstName = clientData.firstName?.trim() || existingClient.firstName;
-            updateData.lastName = clientData.lastName?.trim() || existingClient.lastName;
-            updateData.companyName = undefined;
-          }
-
-          await Client.findByIdAndUpdate(existingClient._id, updateData);
-          clientId = existingClient._id as mongoose.Types.ObjectId;
-        } else {
-          // Create new client
-          const createData: any = {
-            isCompany,
-            email,
-            ccEmail: clientData.ccEmail?.trim(),
-            phone: clientData.phone?.trim(),
-            categories: categoryIds,
-            internalNotes: clientData.notes?.trim(),
-            internalAdminNotes: clientData.privateNotes?.trim(),
-            company: currentUser.company,
-            createdBy: currentUser._id,
-            updatedBy: currentUser._id,
-          };
-
-          if (isCompany) {
-            createData.companyName = clientData.companyName?.trim();
-          } else {
-            createData.firstName = clientData.firstName?.trim();
-            createData.lastName = clientData.lastName?.trim();
-          }
-
-          const newClient = await Client.create(createData);
-          clientId = newClient._id as mongoose.Types.ObjectId;
+        if (clientId) {
+          clientIds.push(clientId);
         }
-
-        clientIds.push(clientId);
       }
 
       // Update inspection with all client IDs
@@ -206,101 +137,15 @@ export async function POST(req: NextRequest) {
     
     if (agents.length > 0) {
       for (const agentData of agents) {
-        if (!agentData.email || !agentData.email.trim()) {
-          continue;
-        }
-
-        const agentEmail = agentData.email.trim().toLowerCase();
-        const categoryNames = agentData.categories || [];
-        
-        // Create or get categories using utility function
-        const categoryIds = await getOrCreateCategories(
-          categoryNames,
+        const agentId = await createOrUpdateAgent(
+          agentData,
           currentUser.company as mongoose.Types.ObjectId,
           currentUser._id as mongoose.Types.ObjectId
         );
 
-        // Handle agency
-        let agencyId: mongoose.Types.ObjectId | undefined = undefined;
-        if (agentData.agency) {
-          if (mongoose.Types.ObjectId.isValid(agentData.agency)) {
-            // Existing agency ID
-            const existingAgency = await Agency.findOne({
-              _id: agentData.agency,
-              company: currentUser.company,
-            });
-            if (existingAgency) {
-              agencyId = existingAgency._id as mongoose.Types.ObjectId;
-            }
-          } else {
-            // Create new agency
-            const newAgency = await Agency.create({
-              name: String(agentData.agency).trim(),
-              company: currentUser.company,
-              createdBy: currentUser._id,
-              updatedBy: currentUser._id,
-            });
-            agencyId = newAgency._id as mongoose.Types.ObjectId;
-          }
+        if (agentId) {
+          agentIds.push(agentId);
         }
-
-        // Check if agent exists by email
-        const existingAgent = await Agent.findOne({
-          email: agentEmail,
-          company: currentUser.company,
-        });
-
-        let agentId: mongoose.Types.ObjectId;
-
-        if (existingAgent) {
-          // Update existing agent
-          const updateData: any = {
-            firstName: agentData.firstName?.trim() || existingAgent.firstName,
-            lastName: agentData.lastName?.trim() || existingAgent.lastName,
-            ccEmail: agentData.ccEmail?.trim() || existingAgent.ccEmail,
-            phone: agentData.phone?.trim() || existingAgent.phone,
-            categories: categoryIds.length > 0 ? categoryIds : existingAgent.categories,
-            internalNotes: agentData.notes?.trim() || existingAgent.internalNotes,
-            internalAdminNotes: agentData.privateNotes?.trim() || existingAgent.internalAdminNotes,
-            updatedBy: currentUser._id,
-          };
-
-          if (agentData.photoUrl !== undefined) {
-            updateData.photoUrl = agentData.photoUrl?.trim() || null;
-          }
-
-          if (agencyId !== undefined) {
-            updateData.agency = agencyId;
-          }
-
-          await Agent.findByIdAndUpdate(existingAgent._id, updateData);
-          agentId = existingAgent._id as mongoose.Types.ObjectId;
-        } else {
-          // Create new agent
-          const createData: any = {
-            firstName: agentData.firstName?.trim() || '',
-            lastName: agentData.lastName?.trim(),
-            email: agentEmail,
-            ccEmail: agentData.ccEmail?.trim(),
-            phone: agentData.phone?.trim(),
-            photoUrl: agentData.photoUrl?.trim() || undefined,
-            categories: categoryIds,
-            internalNotes: agentData.notes?.trim(),
-            internalAdminNotes: agentData.privateNotes?.trim(),
-            company: currentUser.company,
-            createdBy: currentUser._id,
-            updatedBy: currentUser._id,
-          };
-
-          if (agencyId) {
-            createData.agency = agencyId;
-          }
-
-          const newAgent = await Agent.create(createData);
-          agentId = newAgent._id as mongoose.Types.ObjectId;
-        }
-
-        agentIds.push(agentId);
       }
 
       // Update inspection with all agent IDs
@@ -316,101 +161,15 @@ export async function POST(req: NextRequest) {
     
     if (listingAgents.length > 0) {
       for (const agentData of listingAgents) {
-        if (!agentData.email || !agentData.email.trim()) {
-          continue;
-        }
-
-        const agentEmail = agentData.email.trim().toLowerCase();
-        const categoryNames = agentData.categories || [];
-        
-        // Create or get categories using utility function
-        const categoryIds = await getOrCreateCategories(
-          categoryNames,
+        const agentId = await createOrUpdateAgent(
+          agentData,
           currentUser.company as mongoose.Types.ObjectId,
           currentUser._id as mongoose.Types.ObjectId
         );
 
-        // Handle agency
-        let agencyId: mongoose.Types.ObjectId | undefined = undefined;
-        if (agentData.agency) {
-          if (mongoose.Types.ObjectId.isValid(agentData.agency)) {
-            // Existing agency ID
-            const existingAgency = await Agency.findOne({
-              _id: agentData.agency,
-              company: currentUser.company,
-            });
-            if (existingAgency) {
-              agencyId = existingAgency._id as mongoose.Types.ObjectId;
-            }
-          } else {
-            // Create new agency
-            const newAgency = await Agency.create({
-              name: String(agentData.agency).trim(),
-              company: currentUser.company,
-              createdBy: currentUser._id,
-              updatedBy: currentUser._id,
-            });
-            agencyId = newAgency._id as mongoose.Types.ObjectId;
-          }
+        if (agentId) {
+          listingAgentIds.push(agentId);
         }
-
-        // Check if agent exists by email
-        const existingAgent = await Agent.findOne({
-          email: agentEmail,
-          company: currentUser.company,
-        });
-
-        let agentId: mongoose.Types.ObjectId;
-
-        if (existingAgent) {
-          // Update existing agent
-          const updateData: any = {
-            firstName: agentData.firstName?.trim() || existingAgent.firstName,
-            lastName: agentData.lastName?.trim() || existingAgent.lastName,
-            ccEmail: agentData.ccEmail?.trim() || existingAgent.ccEmail,
-            phone: agentData.phone?.trim() || existingAgent.phone,
-            categories: categoryIds.length > 0 ? categoryIds : existingAgent.categories,
-            internalNotes: agentData.notes?.trim() || existingAgent.internalNotes,
-            internalAdminNotes: agentData.privateNotes?.trim() || existingAgent.internalAdminNotes,
-            updatedBy: currentUser._id,
-          };
-
-          if (agentData.photoUrl !== undefined) {
-            updateData.photoUrl = agentData.photoUrl?.trim() || null;
-          }
-
-          if (agencyId !== undefined) {
-            updateData.agency = agencyId;
-          }
-
-          await Agent.findByIdAndUpdate(existingAgent._id, updateData);
-          agentId = existingAgent._id as mongoose.Types.ObjectId;
-        } else {
-          // Create new agent
-          const createData: any = {
-            firstName: agentData.firstName?.trim() || '',
-            lastName: agentData.lastName?.trim(),
-            email: agentEmail,
-            ccEmail: agentData.ccEmail?.trim(),
-            phone: agentData.phone?.trim(),
-            photoUrl: agentData.photoUrl?.trim() || undefined,
-            categories: categoryIds,
-            internalNotes: agentData.notes?.trim(),
-            internalAdminNotes: agentData.privateNotes?.trim(),
-            company: currentUser.company,
-            createdBy: currentUser._id,
-            updatedBy: currentUser._id,
-          };
-
-          if (agencyId) {
-            createData.agency = agencyId;
-          }
-
-          const newAgent = await Agent.create(createData);
-          agentId = newAgent._id as mongoose.Types.ObjectId;
-        }
-
-        listingAgentIds.push(agentId);
       }
 
       // Update inspection with all listing agent IDs

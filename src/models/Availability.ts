@@ -85,7 +85,6 @@ const AvailabilitySchema = new Schema<IAvailability>(
       type: Schema.Types.ObjectId,
       ref: "Company",
       required: true,
-      index: true,
     },
     inspector: {
       type: Schema.Types.ObjectId,

@@ -32,7 +32,6 @@ const ReusableDropdownSchema = new Schema<IReusableDropdown>(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Company',
       required: true,
-      index: true,
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

@@ -19,7 +19,6 @@ const SampleReportSchema = new Schema<ISampleReport>(
       type: Schema.Types.ObjectId,
       ref: 'Company',
       required: true,
-      index: true,
     },
     title: {
       type: String,
